@@ -6,15 +6,15 @@ struct QueueView: View {
     var body: some View {
         NavigationStack {
             Group {
-                // The view now directly checks the single 'queue' property
-                if audioPlayer.playbackQueue.tracks.isEmpty {
+                if audioPlayer.playbackQueue.isEmpty {
                     Text("The queue is empty.")
                         .foregroundColor(.secondary)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(audioPlayer.playbackQueue.tracks.enumerated()), id: \.element) { index, song in
-                                QueueItemView(song: song, index: index)
+                            ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
+                                LazyQueueItemView(index: index)
+                                    .id("\(audioPlayer.queueVersion)-\(index)") // Force refresh when queue changes
                             }
                         }
                     }
@@ -26,7 +26,7 @@ struct QueueView: View {
                     Text("Up Next").font(Theme.titleFont).foregroundColor(Theme.primaryText)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !audioPlayer.playbackQueue.tracks.isEmpty {
+                    if !audioPlayer.playbackQueue.isEmpty {
                         Button("Shuffle Queue") {
                             audioPlayer.shuffleCurrentQueue()
                         }
@@ -39,32 +39,61 @@ struct QueueView: View {
     }
 }
 
-// The QueueItemView is also now simpler
-private struct QueueItemView: View {
+// Lazy-loading queue item view
+private struct LazyQueueItemView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
-    let song: Song
     let index: Int
+    @State private var song: Song?
     @GestureState private var isPressed = false
 
     var body: some View {
-        ListItemView(
-            title: song.title,
-            subtitle: song.artist,
-            isPlaying: index == audioPlayer.playbackQueue.currentIndex,
-            detail: song.album,
-            playPauseAction: {
-                audioPlayer.playPause()
-            },
-            isPressed: isPressed
-        )
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .updating($isPressed) { _, state, _ in
-                    state = true
+        Group {
+            if let song = song {
+                ListItemView(
+                    title: song.title,
+                    subtitle: song.artist,
+                    isPlaying: index == audioPlayer.playbackQueue.currentIndex,
+                    detail: song.album,
+                    playPauseAction: {
+                        audioPlayer.playPause()
+                    },
+                    isPressed: isPressed
+                )
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .updating($isPressed) { _, state, _ in
+                            state = true
+                        }
+                        .onEnded { _ in
+                            audioPlayer.playTrack(at: index)
+                        }
+                )
+            } else {
+                // Loading placeholder
+                ListItemView(
+                    title: "Loading...",
+                    subtitle: "",
+                    isPlaying: false,
+                    detail: "",
+                    playPauseAction: {},
+                    isPressed: false
+                )
+            }
+        }
+        .onAppear {
+            loadSong()
+        }
+    }
+    
+    private func loadSong() {
+        Task {
+            // Load song on background thread
+            if let trackID = audioPlayer.playbackQueue.getTrackID(at: index),
+               let loadedSong = LibraryService.shared.getSong(by: trackID) {
+                await MainActor.run {
+                    self.song = loadedSong
                 }
-                .onEnded { _ in
-                    audioPlayer.playTrack(at: index)
-                }
-        )
+            }
+        }
     }
 }

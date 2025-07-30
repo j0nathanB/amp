@@ -31,28 +31,22 @@ struct NowPlayingView: View {
 private struct PlayerArtworkView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     
-    private var selection: Binding<Int> {
-        Binding(
-            get: { self.audioPlayer.playbackQueue.currentIndex ?? 0 },
-            set: { newIndex in
-                if self.audioPlayer.playbackQueue.currentIndex != newIndex {
-                    self.audioPlayer.playTrack(at: newIndex)
-                }
-            }
-        )
-    }
-
     var body: some View {
-        TabView(selection: selection) {
-            ForEach(audioPlayer.playbackQueue.tracks.indices, id: \.self) { index in
-                let song = audioPlayer.playbackQueue.tracks[index]
-                ArtworkImage(song: song)
-                    .tag(index)
+        Group {
+            if let currentTrack = audioPlayer.currentTrack {
+                ArtworkImage(song: currentTrack)
+                    .frame(height: 345)
+                    .padding(.vertical)
+            } else {
+                // Default artwork when no track is playing
+                Image(systemName: "circle.fill")
+                    .resizable()
+                    .frame(height: 345)
+                    .padding(70)
+                    .foregroundStyle(Theme.accentGreen)
+                    .padding(.vertical)
             }
         }
-        .frame(height: 345)
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .padding(.vertical)
     }
 }
 
@@ -146,7 +140,7 @@ private struct PlayerProgressView: View {
 
             HStack {
                 Spacer()
-                Text("\(formatTime(audioPlayer.playbackTime))\(formatTime(audioPlayer.songDuration - audioPlayer.playbackTime))")
+                Text("\(formatTime(audioPlayer.playbackTime)) | \(formatTime(audioPlayer.songDuration))")
             }
             .font(Theme.tabFont)
             .foregroundColor(.secondary)

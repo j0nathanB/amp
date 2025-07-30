@@ -169,6 +169,12 @@ class LibraryService {
         guard let items = MPMediaQuery.songs().items else { return [] }
         return items.map { self.song(from: $0) }
     }
+    
+    // Memory-efficient version for large libraries
+    func getAllSongIDs() -> [MPMediaEntityPersistentID] {
+        guard let items = MPMediaQuery.songs().items else { return [] }
+        return items.map { $0.persistentID }
+    }
 }
 
 extension LibraryService {
