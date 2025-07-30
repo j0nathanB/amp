@@ -10,8 +10,7 @@ class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var timer: Timer?
     private let queueUserDefaultsKey = "savedPlaybackQueueIDs"
     
-    @Published var queue: [Song] = []
-    @Published var currentQueueIndex: Int?
+    @Published private(set) var playbackQueue = PlaybackQueue()
     @Published var isPlaying = false
     @Published var currentTrack: Song?
     @Published var songDuration: TimeInterval = 0.0
@@ -31,25 +30,20 @@ class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // MARK: - Public Playback Control
     
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
-        var finalQueue = songs
-        if self.isShuffled {
-            finalQueue = songs.shuffled()
-            if let index = finalQueue.firstIndex(of: startSong) {
-                finalQueue.swapAt(0, index)
-            }
-        }
-        guard let index = finalQueue.firstIndex(of: startSong) else { return }
-        
-        self.queue = finalQueue
-        self.saveQueue()
-        self.playTrack(at: index)
-    }
+      playbackQueue.setTracks(songs, startingWith: startSong)
+      if isShuffled {
+          playbackQueue.shuffle(keepCurrentFirst: true)
+      }
+      saveQueue()
+      if let track = playbackQueue.currentTrack {
+          self.currentTrack = track
+          playCurrentTrackAudio()
+      }
+  }
 
     func playTrack(at index: Int) {
-        guard index >= 0 && index < queue.count else { return }
+        guard let song = playbackQueue.play(at: index) else { return }
         
-        self.currentQueueIndex = index
-        let song = queue[index]
         self.currentTrack = song
         
         DispatchQueue.main.async {
@@ -86,14 +80,20 @@ class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func nextTrack() {
-        guard let currentIndex = currentQueueIndex, (currentIndex + 1) < queue.count else { return }
-        playTrack(at: currentIndex + 1)
-    }
+      if let track = playbackQueue.next() {
+          self.currentTrack = track
+          playCurrentTrackAudio()
+          saveQueue()
+      }
+  }
 
     func previousTrack() {
-        guard let currentIndex = currentQueueIndex, (currentIndex - 1) >= 0 else { return }
-        playTrack(at: currentIndex - 1)
-    }
+      if let track = playbackQueue.previous() {
+          self.currentTrack = track
+          playCurrentTrackAudio()
+          saveQueue()
+      }
+  }
 
     func seek(to time: TimeInterval) {
         player?.currentTime = time
@@ -101,20 +101,35 @@ class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func shuffleCurrentQueue() {
-        guard !queue.isEmpty else { return }
-        if let currentIndex = currentQueueIndex {
-            var songsToShuffle = self.queue
-            let currentSong = songsToShuffle.remove(at: currentIndex)
-            songsToShuffle.shuffle()
-            self.queue = [currentSong] + songsToShuffle
-            self.currentQueueIndex = 0
-        } else {
-            self.queue.shuffle()
-        }
+        playbackQueue.shuffle(keepCurrentFirst: true)
         self.saveQueue()
     }
 
     // MARK: - Internal Logic & Helpers
+    
+    private func playCurrentTrackAudio() {
+        guard let song = currentTrack else { return }
+        
+        DispatchQueue.main.async {
+            self.selectedTab = .nowPlaying
+        }
+        
+        Task {
+            let predicate = MPMediaPropertyPredicate(value: NSNumber(value: song.persistentID), forProperty: MPMediaItemPropertyPersistentID)
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(predicate)
+            
+            guard let item = query.items?.first, let url = item.assetURL else {
+                print("ERROR: Could not find song or its URL for \(song.title)")
+                return
+            }
+            
+            await MainActor.run {
+                self.commonPlay(url: url)
+                self.updateNowPlayingInfo(for: item)
+            }
+        }
+    }
 
     private func commonPlay(url: URL) {
         do {
@@ -148,16 +163,15 @@ class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func saveQueue() {
-        let queueIDs = queue.map { $0.persistentID }
+        let queueIDs = playbackQueue.persistableData()
         UserDefaults.standard.set(queueIDs, forKey: queueUserDefaultsKey)
     }
 
     private func loadQueue() {
         guard let savedIDs = UserDefaults.standard.array(forKey: queueUserDefaultsKey) as? [MPMediaEntityPersistentID] else { return }
         Task {
-            let savedQueue = savedIDs.compactMap { LibraryService.shared.getSong(by: $0) }
             await MainActor.run {
-                self.queue = savedQueue
+                self.playbackQueue.restore(from: savedIDs, using: LibraryService.shared)
             }
         }
     }
@@ -194,3 +208,130 @@ class AudioPlayerService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         updateCurrentOutputName()
     }
 }
+struct PlaybackQueue {
+      // MARK: - Properties
+      private(set) var tracks: [Song]
+      private(set) var currentIndex: Int?
+      private(set) var originalOrder: [Song] // For unshuffle functionality
+      private(set) var isShuffled: Bool = false
+
+      // MARK: - Initialization
+      init(tracks: [Song] = [], startingIndex: Int? = nil) {
+          self.tracks = tracks
+          self.currentIndex = startingIndex
+          self.originalOrder = tracks
+      }
+
+      // MARK: - Queue Management
+      mutating func setTracks(_ newTracks: [Song], startingWith startSong: Song? = nil) {
+          self.tracks = newTracks
+          self.originalOrder = newTracks
+          self.currentIndex = startSong.flatMap { song in
+              newTracks.firstIndex(of: song)
+          }
+      }
+
+      mutating func play(at index: Int) -> Song? {
+          guard index >= 0 && index < tracks.count else { return nil }
+          currentIndex = index
+          return tracks[index]
+      }
+
+      mutating func next() -> Song? {
+          guard let current = currentIndex,
+                current + 1 < tracks.count else { return nil }
+
+          return play(at: current + 1)
+      }
+
+      mutating func previous() -> Song? {
+          guard let current = currentIndex,
+                current - 1 >= 0 else { return nil }
+
+          return play(at: current - 1)
+      }
+
+      mutating func shuffle(keepCurrentFirst: Bool = true) {
+          guard !tracks.isEmpty else { return }
+
+          if keepCurrentFirst, let currentIdx = currentIndex {
+              let currentSong = tracks[currentIdx]
+              var remainingTracks = tracks
+              remainingTracks.remove(at: currentIdx)
+              remainingTracks.shuffle()
+
+              tracks = [currentSong] + remainingTracks
+              currentIndex = 0
+          } else {
+              tracks.shuffle()
+              if !tracks.isEmpty && currentIndex == nil {
+                  currentIndex = 0
+              }
+          }
+
+          isShuffled = true
+      }
+
+      mutating func unshuffle() {
+          tracks = originalOrder
+          isShuffled = false
+
+          // Try to maintain current track position
+          if let currentIdx = currentIndex,
+             currentIdx < tracks.count {
+              let currentSong = tracks[currentIdx]
+              currentIndex = originalOrder.firstIndex(of: currentSong)
+          }
+
+          // Position updated above
+      }
+
+      mutating func clear() {
+          tracks.removeAll()
+          currentIndex = nil
+          originalOrder.removeAll()
+          isShuffled = false
+      }
+
+      // MARK: - Computed Properties
+      var currentTrack: Song? {
+          guard let index = currentIndex,
+                index >= 0 && index < tracks.count else { return nil }
+          return tracks[index]
+      }
+
+      var hasNext: Bool {
+          guard let current = currentIndex else { return false }
+          return current + 1 < tracks.count
+      }
+
+      var hasPrevious: Bool {
+          guard let current = currentIndex else { return false }
+          return current > 0
+      }
+
+      var isEmpty: Bool {
+          return tracks.isEmpty
+      }
+
+      var count: Int {
+          return tracks.count
+      }
+
+  }
+
+  // MARK: - Persistence Support
+  extension PlaybackQueue {
+      func persistableData() -> [MPMediaEntityPersistentID] {
+          return tracks.map { $0.persistentID }
+      }
+
+      mutating func restore(from persistentIDs: [MPMediaEntityPersistentID], 
+                           using libraryService: LibraryService) {
+          let restoredTracks = persistentIDs.compactMap {
+              libraryService.getSong(by: $0)
+          }
+          self.tracks = restoredTracks
+          self.originalOrder = restoredTracks
+      }
+  }

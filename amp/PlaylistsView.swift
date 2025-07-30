@@ -30,7 +30,6 @@ struct PlaylistsView: View {
             }
             .onAppear {
                 var userPlaylists = LibraryService.shared.getPlaylists()
-                let totalSongs = LibraryService.shared.getTotalSongCount()
                 let allSongsPlaylist = Playlist(id: 0, name: "All Songs")
                 userPlaylists.insert(allSongsPlaylist, at: 0)
                 self.playlists = userPlaylists

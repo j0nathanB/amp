@@ -7,13 +7,13 @@ struct QueueView: View {
         NavigationStack {
             Group {
                 // The view now directly checks the single 'queue' property
-                if audioPlayer.queue.isEmpty {
+                if audioPlayer.playbackQueue.tracks.isEmpty {
                     Text("The queue is empty.")
                         .foregroundColor(.secondary)
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(audioPlayer.queue.enumerated()), id: \.element) { index, song in
+                            ForEach(Array(audioPlayer.playbackQueue.tracks.enumerated()), id: \.element) { index, song in
                                 QueueItemView(song: song, index: index)
                             }
                         }
@@ -26,7 +26,7 @@ struct QueueView: View {
                     Text("Up Next").font(Theme.titleFont).foregroundColor(Theme.primaryText)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !audioPlayer.queue.isEmpty {
+                    if !audioPlayer.playbackQueue.tracks.isEmpty {
                         Button("Shuffle Queue") {
                             audioPlayer.shuffleCurrentQueue()
                         }
@@ -50,7 +50,7 @@ private struct QueueItemView: View {
         ListItemView(
             title: song.title,
             subtitle: song.artist,
-            isPlaying: index == audioPlayer.currentQueueIndex,
+            isPlaying: index == audioPlayer.playbackQueue.currentIndex,
             detail: song.album,
             playPauseAction: {
                 audioPlayer.playPause()

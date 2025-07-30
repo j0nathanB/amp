@@ -33,9 +33,9 @@ private struct PlayerArtworkView: View {
     
     private var selection: Binding<Int> {
         Binding(
-            get: { self.audioPlayer.currentQueueIndex ?? 0 },
+            get: { self.audioPlayer.playbackQueue.currentIndex ?? 0 },
             set: { newIndex in
-                if self.audioPlayer.currentQueueIndex != newIndex {
+                if self.audioPlayer.playbackQueue.currentIndex != newIndex {
                     self.audioPlayer.playTrack(at: newIndex)
                 }
             }
@@ -44,8 +44,8 @@ private struct PlayerArtworkView: View {
 
     var body: some View {
         TabView(selection: selection) {
-            ForEach(audioPlayer.queue.indices, id: \.self) { index in
-                let song = audioPlayer.queue[index]
+            ForEach(audioPlayer.playbackQueue.tracks.indices, id: \.self) { index in
+                let song = audioPlayer.playbackQueue.tracks[index]
                 ArtworkImage(song: song)
                     .tag(index)
             }
@@ -145,9 +145,8 @@ private struct PlayerProgressView: View {
             .frame(height: thumbHeight)
 
             HStack {
-                Text(formatTime(audioPlayer.playbackTime))
                 Spacer()
-                Text("-\(formatTime(audioPlayer.songDuration - audioPlayer.playbackTime))")
+                Text("\(formatTime(audioPlayer.playbackTime))\(formatTime(audioPlayer.songDuration - audioPlayer.playbackTime))")
             }
             .font(Theme.tabFont)
             .foregroundColor(.secondary)
