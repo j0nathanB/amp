@@ -35,6 +35,7 @@ struct PlaylistsView: View {
                 self.playlists = userPlaylists
             }
         }
+        .padding(16) // Match NowPlayingView padding
     }
     
     // This is the corrected playback function

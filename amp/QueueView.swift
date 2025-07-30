@@ -73,6 +73,7 @@ struct QueueView: View {
                 }
             }
         }
+        .padding(16) // Match NowPlayingView padding
     }
 }
 
