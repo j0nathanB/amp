@@ -5,23 +5,33 @@ struct NowPlayingView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             PlayerArtworkView()
+                .padding(.horizontal, 16) // Align artwork with other elements
+            
             Spacer()
-            VStack {
+            
+            VStack(spacing: 16) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                
                 PlayerProgressView()
+                    .padding(.horizontal, 16)
+                    // No horizontal padding - border to border
+                
                 PlayerControlsView()
+                    .padding(.horizontal, 12) // Standard padding for controls
             }
+//            .padding(.bottom, 16) // Bottom spacing from border
         }
-        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
         .overlay(
             Rectangle()
-                .stroke(Theme.primaryText, lineWidth: 1)
-                .padding(16)
+                .stroke(Theme.primaryText, lineWidth: 0) // Consistent white border
         )
+        .padding(16) // White space around entire view
     }
 }
 
@@ -32,21 +42,20 @@ private struct PlayerArtworkView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     
     var body: some View {
+        // Always maintain the same frame size for consistent layout
         Group {
             if let currentTrack = audioPlayer.currentTrack {
                 ArtworkImage(song: currentTrack)
-                    .frame(height: 345)
-                    .padding(.vertical)
             } else {
-                // Default artwork when no track is playing
+                // Default artwork when no track is playing - same size as when loaded
                 Image(systemName: "circle.fill")
                     .resizable()
-                    .frame(height: 345)
                     .padding(70)
                     .foregroundStyle(Theme.accentGreen)
-                    .padding(.vertical)
             }
         }
+        .frame(width: 340, height: 340) // Fixed size to prevent layout shifts
+        .padding(.vertical)
     }
 }
 
@@ -78,10 +87,30 @@ private struct PlayerTrackInfoView: View {
     let track: Song?
     
     var body: some View {
-        VStack(alignment: .leading) {
-            Text(track?.artist ?? "Artist").font(Theme.bodyFont).foregroundColor(Theme.primaryText)
-            Text(track?.title ?? "Track").font(Theme.nowPlayingFont).foregroundColor(Theme.accentPink)
-            Text(track?.album ?? "Album").font(Theme.bodyItalicFont).foregroundColor(Theme.primaryText)
+        VStack(alignment: .leading, spacing: 4) {
+            // Artist - fixed height container
+            Text(track?.artist ?? "Artist")
+                .font(Theme.bodyFont)
+                .foregroundColor(Theme.primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(height: 20, alignment: .leading) // Fixed height to prevent layout shifts
+            
+            // Title - fixed height container  
+            Text(track?.title ?? "Track")
+                .font(Theme.nowPlayingFont)
+                .foregroundColor(Theme.accentPink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(height: 28, alignment: .leading) // Fixed height for title font
+            
+            // Album - in a visual container box with fixed height
+            Text(track?.album ?? "Album")
+                .font(Theme.bodyItalicFont)
+                .foregroundColor(Theme.primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(height: 24, alignment: .leading) // Fixed height container
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -144,9 +173,9 @@ private struct PlayerProgressView: View {
             }
             .font(Theme.tabFont)
             .foregroundColor(.secondary)
-            .padding(.horizontal)
+//            .padding(.horizontal, 16) // Only pad the time text, not the progress bar
         }
-        .padding()
+        // Remove padding to make progress bar span full width
     }
     
     private func formatTime(_ time: TimeInterval) -> String {
@@ -170,7 +199,7 @@ private struct PlayerControlsView: View {
                 // --- CORRECTED ACTION ---
                 PlayerControlButton(action: { audioPlayer.nextTrack() }, icon: "forward.fill")
             }
-            .padding(.horizontal)
+//            .padding(.horizontal)
             
             AirPlayButton()
                 .overlay(

@@ -1,4 +1,36 @@
 import SwiftUI
+import MediaPlayer
+
+// Singleton to manage loaded songs and prevent re-loading
+class QueueSongCache: ObservableObject {
+    static let shared = QueueSongCache()
+    private var loadedSongs: [MPMediaEntityPersistentID: Song] = [:]
+    private var currentQueueVersion: Int = -1
+    
+    private init() {}
+    
+    func getSong(trackID: MPMediaEntityPersistentID) -> Song? {
+        return loadedSongs[trackID]
+    }
+    
+    func setSong(_ song: Song) {
+        loadedSongs[song.persistentID] = song
+    }
+    
+    func updateQueueVersion(_ version: Int) {
+        // Only clear cache if queue structure changed significantly
+        if currentQueueVersion != version && currentQueueVersion != -1 {
+            print("🔄 Queue version changed from \(currentQueueVersion) to \(version)")
+            // Don't clear the cache - songs are still valid even if queue changes
+        }
+        currentQueueVersion = version
+    }
+    
+    func clearCache() {
+        loadedSongs.removeAll()
+        print("🗑️ Song cache cleared")
+    }
+}
 
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
@@ -7,16 +39,21 @@ struct QueueView: View {
         NavigationStack {
             Group {
                 if audioPlayer.playbackQueue.isEmpty {
-                    Text("The queue is empty.")
-                        .foregroundColor(.secondary)
+                    VStack {
+                        Spacer()
+                        Text("The queue is empty.")
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
                                 LazyQueueItemView(index: index)
-                                    .id("\(audioPlayer.queueVersion)-\(index)") // Force refresh when queue changes
+                                    .id("\(audioPlayer.queueVersion)-\(index)")
                             }
                         }
+                        .padding(.top, 1)
                     }
                 }
             }
@@ -45,53 +82,65 @@ private struct LazyQueueItemView: View {
     let index: Int
     @State private var song: Song?
     @GestureState private var isPressed = false
+    
+    private let songCache = QueueSongCache.shared
 
     var body: some View {
-        Group {
-            if let song = song {
-                ListItemView(
-                    title: song.title,
-                    subtitle: song.artist,
-                    isPlaying: index == audioPlayer.playbackQueue.currentIndex,
-                    detail: song.album,
-                    playPauseAction: {
-                        audioPlayer.playPause()
-                    },
-                    isPressed: isPressed
-                )
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .updating($isPressed) { _, state, _ in
-                            state = true
-                        }
-                        .onEnded { _ in
-                            audioPlayer.playTrack(at: index)
-                        }
-                )
-            } else {
-                // Loading placeholder
-                ListItemView(
-                    title: "Loading...",
-                    subtitle: "",
-                    isPlaying: false,
-                    detail: "",
-                    playPauseAction: {},
-                    isPressed: false
-                )
+        ListItemView(
+            title: song?.title ?? "Loading...",
+            subtitle: song?.artist ?? "",
+            isPlaying: index == audioPlayer.playbackQueue.currentIndex,
+            detail: song?.album ?? "",
+            playPauseAction: {
+                if song != nil {
+                    audioPlayer.playPause()
+                }
+            },
+            isPressed: isPressed
+        )
+        .opacity(song != nil ? 1.0 : 0.6) // Slightly dim loading items
+        .onTapGesture {
+            if song != nil {
+                audioPlayer.playTrack(at: index)
             }
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($isPressed) { _, state, _ in
+                    state = true
+                }
+        )
         .onAppear {
-            loadSong()
+            loadSongIfNeeded()
         }
     }
     
-    private func loadSong() {
+    private func loadSongIfNeeded() {
+        guard let trackID = audioPlayer.playbackQueue.getTrackID(at: index) else { return }
+        
+        // Update queue version tracking
+        songCache.updateQueueVersion(audioPlayer.queueVersion)
+        
+        // Check cache first
+        if let cachedSong = songCache.getSong(trackID: trackID) {
+            self.song = cachedSong
+            return
+        }
+        
+        // Don't reload if we already have the correct song
+        if let currentSong = self.song, currentSong.persistentID == trackID {
+            // Cache the song we already have
+            songCache.setSong(currentSong)
+            return
+        }
+        
+        // Load from library if not cached
         Task {
-            // Load song on background thread
-            if let trackID = audioPlayer.playbackQueue.getTrackID(at: index),
-               let loadedSong = LibraryService.shared.getSong(by: trackID) {
+            if let loadedSong = LibraryService.shared.getSong(by: trackID) {
                 await MainActor.run {
                     self.song = loadedSong
+                    // Cache the loaded song
+                    songCache.setSong(loadedSong)
                 }
             }
         }
