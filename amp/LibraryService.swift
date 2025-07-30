@@ -1,8 +1,267 @@
 import Foundation
 import MediaPlayer
 
+extension String {
+    var searchNormalized: String {
+        return self
+            .folding(options: .diacriticInsensitive, locale: nil)  // Strip diacritics
+            .lowercased()  // Lowercase
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+class HybridSearchIndex {
+    // Word-based index for exact matches (O(1) lookup)
+    private var songWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+    private var artistWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+    private var albumWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+    
+    // Object caches for fast retrieval
+    private var songCache: [MPMediaEntityPersistentID: Song] = [:]
+    private var artistCache: [MPMediaEntityPersistentID: Artist] = [:]
+    private var albumCache: [MPMediaEntityPersistentID: Album] = [:]
+    
+    // Fallback data for partial matching
+    private var allSongs: [MPMediaItem] = []
+    private var allArtists: [MPMediaItemCollection] = []
+    private var allAlbums: [MPMediaItemCollection] = []
+    
+    var isIndexBuilt = false
+    
+    func buildIndex() async {
+        await Task.detached(priority: .userInitiated) {
+            // Build song index
+            let songsQuery = MPMediaQuery.songs()
+            let songs = songsQuery.items ?? []
+            self.allSongs = songs
+            
+            for song in songs {
+                guard let title = song.title else { continue }
+                
+                let normalizedTitle = title.searchNormalized
+                let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                for word in words {
+                    self.songWordIndex[word, default: Set()].insert(song.persistentID)
+                }
+                
+                self.songCache[song.persistentID] = LibraryService.shared.song(from: song)
+            }
+            
+            // Build artist index
+            let artistsQuery = MPMediaQuery.artists()
+            let artists = artistsQuery.collections ?? []
+            self.allArtists = artists
+            
+            for artist in artists {
+                guard let representativeItem = artist.representativeItem,
+                      let artistName = representativeItem.artist else { continue }
+                
+                let normalizedName = artistName.searchNormalized
+                let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                for word in words {
+                    self.artistWordIndex[word, default: Set()].insert(representativeItem.artistPersistentID)
+                }
+                
+                self.artistCache[representativeItem.artistPersistentID] = Artist(
+                    id: representativeItem.artistPersistentID,
+                    name: artistName
+                )
+            }
+            
+            // Build album index
+            let albumsQuery = MPMediaQuery.albums()
+            let albums = albumsQuery.collections ?? []
+            self.allAlbums = albums
+            
+            for album in albums {
+                guard let representativeItem = album.representativeItem,
+                      let albumTitle = representativeItem.albumTitle else { continue }
+                
+                let normalizedTitle = albumTitle.searchNormalized
+                let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                for word in words {
+                    self.albumWordIndex[word, default: Set()].insert(representativeItem.albumPersistentID)
+                }
+                
+                self.albumCache[representativeItem.albumPersistentID] = Album(
+                    id: representativeItem.albumPersistentID,
+                    title: albumTitle,
+                    artist: representativeItem.artist ?? ""
+                )
+            }
+            
+            self.isIndexBuilt = true
+            print("🔍 Search index built: \(songs.count) songs, \(artists.count) artists, \(albums.count) albums")
+        }.value
+    }
+    
+    func searchSongs(term: String) -> [Song] {
+        guard !term.isEmpty else { return [] }
+        
+        let normalizedTerm = term.searchNormalized
+        
+        // Try exact word match first (O(1))
+        if let exactMatches = songWordIndex[normalizedTerm] {
+            return exactMatches.compactMap { songCache[$0] }.sorted { $0.title < $1.title }
+        }
+        
+        // Fall back to partial matching
+        return searchSongsPartial(normalizedTerm)
+    }
+    
+    func searchArtists(term: String) -> [Artist] {
+        guard !term.isEmpty else { return [] }
+        
+        let normalizedTerm = term.searchNormalized
+        
+        // Try exact word match first (O(1))
+        if let exactMatches = artistWordIndex[normalizedTerm] {
+            return exactMatches.compactMap { artistCache[$0] }.sorted { $0.name < $1.name }
+        }
+        
+        // Fall back to partial matching
+        return searchArtistsPartial(normalizedTerm)
+    }
+    
+    func searchAlbums(term: String) -> [Album] {
+        guard !term.isEmpty else { return [] }
+        
+        let normalizedTerm = term.searchNormalized
+        
+        // Try exact word match first (O(1))
+        if let exactMatches = albumWordIndex[normalizedTerm] {
+            return exactMatches.compactMap { albumCache[$0] }.sorted { $0.title < $1.title }
+        }
+        
+        // Fall back to partial matching
+        return searchAlbumsPartial(normalizedTerm)
+    }
+    
+    // MARK: - Partial Matching Fallbacks
+    
+    private func searchSongsPartial(_ normalizedTerm: String) -> [Song] {
+        // Get candidate songs from words that start with the term
+        let candidateWords = songWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
+        let candidateIDs = Set(candidateWords.flatMap { songWordIndex[$0] ?? [] })
+        
+        if !candidateIDs.isEmpty {
+            // Filter candidates that contain the term
+            return candidateIDs.compactMap { songCache[$0] }
+                .filter { song in
+                    song.title.searchNormalized.contains(normalizedTerm)
+                }
+                .sorted { $0.title < $1.title }
+        }
+        
+        // Final fallback: scan all songs (only if index isn't built yet)
+        if !isIndexBuilt {
+            return allSongs.filter { song in
+                song.title?.searchNormalized.contains(normalizedTerm) == true
+            }.map { LibraryService.shared.song(from: $0) }
+            .sorted { $0.title < $1.title }
+        }
+        
+        return []
+    }
+    
+    private func searchArtistsPartial(_ normalizedTerm: String) -> [Artist] {
+        // Get candidate artists from words that start with the term
+        let candidateWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
+        let candidateIDs = Set(candidateWords.flatMap { artistWordIndex[$0] ?? [] })
+        
+        if !candidateIDs.isEmpty {
+            return candidateIDs.compactMap { artistCache[$0] }
+                .filter { artist in
+                    artist.name.searchNormalized.contains(normalizedTerm)
+                }
+                .sorted { $0.name < $1.name }
+        }
+        
+        // Final fallback: scan all artists (only if index isn't built yet)
+        if !isIndexBuilt {
+            var seenIDs = Set<MPMediaEntityPersistentID>()
+            return allArtists.compactMap { collection -> Artist? in
+                guard let representativeItem = collection.representativeItem,
+                      let artistName = representativeItem.artist,
+                      artistName.searchNormalized.contains(normalizedTerm) else { return nil }
+                
+                let artistID = representativeItem.artistPersistentID
+                guard !seenIDs.contains(artistID) else { return nil }
+                seenIDs.insert(artistID)
+                
+                return Artist(id: artistID, name: artistName)
+            }.sorted { $0.name < $1.name }
+        }
+        
+        return []
+    }
+    
+    private func searchAlbumsPartial(_ normalizedTerm: String) -> [Album] {
+        // Get candidate albums from words that start with the term
+        let candidateWords = albumWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
+        let candidateIDs = Set(candidateWords.flatMap { albumWordIndex[$0] ?? [] })
+        
+        if !candidateIDs.isEmpty {
+            return candidateIDs.compactMap { albumCache[$0] }
+                .filter { album in
+                    album.title.searchNormalized.contains(normalizedTerm)
+                }
+                .sorted { $0.title < $1.title }
+        }
+        
+        // Final fallback: scan all albums (only if index isn't built yet)
+        if !isIndexBuilt {
+            var seenIDs = Set<MPMediaEntityPersistentID>()
+            return allAlbums.compactMap { collection -> Album? in
+                guard let representativeItem = collection.representativeItem,
+                      let albumTitle = representativeItem.albumTitle,
+                      albumTitle.searchNormalized.contains(normalizedTerm) else { return nil }
+                
+                let albumID = representativeItem.albumPersistentID
+                guard !seenIDs.contains(albumID) else { return nil }
+                seenIDs.insert(albumID)
+                
+                return Album(
+                    id: albumID,
+                    title: albumTitle,
+                    artist: representativeItem.artist ?? ""
+                )
+            }.sorted { $0.title < $1.title }
+        }
+        
+        return []
+    }
+}
+
 class LibraryService {
     static let shared = LibraryService()
+    
+    // Hybrid search index for fast diacritics-insensitive search
+    private let searchIndex = HybridSearchIndex()
+    
+    // Static character set to improve performance
+    private static let wordSeparators = CharacterSet.whitespacesAndNewlines
+        .union(.punctuationCharacters)
+        .union(CharacterSet(charactersIn: "()[]{}"))  // Add more separators
+    
+    init() {
+        // Start building search index in background
+        Task.detached(priority: .background) {
+            await self.searchIndex.buildIndex()
+        }
+    }
+    
+    private func getNormalizedSearchTerms(for term: String) -> (normalized: String, words: [String]) {
+        let normalized = term.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        let words = normalized.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        return (normalized: normalized, words: words)
+    }
 
     func song(from item: MPMediaItem) -> Song {
         return Song(
@@ -58,45 +317,7 @@ class LibraryService {
     // MARK: - Optimized Search Methods
     
     private func searchSongs(term: String) -> [Song] {
-        // For reliable diacritic support, we need a hybrid approach:
-        // 1. If term has no diacritics, use fast MPMediaPropertyPredicate
-        // 2. If term has diacritics OR we get few results, fall back to full scan with our logic
-        
-        let hasNonAscii = term.range(of: "\\P{ASCII}", options: .regularExpression) != nil
-        
-        if !hasNonAscii {
-            // Fast path: Use predicate for ASCII-only terms
-            let predicate = MPMediaPropertyPredicate(
-                value: term,
-                forProperty: MPMediaItemPropertyTitle,
-                comparisonType: .contains
-            )
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(predicate)
-            
-            let candidateSongs = query.items ?? []
-            let filteredSongs = candidateSongs.filter { item in
-                guard let title = item.title else { return false }
-                return self.wordBoundaryMatch(searchTerm: term, in: title)
-            }
-            
-            return filteredSongs
-                .map { self.song(from: $0) }
-                .sorted { $0.title < $1.title }
-        } else {
-            // Slow path: Full scan for diacritic terms (still reasonably fast)
-            let allSongsQuery = MPMediaQuery.songs()
-            let allSongs = allSongsQuery.items ?? []
-            
-            let filteredSongs = allSongs.filter { item in
-                guard let title = item.title else { return false }
-                return self.wordBoundaryMatch(searchTerm: term, in: title)
-            }
-            
-            return filteredSongs
-                .map { self.song(from: $0) }
-                .sorted { $0.title < $1.title }
-        }
+        return searchIndex.searchSongs(term: term)
     }
     
     private func searchArtists(term: String) -> [Artist] {
@@ -104,85 +325,11 @@ class LibraryService {
         print("🎤 ARTIST SEARCH: Searching for '\(term)'")
         #endif
         
-        let hasNonAscii = term.range(of: "\\P{ASCII}", options: .regularExpression) != nil
-        
-        if !hasNonAscii {
-            // Fast path: Use predicate for ASCII-only terms
-            let predicate = MPMediaPropertyPredicate(
-                value: term,
-                forProperty: MPMediaItemPropertyArtist,
-                comparisonType: .contains
-            )
-            let query = MPMediaQuery.artists()
-            query.addFilterPredicate(predicate)
-            
-            let matchingArtists = (query.collections ?? []).compactMap { collection -> Artist? in
-                guard let representativeItem = collection.representativeItem,
-                      let artistName = representativeItem.artist,
-                      self.wordBoundaryMatch(searchTerm: term, in: artistName) else { return nil }
-                return Artist(id: representativeItem.artistPersistentID, name: artistName)
-            }
-            
-            return Array(Set(matchingArtists)).sorted { $0.name < $1.name }
-        } else {
-            // Slow path: Full scan for diacritic terms
-            let allArtistsQuery = MPMediaQuery.artists()
-            let allArtists = allArtistsQuery.collections ?? []
-            
-            let matchingArtists = allArtists.compactMap { collection -> Artist? in
-                guard let representativeItem = collection.representativeItem,
-                      let artistName = representativeItem.artist,
-                      self.wordBoundaryMatch(searchTerm: term, in: artistName) else { return nil }
-                return Artist(id: representativeItem.artistPersistentID, name: artistName)
-            }
-            
-            return Array(Set(matchingArtists)).sorted { $0.name < $1.name }
-        }
+        return searchIndex.searchArtists(term: term)
     }
     
     private func searchAlbums(term: String) -> [Album] {
-        let hasNonAscii = term.range(of: "\\P{ASCII}", options: .regularExpression) != nil
-        
-        if !hasNonAscii {
-            // Fast path: Use predicate for ASCII-only terms
-            let predicate = MPMediaPropertyPredicate(
-                value: term,
-                forProperty: MPMediaItemPropertyAlbumTitle,
-                comparisonType: .contains
-            )
-            let query = MPMediaQuery.albums()
-            query.addFilterPredicate(predicate)
-            
-            let matchingAlbums = (query.collections ?? []).compactMap { collection -> Album? in
-                guard let representativeItem = collection.representativeItem,
-                      let albumTitle = representativeItem.albumTitle,
-                      self.wordBoundaryMatch(searchTerm: term, in: albumTitle) else { return nil }
-                return Album(
-                    id: representativeItem.albumPersistentID, 
-                    title: albumTitle, 
-                    artist: representativeItem.artist ?? ""
-                )
-            }
-            
-            return Array(Set(matchingAlbums)).sorted { $0.title < $1.title }
-        } else {
-            // Slow path: Full scan for diacritic terms
-            let allAlbumsQuery = MPMediaQuery.albums()
-            let allAlbums = allAlbumsQuery.collections ?? []
-            
-            let matchingAlbums = allAlbums.compactMap { collection -> Album? in
-                guard let representativeItem = collection.representativeItem,
-                      let albumTitle = representativeItem.albumTitle,
-                      self.wordBoundaryMatch(searchTerm: term, in: albumTitle) else { return nil }
-                return Album(
-                    id: representativeItem.albumPersistentID,
-                    title: albumTitle,
-                    artist: representativeItem.artist ?? ""
-                )
-            }
-            
-            return Array(Set(matchingAlbums)).sorted { $0.title < $1.title }
-        }
+        return searchIndex.searchAlbums(term: term)
     }
     
     // MARK: - Advanced Search Methods
@@ -381,8 +528,10 @@ class LibraryService {
         
         // Test cases based on your requirements
         let testCases = [
-            // Diacritic tests
-            ("cafe", "café tacuba", true, "Should match diacritic insensitive"),
+            // Diacritic tests - your specific examples
+            ("cafe", "café tacuba", true, "Should match 'cafe' -> 'café tacuba'"),
+            ("cafe", "ojala que llueva cafe", true, "Should match 'cafe' -> 'ojala que llueva cafe'"),
+            ("jose", "josé josé", true, "Should match 'jose' -> 'josé josé'"),
             ("café", "cafe tacuba", true, "Should match diacritic insensitive reverse"),
             ("naive", "naïve", true, "Should match diacritic insensitive ï"),
             ("resume", "résumé", true, "Should match diacritic insensitive é"),
@@ -425,56 +574,31 @@ class LibraryService {
     private func wordBoundaryMatch(searchTerm: String, in text: String) -> Bool {
         guard !searchTerm.isEmpty else { return false }
         
-        // Split search term into individual words
-        let searchWords = searchTerm.components(separatedBy: .whitespacesAndNewlines)
+        // Pre-normalize the search term once
+        let normalizedSearchTerm = searchTerm.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        let searchWords = normalizedSearchTerm.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
         
+        // Pre-normalize the text once
+        let normalizedText = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        
         // All search words must match word boundaries in the text
-        return searchWords.allSatisfy { searchWord in
-            return self.matchesWordBoundary(word: searchWord, in: text)
+        return searchWords.allSatisfy { normalizedSearchWord in
+            return self.matchesWordBoundaryOptimized(normalizedWord: normalizedSearchWord, in: normalizedText)
         }
     }
     
-    private func matchesWordBoundary(word: String, in text: String) -> Bool {
-        // Normalize both strings for diacritic insensitive comparison
-        let normalizedText = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-        let normalizedWord = word.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+    private func matchesWordBoundaryOptimized(normalizedWord: String, in normalizedText: String) -> Bool {
+        // Use static character set to avoid recreating it on every call
+        let textWords = normalizedText.components(separatedBy: LibraryService.wordSeparators)
         
-        // Split text into words using whitespace and common punctuation
-        let separators = CharacterSet.whitespacesAndNewlines
-            .union(.punctuationCharacters)
-            .union(CharacterSet(charactersIn: "()[]{}"))  // Add more separators
-        
-        let textWords = normalizedText.components(separatedBy: separators)
-            .filter { !$0.isEmpty }
-        
-        // Debug: Print normalized values for troubleshooting (for any diacritic mismatch)
-        #if DEBUG
-        let hasDiacritics = word != normalizedWord || text != normalizedText
-        if hasDiacritics {
-            print("🔍 Debug DIACRITIC: '\(word)' -> '\(normalizedWord)' in '\(text)' -> '\(normalizedText)'")
-            print("   Words: \(textWords)")
-            print("   Checking if any word starts with '\(normalizedWord)'")
-            for textWord in textWords {
-                let matches = textWord.hasPrefix(normalizedWord)
-                print("   '\(textWord)'.hasPrefix('\(normalizedWord)') = \(matches)")
+        // Use faster containment check - no need to create intermediate arrays
+        for textWord in textWords {
+            if !textWord.isEmpty && textWord.hasPrefix(normalizedWord) {
+                return true
             }
         }
-        #endif
-        
-        // Check if any text word starts with the search word
-        let result = textWords.contains { textWord in
-            textWord.hasPrefix(normalizedWord)
-        }
-        
-        #if DEBUG
-        let hasDiacritics2 = word != normalizedWord || text != normalizedText
-        if hasDiacritics2 {
-            print("   Final result: \(result)")
-        }
-        #endif
-        
-        return result
+        return false
     }
     
     // Keep the old textMatches method for backward compatibility if needed
