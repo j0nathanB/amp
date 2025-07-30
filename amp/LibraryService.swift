@@ -49,25 +49,55 @@ class HybridSearchIndex {
                 self.songCache[song.persistentID] = LibraryService.shared.song(from: song)
             }
             
-            // Build artist index
+            // Build artist index from songs to ensure we capture all artists
+            // MPMediaQuery.artists() sometimes misses artists that exist in songs
+            var artistsFromSongs: [MPMediaEntityPersistentID: String] = [:]
+            
+            for song in songs {
+                guard let artistName = song.artist else { continue }
+                let artistID = song.artistPersistentID
+                artistsFromSongs[artistID] = artistName
+            }
+            
+            #if DEBUG
+            print("🔍 DEBUG: Found \(artistsFromSongs.count) unique artists from songs")
+            #endif
+            
+            // Also get artists from the traditional query for completeness
             let artistsQuery = MPMediaQuery.artists()
             let artists = artistsQuery.collections ?? []
             self.allArtists = artists
             
-            for artist in artists {
-                guard let representativeItem = artist.representativeItem,
-                      let artistName = representativeItem.artist else { continue }
+            // Index artists from songs (more comprehensive)
+            for (artistID, artistName) in artistsFromSongs {
+                #if DEBUG
+                if artistName.lowercased().contains("buena vista") {
+                    print("🔍 DEBUG: Found artist from songs '\(artistName)' with ID \(artistID)")
+                }
+                #endif
                 
                 let normalizedName = artistName.searchNormalized
                 let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
                 
+                #if DEBUG
+                if artistName.lowercased().contains("buena vista") {
+                    print("🔍 DEBUG: Normalized to '\(normalizedName)', words: \(words)")
+                }
+                #endif
+                
                 for word in words {
-                    self.artistWordIndex[word, default: Set()].insert(representativeItem.artistPersistentID)
+                    self.artistWordIndex[word, default: Set()].insert(artistID)
+                    
+                    #if DEBUG
+                    if word.hasPrefix("buena") || word.hasPrefix("vista") {
+                        print("🔍 DEBUG: Indexed word '\(word)' for artist '\(artistName)'")
+                    }
+                    #endif
                 }
                 
-                self.artistCache[representativeItem.artistPersistentID] = Artist(
-                    id: representativeItem.artistPersistentID,
+                self.artistCache[artistID] = Artist(
+                    id: artistID,
                     name: artistName
                 )
             }
@@ -120,13 +150,40 @@ class HybridSearchIndex {
         
         let normalizedTerm = term.searchNormalized
         
+        #if DEBUG
+        if normalizedTerm.contains("bue") {
+            print("🔍 DEBUG: Searching for artist term '\(term)' normalized to '\(normalizedTerm)'")
+            print("🔍 DEBUG: Exact match in artistWordIndex: \(artistWordIndex[normalizedTerm]?.count ?? 0) results")
+            
+            // Check what words we have that start with the term
+            let matchingWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
+            print("🔍 DEBUG: Words starting with '\(normalizedTerm)': \(matchingWords)")
+        }
+        #endif
+        
         // Try exact word match first (O(1))
         if let exactMatches = artistWordIndex[normalizedTerm] {
-            return exactMatches.compactMap { artistCache[$0] }.sorted { $0.name < $1.name }
+            let results = exactMatches.compactMap { artistCache[$0] }.sorted { $0.name < $1.name }
+            
+            #if DEBUG
+            if normalizedTerm.contains("bue") {
+                print("🔍 DEBUG: Exact match results: \(results.map { $0.name })")
+            }
+            #endif
+            
+            return results
         }
         
         // Fall back to partial matching
-        return searchArtistsPartial(normalizedTerm)
+        let partialResults = searchArtistsPartial(normalizedTerm)
+        
+        #if DEBUG
+        if normalizedTerm.contains("bue") {
+            print("🔍 DEBUG: Partial match results: \(partialResults.map { $0.name })")
+        }
+        #endif
+        
+        return partialResults
     }
     
     func searchAlbums(term: String) -> [Album] {
