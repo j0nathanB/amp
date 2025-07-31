@@ -18,7 +18,10 @@ class QueueManagerService: ObservableObject {
     
     init() {
         self.isShuffled = UserDefaults.standard.bool(forKey: "shuffleOnStart")
-        loadQueue()
+        // Load queue asynchronously to avoid blocking main thread
+        Task {
+            await loadQueue()
+        }
     }
     
     // MARK: - Queue Management
@@ -124,13 +127,13 @@ class QueueManagerService: ObservableObject {
         UserDefaults.standard.set(trackIDs, forKey: queueUserDefaultsKey)
     }
     
-    private func loadQueue() {
+    private func loadQueue() async {
         guard let savedIDs = UserDefaults.standard.array(forKey: queueUserDefaultsKey) as? [MPMediaEntityPersistentID],
               !savedIDs.isEmpty else {
             return
         }
         
-        // Load songs from saved IDs
+        // Load songs from saved IDs asynchronously
         var songs: [Song] = []
         for id in savedIDs {
             if let song = LibraryService.shared.getSong(by: id) {
@@ -140,11 +143,12 @@ class QueueManagerService: ObservableObject {
         
         guard !songs.isEmpty else { return }
         
-        playbackQueue.restore(from: savedIDs, currentIndex: 0)
-        if let firstSong = songs.first {
-            currentTrack = firstSong
+        await MainActor.run {
+            playbackQueue.restore(from: savedIDs, currentIndex: 0)
+            if let firstSong = songs.first {
+                currentTrack = firstSong
+            }
+            queueDidChange()
         }
-        
-        queueDidChange()
     }
 }

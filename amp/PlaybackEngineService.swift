@@ -72,6 +72,16 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         playbackTime = time
     }
     
+    func loadWithoutPlaying(song: Song) {
+        guard let url = getAudioURL(for: song) else {
+            print("❌ No audio URL found for song: \(song.title)")
+            return
+        }
+        
+        commonLoad(url: url)
+        updateNowPlayingInfo(for: song)
+    }
+    
     // MARK: - Private Methods
     
     private func getAudioURL(for song: Song) -> URL? {
@@ -103,6 +113,23 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             startTimer()
         } catch {
             print("❌ Failed to play audio: \(error)")
+            isPlaying = false
+        }
+    }
+    
+    private func commonLoad(url: URL) {
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
+            
+            songDuration = player?.duration ?? 0.0
+            playbackTime = 0.0
+            
+            // Don't play, just load
+            isPlaying = false
+            stopTimer()
+        } catch {
+            print("❌ Failed to load audio: \(error)")
             isPlaying = false
         }
     }

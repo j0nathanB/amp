@@ -47,7 +47,7 @@ struct QueueView: View {
                     }
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 0) {
+                        VStack(spacing: 0) {
                             ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
                                 LazyQueueItemView(index: index)
                                     .id("\(audioPlayer.queueVersion)-\(index)")
@@ -90,7 +90,7 @@ private struct LazyQueueItemView: View {
         ListItemView(
             title: song?.title ?? "Loading...",
             subtitle: song?.artist ?? "",
-            isPlaying: index == audioPlayer.playbackQueue.currentIndex,
+            isPlaying: index == audioPlayer.currentIndex,
             detail: song?.album ?? "",
             playPauseAction: {
                 if song != nil {
@@ -101,7 +101,8 @@ private struct LazyQueueItemView: View {
         )
         .opacity(song != nil ? 1.0 : 0.6) // Slightly dim loading items
         .onTapGesture {
-            if song != nil {
+            // Allow tap even if song is still loading, as long as we have a valid index
+            if index < audioPlayer.playbackQueue.count {
                 audioPlayer.playTrack(at: index)
             }
         }
@@ -147,3 +148,4 @@ private struct LazyQueueItemView: View {
         }
     }
 }
+

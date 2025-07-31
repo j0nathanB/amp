@@ -17,6 +17,7 @@ class AudioPlayerService: ObservableObject {
     @Published var currentOutputName: String = ""
     @Published var isShuffled = false
     @Published var selectedTab: Tab = .queue
+    @Published var currentIndex: Int = -1
     
     // Queue properties
     var playbackQueue: PlaybackQueue {
@@ -60,12 +61,18 @@ class AudioPlayerService: ObservableObject {
         // Bind navigation properties
         navigation.$selectedTab
             .assign(to: &$selectedTab)
+        
+        // Bind currentIndex from playbackQueue changes
+        queueManager.$playbackQueue
+            .map { $0.currentIndex ?? -1 }
+            .assign(to: &$currentIndex)
     }
     
     // MARK: - Public API (same as before)
     
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
         queueManager.startPlayback(from: songs, startingWith: startSong)
+        navigation.navigateToNowPlaying()
         // currentTrackDidChange will be called via delegate
     }
     
@@ -82,13 +89,23 @@ class AudioPlayerService: ObservableObject {
     
     func nextTrack() {
         if let track = queueManager.nextTrack() {
-            playbackEngine.play(song: track)
+            if isPlaying {
+                playbackEngine.play(song: track)
+            } else {
+                // If paused, just load the track without playing
+                playbackEngine.loadWithoutPlaying(song: track)
+            }
         }
     }
     
     func previousTrack() {
         if let track = queueManager.previousTrack() {
-            playbackEngine.play(song: track)
+            if isPlaying {
+                playbackEngine.play(song: track)
+            } else {
+                // If paused, just load the track without playing
+                playbackEngine.loadWithoutPlaying(song: track)
+            }
         }
     }
     
@@ -138,9 +155,13 @@ extension AudioPlayerService: QueueManagerDelegate {
     }
     
     func currentTrackDidChange(_ track: Song?) {
-        // Play the new track if there is one
+        // Load the new track, but only play if we were already playing
         if let track = track {
-            playbackEngine.play(song: track)
+            if isPlaying {
+                playbackEngine.play(song: track)
+            } else {
+                playbackEngine.loadWithoutPlaying(song: track)
+            }
         }
     }
 }
