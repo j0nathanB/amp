@@ -8,8 +8,8 @@ struct MainTabView: View {
     
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Clean switch-based approach
+        ZStack {
+            // Full screen content area
             Group {
                 switch selectedTab {
                 case .playlists:
@@ -23,12 +23,18 @@ struct MainTabView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(16) // Consistent padding for all views
+            .padding(.bottom, 60) // Extra bottom padding for tab bar space
             .clipped()
             
-            // Only show the custom tab bar if the keyboard is not visible
+            // Fixed tab bar overlay at bottom
             if !isKeyboardVisible {
-                CustomTabView(selectedTab: $selectedTab)
-                    .transition(.move(edge: .bottom))
+                VStack {
+                    Spacer()
+                    CustomTabView(selectedTab: $selectedTab)
+                        .transition(.move(edge: .bottom))
+                }
+                .ignoresSafeArea(.all, edges: .bottom)
             }
         }
         .background(Color.clear)

@@ -73,7 +73,6 @@ struct QueueView: View {
                 }
             }
         }
-        .padding(16) // Match NowPlayingView padding
     }
 }
 
@@ -97,7 +96,8 @@ private struct LazyQueueItemView: View {
                     audioPlayer.playPause()
                 }
             },
-            isPressed: isPressed
+            isPressed: isPressed,
+            showTopBorder: index == 0 // Only show top border for first item
         )
         .opacity(song != nil ? 1.0 : 0.6) // Slightly dim loading items
         .onTapGesture {

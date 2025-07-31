@@ -9,16 +9,9 @@ struct PlaylistsView: View {
             ScrollView {
                 LazyVStack(spacing: -1) {
                     ForEach(playlists) { playlist in
-                        Button(action: {
+                        PlaylistItemView(playlist: playlist) {
                             play(playlist: playlist)
-                        }) {
-                            ListItemView(
-                                title: playlist.name,
-                                subtitle: "",
-                                detail: nil
-                            )
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                 }
             }
@@ -35,7 +28,6 @@ struct PlaylistsView: View {
                 self.playlists = userPlaylists
             }
         }
-        .padding(16) // Match NowPlayingView padding
     }
     
     // This is the corrected playback function
@@ -57,5 +49,31 @@ struct PlaylistsView: View {
                 }
             }
         }
+    }
+}
+
+// Playlist item with press state
+private struct PlaylistItemView: View {
+    let playlist: Playlist
+    let action: () -> Void
+    @GestureState private var isPressed = false
+    
+    var body: some View {
+        ListItemView(
+            title: playlist.name,
+            subtitle: "",
+            detail: nil,
+            isPressed: isPressed,
+            textAlignment: .center
+        )
+        .onTapGesture {
+            action()
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($isPressed) { _, state, _ in
+                    state = true
+                }
+        )
     }
 }

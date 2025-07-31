@@ -73,7 +73,10 @@ class AudioPlayerService: ObservableObject {
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
         queueManager.startPlayback(from: songs, startingWith: startSong)
         navigation.navigateToNowPlaying()
-        // currentTrackDidChange will be called via delegate
+        // Explicitly start playing the selected song
+        if let track = currentTrack {
+            playbackEngine.play(song: track)
+        }
     }
     
     func playTrack(at index: Int) {
@@ -84,7 +87,14 @@ class AudioPlayerService: ObservableObject {
     }
     
     func playPause() {
-        playbackEngine.playPause()
+        // If no audio is loaded but we have a current track, load and play it
+        if currentTrack != nil && !isPlaying && !playbackEngine.hasAudioReady {
+            if let track = currentTrack {
+                playbackEngine.play(song: track)
+            }
+        } else {
+            playbackEngine.playPause()
+        }
     }
     
     func nextTrack() {

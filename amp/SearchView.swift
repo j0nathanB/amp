@@ -31,7 +31,6 @@ struct SearchView: View {
                 }
             }
         }
-        .padding(16) // Match NowPlayingView padding
     }
 }
 
@@ -80,37 +79,42 @@ struct SearchResultsView: View {
                 if !results.artists.isEmpty {
                     Text("Artists").font(Theme.sectionHeaderFont).frame(maxWidth: .infinity, alignment: .leading).padding()
                     ForEach(results.artists) { artist in
-                        Button(action: {
+                        SearchItemView(
+                            title: artist.name,
+                            subtitle: nil,
+                            detail: nil
+                        ) {
                             playArtist(artist)
-                        }) {
-                            ListItemView(title: artist.name, subtitle: nil, detail: nil)
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                 }
                 
                 if !results.albums.isEmpty {
                     Text("Albums").font(Theme.sectionHeaderFont).frame(maxWidth: .infinity, alignment: .leading).padding()
                     ForEach(results.albums) { album in
-                        Button(action: {
+                        SearchItemView(
+                            title: album.title,
+                            subtitle: album.artist,
+                            detail: nil,
+                            italicizeTitle: true
+                        ) {
                             playAlbum(album)
-                        }) {
-                            ListItemView(title: album.title, subtitle: album.artist, detail: nil, italicizeTitle: true)
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                 }
                 
                 if !results.songs.isEmpty {
                     Text("Songs").font(Theme.sectionHeaderFont).frame(maxWidth: .infinity, alignment: .leading).padding()
                     ForEach(results.songs) { song in
-                        Button(action: {
+                        SearchItemView(
+                            title: song.title,
+                            subtitle: song.artist,
+                            detail: song.album,
+                            italicizeDetail: true
+                        ) {
                             hideKeyboard()
                             audioPlayer.startPlayback(from: results.songs, startingWith: song)
-                        }) {
-                            ListItemView(title: song.title, subtitle: song.artist, detail: song.album, italicizeDetail: true)
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                 }
             }
@@ -145,5 +149,36 @@ struct SearchResultsView: View {
     
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
+// Search item with press state
+private struct SearchItemView: View {
+    let title: String
+    let subtitle: String?
+    let detail: String?
+    var italicizeTitle: Bool = false
+    var italicizeDetail: Bool = false
+    let action: () -> Void
+    @GestureState private var isPressed = false
+    
+    var body: some View {
+        ListItemView(
+            title: title,
+            subtitle: subtitle,
+            detail: detail,
+            italicizeTitle: italicizeTitle,
+            italicizeDetail: italicizeDetail,
+            isPressed: isPressed
+        )
+        .onTapGesture {
+            action()
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($isPressed) { _, state, _ in
+                    state = true
+                }
+        )
     }
 }

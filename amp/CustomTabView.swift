@@ -22,8 +22,8 @@ struct CustomTabView: View {
                 selectedTab = .nowPlaying
             }
         }
-        .frame(height: 80)
-        .padding(.bottom)
+        .frame(width: UIScreen.main.bounds.width, height: 80) // Fixed width to screen width
+        .padding(.bottom, 34) // Fixed bottom padding instead of system default
         .background(.white) // Ensure the container has a background
         .overlay(Divider(), alignment: .top)
     }

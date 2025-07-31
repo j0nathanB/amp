@@ -82,6 +82,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         updateNowPlayingInfo(for: song)
     }
     
+    var hasAudioReady: Bool {
+        return player != nil
+    }
+    
     // MARK: - Private Methods
     
     private func getAudioURL(for song: Song) -> URL? {

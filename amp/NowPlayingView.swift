@@ -31,7 +31,6 @@ struct NowPlayingView: View {
             Rectangle()
                 .stroke(Theme.primaryText, lineWidth: 0) // Consistent white border
         )
-        .padding(16) // White space around entire view
     }
 }
 
@@ -54,7 +53,7 @@ private struct PlayerArtworkView: View {
                     .foregroundStyle(Theme.accentGreen)
             }
         }
-        .frame(width: 340, height: 340) // Fixed size to prevent layout shifts
+        .frame(width: 322, height: 322) // Fixed size to prevent layout shifts
         .padding(.vertical)
     }
 }
@@ -78,7 +77,7 @@ private struct ArtworkImage: View {
             }
         }
         .aspectRatio(contentMode: .fit)
-        .frame(width: 345, height: 345)
+        .frame(width: 322, height: 322)
         .overlay(Rectangle().stroke(Theme.primaryText, lineWidth: 1))
     }
 }
