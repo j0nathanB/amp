@@ -47,10 +47,10 @@ struct QueueView: View {
                     }
                 } else {
                     ScrollView {
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
                                 LazyQueueItemView(index: index)
-                                    .id("\(audioPlayer.queueVersion)-\(index)")
+                                    .id("item-\(audioPlayer.playbackQueue.getTrackID(at: index) ?? 0)")
                             }
                         }
                         .padding(.top, 1)
