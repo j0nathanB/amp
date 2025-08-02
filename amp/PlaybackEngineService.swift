@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import MediaPlayer
+import UIKit
 
 protocol PlaybackEngineDelegate: AnyObject {
     func playbackDidFinish(successfully: Bool)
@@ -12,26 +13,28 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     private var player: AVAudioPlayer?
     private var timer: Timer?
+    private var volumeView: MPVolumeView?
+    private var volumeObserver: NSKeyValueObservation?
+    private var audioSessionConfigured = false
     
     @Published var isPlaying = false
     @Published var songDuration: TimeInterval = 0.0
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
+    @Published var systemVolume: Float = 1.0
     
     override init() {
         super.init()
         updateCurrentOutputName()
-        NotificationCenter.default.addObserver(
-            self, 
-            selector: #selector(handleRouteChange), 
-            name: AVAudioSession.routeChangeNotification, 
-            object: nil
-        )
+        setupNotifications()
+        updateSystemVolume()
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
         timer?.invalidate()
+        volumeView?.removeFromSuperview()
+        volumeObserver?.invalidate()
     }
     
     // MARK: - Playback Control
@@ -105,9 +108,13 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     private func commonPlay(url: URL) {
+        // Ensure audio session is configured before playing
+        ensureAudioSessionConfigured()
+        
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
+            player?.volume = systemVolume // Apply current system volume
             
             songDuration = player?.duration ?? 0.0
             playbackTime = 0.0
@@ -122,9 +129,13 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     private func commonLoad(url: URL) {
+        // Ensure audio session is configured before loading
+        ensureAudioSessionConfigured()
+        
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
+            player?.volume = systemVolume // Apply current system volume
             
             songDuration = player?.duration ?? 0.0
             playbackTime = 0.0
@@ -165,8 +176,109 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
     
+    // MARK: - Audio Session & Volume Management
+    
+    private func ensureAudioSessionConfigured() {
+        guard !audioSessionConfigured else { return }
+        
+        do {
+            let session = AVAudioSession.sharedInstance()
+            
+            print("🔊 Configuring audio session - Current Category: \(session.category.rawValue)")
+            
+            // Set category with options
+            try session.setCategory(.playback, options: [.duckOthers, .allowBluetoothA2DP])
+            
+            // Activate the session
+            try session.setActive(true)
+            
+            audioSessionConfigured = true
+            print("✅ Audio session configured successfully")
+        } catch let error as NSError {
+            print("❌ Failed to configure audio session: \(error) - Code: \(error.code)")
+            
+            // Try a simpler approach if the full setup fails
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback)
+                try AVAudioSession.sharedInstance().setActive(true)
+                audioSessionConfigured = true
+                print("✅ Fallback audio session configured successfully")
+            } catch {
+                print("❌ Even fallback audio session setup failed: \(error)")
+            }
+        }
+    }
+    
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(
+            self, 
+            selector: #selector(handleRouteChange), 
+            name: AVAudioSession.routeChangeNotification, 
+            object: nil
+        )
+        
+        // Set up volume monitoring using multiple approaches
+        setupVolumeMonitoring()
+        setupKVOVolumeMonitoring()
+    }
+    
+    private func setupVolumeMonitoring() {
+        // Create a hidden MPVolumeView to monitor system volume
+        volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 0, height: 0))
+        volumeView?.isHidden = true
+        volumeView?.alpha = 0.0
+        
+        // Add to a window to make it functional
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            window.addSubview(volumeView!)
+        }
+        
+        // Monitor the volume slider
+        if let volumeSlider = volumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            volumeSlider.addTarget(self, action: #selector(handleVolumeChange), for: .valueChanged)
+            systemVolume = volumeSlider.value
+            player?.volume = systemVolume
+        }
+    }
+    
+    private func setupKVOVolumeMonitoring() {
+        // Use KVO to observe AVAudioSession outputVolume changes
+        let audioSession = AVAudioSession.sharedInstance()
+        volumeObserver = audioSession.observe(\.outputVolume, options: [.new]) { [weak self] session, change in
+            DispatchQueue.main.async {
+                self?.updateSystemVolume()
+            }
+        }
+    }
+    
     @objc private func handleRouteChange() {
         updateCurrentOutputName()
+        updateSystemVolume()
+    }
+    
+    @objc private func handleVolumeChange() {
+        updateSystemVolume()
+    }
+    
+    private func updateSystemVolume() {
+        if let volumeSlider = volumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            systemVolume = volumeSlider.value
+        } else {
+            // Fallback to AVAudioSession
+            let session = AVAudioSession.sharedInstance()
+            systemVolume = session.outputVolume
+        }
+        
+        print("🔊 System volume updated: \(systemVolume)")
+        
+        // Apply system volume to player to handle Bluetooth floor issue
+        player?.volume = systemVolume
+        
+        // Log player volume for debugging
+        if let playerVolume = player?.volume {
+            print("🎵 Player volume set to: \(playerVolume)")
+        }
     }
     
     private func updateCurrentOutputName() {

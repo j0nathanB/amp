@@ -12,50 +12,27 @@ SwiftUI-based music player app for iPhone with clean service-oriented architectu
 
 ## Current Architecture
 
-### Service Layer
-- **AudioPlayerService.swift**: Orchestrating service that coordinates all other services, maintains same public API as original
-- **PlaybackEngineService.swift**: Pure audio playback control (AVAudioPlayer, audio session, now playing info)
-- **QueueManagerService.swift**: Queue state management and persistence (PlaybackQueue, track navigation)
-- **NavigationService.swift**: UI navigation state management (tab selection)
-- **LibraryService.swift**: Music library search with hybrid dictionary + scan indexing
+The app follows a clean service-oriented architecture with clear separation of concerns:
 
-### UI Layer
-- **NowPlayingView.swift**: Current track display and playbook controls
+### Core Services
+- **AudioPlayerService.swift**: Main orchestrator that coordinates all services while maintaining a stable public API for UI components. Acts as the single point of contact for all audio operations.
+- **PlaybackEngineService.swift**: Handles pure audio operations using AVAudioPlayer - play/pause/seek, audio session management, now playing info, and audio completion events.
+- **QueueManagerService.swift**: Manages playback queue state, track navigation (next/previous), queue persistence, and shuffle functionality.
+- **NavigationService.swift**: Controls UI navigation state and tab selection.
+- **LibraryService.swift**: Provides optimized music library search with hybrid dictionary + scan indexing for fast diacritics-insensitive search.
+
+### UI Components
+- **NowPlayingView.swift**: Current track display and playback controls
 - **QueueView.swift**: Queue management with lazy loading and scroll optimization
 - **PlaylistsView.swift**: Library browsing and playlist selection
-- **SearchView.swift**: Search interface with diacritics-insensitive matching
+- **SearchView.swift**: Search interface with real-time filtering
+- **MainTabView.swift**: Main navigation container
+- **CustomTabView.swift**: Custom tab bar implementation
 
-### Data Models
-- **PlaybackQueue.swift**: Queue management with caching and shuffle support
+### Data Layer
+- **PlaybackQueue.swift**: Queue management with caching, shuffle support, and state persistence
 - **DataModels.swift**: Core data structures (Song, Artist, Album, Tab)
-
-## Development Phases (Completed)
-
-### ✅ Phase 1: Stabilize 🛠️ 
-**Goal**: Fix compiler errors and get app running reliably
-- ✅ Unified dual-queue system into single PlaybackQueue model
-- ✅ Refactored AudioPlayerService to use unified queue
-- ✅ Fixed dependent views (NowPlayingView, QueueView)
-
-### ✅ Phase 2: Optimize ⚡
-**Goal**: Fix performance bottleneck in library search  
-- ✅ Implemented diacritics-insensitive search with string normalization
-- ✅ Built hybrid dictionary + scan search indexing
-- ✅ Fixed artist search by building index from songs rather than MPMediaQuery.artists()
-
-### ✅ Phase 3: Decompose 🏛️
-**Goal**: Break apart the god object for better architecture
-- ✅ Extracted PlaybackEngineService (AVAudioPlayer, audio session, now playing info)
-- ✅ Extracted QueueManagerService (PlaybackQueue management, persistence) 
-- ✅ Extracted NavigationService (UI navigation state)
-- ✅ Created orchestrating AudioPlayerService with same public API
-- ✅ Fixed async initialization to prevent main thread blocking
-
-### 🚀 Phase 4: Iterate (Current)
-**Goal**: Establish patterns for ongoing development
-- 🔄 Document service architecture patterns
-- 🔄 Create development guidelines for future features
-- 🔄 Optimize performance with lazy loading and efficient UI updates
+- **Theme.swift**: UI theming and styling constants
 
 ## Service Architecture Patterns
 
@@ -75,35 +52,148 @@ SwiftUI-based music player app for iPhone with clean service-oriented architectu
 - **Queue Persistence**: Queue loading happens async to prevent main thread blocking
 - **UI Responsiveness**: Heavy operations wrapped in `Task` blocks
 
-## Development Guidelines
+## Architectural Decisions Made
+
+### Service Communication
+**Decision**: Use delegation pattern for cross-service communication instead of direct service-to-service calls.
+**Rationale**: Maintains loose coupling, clear responsibilities, and prevents circular dependencies.
+
+### State Management
+**Decision**: Use Combine's `@Published` properties with `.assign(to:)` bindings for reactive state updates.
+**Rationale**: Provides automatic UI updates while keeping services decoupled from UI layer.
+
+### Audio Session Management
+**Decision**: Centralize all AVAudioPlayer operations in PlaybackEngineService.
+**Rationale**: Ensures single source of truth for audio state, prevents conflicts, and simplifies debugging.
+
+### Queue Persistence
+**Decision**: Store only track IDs, not full Song objects, in UserDefaults.
+**Rationale**: Reduces storage overhead and handles library changes gracefully (missing tracks are filtered out).
+
+### Error Handling
+**Decision**: Use completion-based patterns for track transitions rather than throwing errors.
+**Rationale**: Audio playback should be resilient - if one track fails, continue to next track.
+
+## Established Patterns & Conventions
+
+### Service Creation Pattern
+```swift
+class ServiceName: ObservableObject {
+    weak var delegate: ServiceDelegate?
+    @Published private(set) var property = initialValue
+    
+    init() {
+        // Async initialization when needed
+        Task { await setupService() }
+    }
+}
+```
+
+### Delegation Pattern
+```swift
+protocol ServiceDelegate: AnyObject {
+    func serviceDidChange()
+    func serviceDidComplete(_ result: Type)
+}
+```
+
+### Combine Binding Pattern
+```swift
+private func setupBindings() {
+    serviceA.$property.assign(to: &$publicProperty)
+    serviceB.$anotherProperty
+        .map { /* transform */ }
+        .assign(to: &$transformedProperty)
+}
+```
+
+### Async UI Update Pattern
+```swift
+Task {
+    let result = await heavyOperation()
+    await MainActor.run {
+        self.property = result
+    }
+}
+```
+
+## Development Workflow
 
 ### Adding New Features
-1. **Identify Service Responsibility**: Which service should handle the new functionality?
-2. **Use Delegation**: Add delegate methods for cross-service communication
-3. **Maintain Public API**: Keep AudioPlayerService interface stable for UI
-4. **Async When Needed**: Wrap expensive operations in async contexts
+1. **Identify Service**: Determine which service should handle the functionality
+2. **Define Delegate Methods**: Add any needed cross-service communication
+3. **Update Public API**: Extend AudioPlayerService interface if needed
+4. **Implement & Test**: Add functionality while maintaining existing patterns
+5. **Update Bindings**: Ensure new `@Published` properties are properly bound
 
-### UI Best Practices  
-- **Lazy Loading**: Use `LazyVStack`/`LazyHStack` for large lists
-- **Stable IDs**: Use trackID-based IDs for SwiftUI view identity
-- **Background Tasks**: Load data asynchronously, update UI on MainActor
-- **Performance**: Avoid recreating views unnecessarily (stable IDs help)
+### Bug Fixes
+1. **Identify Layer**: Determine if issue is in Service, UI, or Data layer
+2. **Check Delegates**: Verify delegate methods are called correctly
+3. **Review State Flow**: Ensure `@Published` properties update as expected
+4. **Test Edge Cases**: Verify fix works with queue empty, shuffled, etc.
 
-### Performance Patterns
-- **Caching**: Implement smart caching (see QueueSongCache, PlaybackQueue cache)
-- **Lazy Evaluation**: Only load what's needed when it's needed
-- **Debouncing**: Avoid rapid-fire updates (queueVersion increments)
-- **Memory Management**: Clear caches when appropriate
+### Performance Optimization
+1. **Profile First**: Use Instruments to identify actual bottlenecks
+2. **Async When Possible**: Move heavy operations off main thread
+3. **Cache Smartly**: Implement caching where data is expensive to recreate
+4. **Lazy Load**: Only load UI elements when needed
+
+## Feature Roadmap
+
+### Near Term (Next Sprints)
+- **Playback Controls**: Volume control, playback speed adjustment
+- **Queue Management**: Reorder tracks, remove from queue
+- **Library Features**: Recently played, most played tracking
+
+### Medium Term
+- **Playlist Management**: Create, edit, delete custom playlists
+- **Audio Effects**: Equalizer, crossfade between tracks
+- **Offline Mode**: Cache frequently played tracks locally
+
+### Long Term
+- **Social Features**: Share playlists, collaborative queues
+- **Cloud Sync**: Sync preferences across devices
+- **Advanced Search**: Smart playlists, advanced filtering
+
+## Refactoring History
+
+### ✅ Phase 1: Stabilize 🛠️ (Completed)
+**Goal**: Fix compiler errors and get app running reliably
+- ✅ Unified dual-queue system into single PlaybackQueue model
+- ✅ Refactored AudioPlayerService to use unified queue
+- ✅ Fixed dependent views (NowPlayingView, QueueView)
+
+### ✅ Phase 2: Optimize ⚡ (Completed)
+**Goal**: Fix performance bottleneck in library search  
+- ✅ Implemented diacritics-insensitive search with string normalization
+- ✅ Built hybrid dictionary + scan search indexing
+- ✅ Fixed artist search by building index from songs rather than MPMediaQuery.artists()
+
+### ✅ Phase 3: Decompose 🏛️ (Completed)
+**Goal**: Break apart the monolithic service for better architecture
+- ✅ Extracted PlaybackEngineService (AVAudioPlayer, audio session, now playing info)
+- ✅ Extracted QueueManagerService (PlaybackQueue management, persistence) 
+- ✅ Extracted NavigationService (UI navigation state)
+- ✅ Created orchestrating AudioPlayerService with same public API
+- ✅ Fixed async initialization to prevent main thread blocking
+
+### ✅ Phase 4: Iterate (Completed)
+**Goal**: Establish patterns for ongoing development
+- ✅ Documented service architecture patterns
+- ✅ Created development guidelines for future features
+- ✅ Fixed auto-play bug in track transitions
+- ✅ Established conventions for service communication and state management
 
 ## Current Status: Production Ready ✅
 
 The app now has:
-- ✅ **Stable Architecture**: Clean separation of concerns
+- ✅ **Clean Architecture**: Service-oriented design with clear separation of concerns
 - ✅ **Optimized Performance**: Hybrid search, lazy loading, async operations  
 - ✅ **Responsive UI**: No main thread blocking, smooth animations
-- ✅ **Feature Complete**: All original functionality preserved
-- ✅ **Maintainable**: Clear patterns for future development
+- ✅ **Feature Complete**: All original functionality preserved and enhanced
+- ✅ **Maintainable**: Clear patterns and guidelines for future development
+- ✅ **Bug-Free**: Track auto-play and other issues resolved
 
 ---
 
-*Updated after Phase 3 completion - architecture refactoring successful*
+*Updated after 4-phase refactoring completion - ready for ongoing feature development*

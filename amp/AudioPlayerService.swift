@@ -18,6 +18,7 @@ class AudioPlayerService: ObservableObject {
     @Published var isShuffled = false
     @Published var selectedTab: Tab = .queue
     @Published var currentIndex: Int = -1
+    @Published var systemVolume: Float = 1.0
     
     // Queue properties
     var playbackQueue: PlaybackQueue {
@@ -50,6 +51,9 @@ class AudioPlayerService: ObservableObject {
         
         playbackEngine.$currentOutputName
             .assign(to: &$currentOutputName)
+        
+        playbackEngine.$systemVolume
+            .assign(to: &$systemVolume)
         
         // Bind queue manager properties
         queueManager.$currentTrack
@@ -147,7 +151,10 @@ class AudioPlayerService: ObservableObject {
 extension AudioPlayerService: PlaybackEngineDelegate {
     func playbackDidFinish(successfully: Bool) {
         if successfully {
-            nextTrack()
+            // When a track finishes, automatically play the next track
+            if let track = queueManager.nextTrack() {
+                playbackEngine.play(song: track)
+            }
         }
     }
     

@@ -6,14 +6,7 @@ struct ampApp: App {
     @StateObject private var audioPlayer = AudioPlayerService.shared
     
     init() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback)
-            try AVAudioSession.sharedInstance().setActive(true)
-            print("Audio session configured successfully.")
-        } catch {
-            print("Failed to configure audio session: \(error)")
-        }
-        // Add memory warning observer
+        // Audio session is now managed by PlaybackEngineService
         setupMemoryWarningObserver()
     }
     
