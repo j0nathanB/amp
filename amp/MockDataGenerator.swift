@@ -28,6 +28,9 @@ struct MockDataGenerator {
         // Case sensitivity tests
         testSongs.append(contentsOf: generateCaseSensitivityTestData(&currentID))
         
+        // Prefix matching tests
+        testSongs.append(contentsOf: generatePrefixMatchingTestData(&currentID))
+        
         // Whitespace and formatting tests
         testSongs.append(contentsOf: generateWhitespaceTestData(&currentID))
         
@@ -193,6 +196,93 @@ struct MockDataGenerator {
         }
     }
     
+    // MARK: - Prefix Matching Test Data
+    
+    private func generatePrefixMatchingTestData(_ currentID: inout MPMediaEntityPersistentID) -> [Song] {
+        let prefixTests = [
+            // Band name prefix matching - your specific examples
+            ("Change (In the House of Flies)", "Deftones", "White Pony"),
+            ("My Own Summer (Shove It)", "Deftones", "Around the Fur"),
+            ("Be Quiet and Drive (Far Away)", "Deftones", "Around the Fur"),
+            ("Digital Bath", "The Deftones", "White Pony"), // Alternative band name format
+            
+            // More realistic band/song prefix scenarios
+            ("Paranoid Android", "Radiohead", "OK Computer"),
+            ("Radio Free Europe", "R.E.M.", "Murmur"),
+            ("Radio Song", "R.E.M.", "Out of Time"),
+            ("Rad", "Radiohead", "In Rainbows"), // Test "rad" doesn't match "Radiohead" inappropriately
+            
+            // Multi-word prefix matching
+            ("My Own Prison", "Creed", "My Own Prison"),
+            ("My Own Way", "Duran Duran", "Rio"),
+            ("My Generation", "The Who", "The Who Sings My Generation"),
+            ("Summer Breeze", "Seals and Crofts", "Summer Breeze"),
+            ("Summer of '69", "Bryan Adams", "Reckless"),
+            
+            // Article handling in band names
+            ("Immigrant Song", "Led Zeppelin", "Led Zeppelin III"),
+            ("Led Boots", "Jeff Beck", "Blow by Blow"), // "Led" should not match "Led Zeppelin"
+            ("The Man", "The Killers", "Day & Age"),
+            ("Man on the Box", "Bush", "The Science of Things"), // "Man" should not match "The Man"
+            
+            // Single word vs prefix scenarios
+            ("Black", "Pearl Jam", "vs."),
+            ("Blackbird", "The Beatles", "The Beatles (White Album)"),
+            ("Black Hole Sun", "Soundgarden", "Superunknown"),
+            
+            // Prefix edge cases
+            ("Go", "Pearl Jam", "vs."),
+            ("Going Under", "Evanescence", "Fallen"),
+            ("Gone", "Pearl Jam", "Binaural"),
+            
+            // Number prefixes
+            ("1979", "The Smashing Pumpkins", "Mellon Collie and the Infinite Sadness"),
+            ("19", "Adele", "19"),
+            ("1999", "Prince", "1999"),
+            
+            // Common word prefixes that should work
+            ("Love", "The Beatles", "Revolver"),
+            ("Love Song", "The Cure", "Disintegration"),
+            ("Lovely Day", "Bill Withers", "Menagerie"),
+            
+            // Potential false positives to avoid
+            ("Sun", "Two Door Cinema Club", "Tourist History"), // Should NOT match "Soundgarden"
+            
+            // Ace prefix test - should find "Ace of Base" but not "Grace Jones"
+            ("All That She Wants", "Ace of Base", "Happy Nation"),
+            ("The Sign", "Ace of Base", "The Sign"),
+            ("Pull Up to the Bumper", "Grace Jones", "Nightclubbing"), // Should NOT match "ace" query
+            ("War", "Edwin Starr", "War & Peace"), // Should NOT match "Warpaint"
+            ("Red", "King Crimson", "In the Court of the Crimson King"), // Should NOT match "Red Hot Chili Peppers"
+            
+            // Complex band name prefixes
+            ("Mr. Brightside", "The Killers", "Hot Fuss"),
+            ("Mr. Blue Sky", "Electric Light Orchestra", "Out of the Blue"),
+            ("Mister Sandman", "The Chordettes", "Close Harmony"),
+            
+            // Abbreviation scenarios
+            ("REM", "R.E.M.", "Automatic for the People"), // Alternative name format
+            ("AC/DC", "AC/DC", "Back in Black"),
+            ("ACDC", "AC/DC", "Highway to Hell"), // Alternative format
+            
+            // Special prefix scenarios
+            ("Def Leppard", "Def Leppard", "Hysteria"), // "Def" should match "Def Leppard" not just "Deftones"
+            ("Definition", "Black Star", "Mos Def & Talib Kweli Are Black Star"), // "Def" prefix test
+        ]
+        
+        return prefixTests.map { title, artist, album in
+            defer { currentID += 1 }
+            return Song(
+                persistentID: currentID,
+                title: title,
+                artist: artist,
+                album: album,
+                releaseDate: randomDate(),
+                albumTrackNumber: Int.random(in: 1...15)
+            )
+        }
+    }
+    
     // MARK: - Multi-Language Test Data
     
     private func generateMultiLanguageTestData(_ currentID: inout MPMediaEntityPersistentID) -> [Song] {
@@ -337,6 +427,10 @@ extension MockDataGenerator {
     /// Tests for specific search scenarios
     func generateSearchTestCases() -> [(query: String, expectedMatches: [String], description: String)] {
         return [
+            // Prefix matching - your specific examples
+            ("def", ["Deftones", "The Deftones", "Def Leppard"], "Should find 'Deftones', 'The Deftones', and 'Def Leppard' when searching for 'def'"),
+            ("my own", ["My Own Summer (Shove It)", "My Own Prison", "My Own Way"], "Should find songs with 'My Own' when searching for 'my own'"),
+            
             // Diacritics normalization
             ("cafe", ["Café Noir"], "Should find 'Café Noir' when searching for 'cafe'"),
             ("Francoise", ["Françoise Amélie"], "Should find 'Françoise Amélie' when searching for 'Francoise'"),

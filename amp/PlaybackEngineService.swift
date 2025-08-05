@@ -16,6 +16,8 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var volumeView: MPVolumeView?
     private var volumeObserver: NSKeyValueObservation?
     private var audioSessionConfigured = false
+    private var lastPlayedSong: Song?
+    private var pausedAt: TimeInterval = 0
     
     @Published var isPlaying = false
     @Published var songDuration: TimeInterval = 0.0
@@ -45,21 +47,31 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
+        // Track the song for memory management
+        lastPlayedSong = song
+        pausedAt = 0
+        
         commonPlay(url: url)
         updateNowPlayingInfo(for: song)
     }
     
     func playPause() {
-        guard let player = player else { return }
-        
-        if player.isPlaying {
-            player.pause()
-            isPlaying = false
-            stopTimer()
-        } else {
-            player.play()
-            isPlaying = true
-            startTimer()
+        if let player = player {
+            // Player exists, normal pause/resume
+            if player.isPlaying {
+                player.pause()
+                isPlaying = false
+                stopTimer()
+                // Clean up resources when paused to prevent memory leaks
+                cleanupAudioResourcesOnPause()
+            } else {
+                player.play()
+                isPlaying = true
+                startTimer()
+            }
+        } else if let song = lastPlayedSong {
+            // Player was released due to memory optimization, reload and resume
+            resumeFromPause(song: song, at: pausedAt)
         }
     }
     
@@ -68,6 +80,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isPlaying = false
         playbackTime = 0.0
         stopTimer()
+        cleanupAudioResourcesOnStop()
     }
     
     func seek(to time: TimeInterval) {
@@ -80,6 +93,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("❌ No audio URL found for song: \(song.title)")
             return
         }
+        
+        // Track the song for memory management
+        lastPlayedSong = song
+        pausedAt = 0
         
         commonLoad(url: url)
         updateNowPlayingInfo(for: song)
@@ -162,6 +179,70 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+    }
+    
+    private func cleanupAudioResourcesOnPause() {
+        // When paused for memory optimization, we can release the audio player
+        // but keep track of current position for seamless resume
+        guard let player = player else { return }
+        
+        // Store current time for resume
+        pausedAt = player.currentTime
+        
+        // Release the audio player to free memory
+        self.player = nil
+        
+        // Keep the playback time for UI consistency  
+        playbackTime = pausedAt
+        
+        // Deactivate audio session to free system resources
+        deactivateAudioSessionIfNeeded()
+        
+        print("🧹 Audio resources cleaned up - paused at \(pausedAt)s to free memory")
+    }
+    
+    private func cleanupAudioResourcesOnStop() {
+        // Complete cleanup when stopping
+        player = nil
+        lastPlayedSong = nil
+        pausedAt = 0
+        songDuration = 0.0
+        playbackTime = 0.0
+        deactivateAudioSessionIfNeeded()
+    }
+    
+    private func resumeFromPause(song: Song, at time: TimeInterval) {
+        // Resume playback after memory optimization cleanup
+        guard let url = getAudioURL(for: song) else {
+            print("❌ Cannot resume - no audio URL found for song: \(song.title)")
+            return
+        }
+        
+        print("🔄 Resuming playback at \(time)s after memory cleanup")
+        
+        // Reload the audio
+        commonPlay(url: url)
+        
+        // Seek to the paused position
+        if time > 0 {
+            player?.currentTime = time
+            playbackTime = time
+        }
+        
+        updateNowPlayingInfo(for: song)
+    }
+    
+    private func deactivateAudioSessionIfNeeded() {
+        // Only deactivate if we're not playing and configured
+        guard !isPlaying && audioSessionConfigured else { return }
+        
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            audioSessionConfigured = false
+            print("🔇 Audio session deactivated to free resources")
+        } catch {
+            print("⚠️ Failed to deactivate audio session: \(error)")
+        }
     }
     
     private func updateNowPlayingInfo(for song: Song) {

@@ -4,8 +4,25 @@ import MediaPlayer
 extension String {
     var searchNormalized: String {
         return self
-            .folding(options: .diacriticInsensitive, locale: nil)  // Strip diacritics
-            .lowercased()  // Lowercase
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)  // Strip diacritics and normalize case
+            .replacingOccurrences(of: "'", with: "")  // Remove apostrophes (don't -> dont)
+            .replacingOccurrences(of: "'", with: "")  // Remove curly apostrophes
+            .replacingOccurrences(of: "&", with: "and") // & -> and
+            .replacingOccurrences(of: "?", with: "")  // Remove question marks
+            .replacingOccurrences(of: "!", with: "")  // Remove exclamation marks
+            .replacingOccurrences(of: "(", with: " ")  // Replace brackets with spaces
+            .replacingOccurrences(of: ")", with: " ")
+            .replacingOccurrences(of: "[", with: " ")
+            .replacingOccurrences(of: "]", with: " ")
+            .replacingOccurrences(of: "{", with: " ")
+            .replacingOccurrences(of: "}", with: " ")
+            .replacingOccurrences(of: "★", with: "")  // Remove unicode symbols
+            .replacingOccurrences(of: "♫", with: "")
+            .replacingOccurrences(of: "♥", with: "")
+            .replacingOccurrences(of: "→", with: "")
+            .components(separatedBy: .whitespacesAndNewlines)  // Split on whitespace
+            .filter { !$0.isEmpty }  // Remove empty components
+            .joined(separator: " ")  // Rejoin with single spaces
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -315,7 +332,7 @@ class LibraryService {
     }
     
     private func getNormalizedSearchTerms(for term: String) -> (normalized: String, words: [String]) {
-        let normalized = term.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        let normalized = term.searchNormalized
         let words = normalized.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         return (normalized: normalized, words: words)
     }
@@ -631,13 +648,13 @@ class LibraryService {
     private func wordBoundaryMatch(searchTerm: String, in text: String) -> Bool {
         guard !searchTerm.isEmpty else { return false }
         
-        // Pre-normalize the search term once
-        let normalizedSearchTerm = searchTerm.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        // Use consistent normalization
+        let normalizedSearchTerm = searchTerm.searchNormalized
         let searchWords = normalizedSearchTerm.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
         
-        // Pre-normalize the text once
-        let normalizedText = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        // Use consistent normalization for text
+        let normalizedText = text.searchNormalized
         
         // All search words must match word boundaries in the text
         return searchWords.allSatisfy { normalizedSearchWord in
