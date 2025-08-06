@@ -18,6 +18,8 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var audioSessionConfigured = false
     private var lastPlayedSong: Song?
     private var pausedAt: TimeInterval = 0
+    private var lastNowPlayingUpdate: TimeInterval = 0
+    private var pauseCleanupTimer: Timer?
     
     @Published var isPlaying = false
     @Published var songDuration: TimeInterval = 0.0
@@ -35,6 +37,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     deinit {
         NotificationCenter.default.removeObserver(self)
         timer?.invalidate()
+        pauseCleanupTimer?.invalidate()
         volumeView?.removeFromSuperview()
         volumeObserver?.invalidate()
     }
@@ -46,6 +49,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("❌ No audio URL found for song: \(song.title)")
             return
         }
+        
+        // Cancel any pending cleanup since we're starting new playback
+        cancelDelayedCleanup()
         
         // Track the song for memory management
         lastPlayedSong = song
@@ -62,12 +68,18 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 player.pause()
                 isPlaying = false
                 stopTimer()
-                // Clean up resources when paused to prevent memory leaks
-                cleanupAudioResourcesOnPause()
+                // Update now playing info to reflect paused state
+                updateNowPlayingInfoTime()
+                // Schedule cleanup after extended pause (30 seconds) to save memory
+                scheduleDelayedCleanup()
             } else {
+                // Cancel any pending cleanup since we're resuming
+                cancelDelayedCleanup()
                 player.play()
                 isPlaying = true
                 startTimer()
+                // Update now playing info to reflect playing state
+                updateNowPlayingInfoTime()
             }
         } else if let song = lastPlayedSong {
             // Player was released due to memory optimization, reload and resume
@@ -80,12 +92,18 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isPlaying = false
         playbackTime = 0.0
         stopTimer()
+        cancelDelayedCleanup()
         cleanupAudioResourcesOnStop()
+        // Clear now playing info when stopping completely
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
     
     func seek(to time: TimeInterval) {
         player?.currentTime = time
         playbackTime = time
+        
+        // Update now playing info with new elapsed time
+        updateNowPlayingInfoTime()
     }
     
     func loadWithoutPlaying(song: Song) {
@@ -93,6 +111,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("❌ No audio URL found for song: \(song.title)")
             return
         }
+        
+        // Cancel any pending cleanup since we're loading new audio
+        cancelDelayedCleanup()
         
         // Track the song for memory management
         lastPlayedSong = song
@@ -122,6 +143,21 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         
         return assetURL
+    }
+    
+    private func getArtwork(for song: Song) -> MPMediaItemArtwork? {
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: song.persistentID),
+            forProperty: MPMediaItemPropertyPersistentID
+        )
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        
+        guard let item = query.items?.first else {
+            return nil
+        }
+        
+        return item.artwork
     }
     
     private func commonPlay(url: URL) {
@@ -173,12 +209,36 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             
             self.playbackTime = player.currentTime
             self.delegate?.playbackTimeDidUpdate(player.currentTime)
+            
+            // Update now playing info every second to avoid excessive updates
+            if player.currentTime - self.lastNowPlayingUpdate >= 1.0 {
+                self.updateNowPlayingInfoTime()
+                self.lastNowPlayingUpdate = player.currentTime
+            }
         }
     }
     
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+    }
+    
+    private func scheduleDelayedCleanup() {
+        // Cancel any existing cleanup timer
+        pauseCleanupTimer?.invalidate()
+        
+        // Schedule cleanup after 30 seconds of being paused
+        pauseCleanupTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+            guard let self = self, !self.isPlaying else { return }
+            
+            print("🧹 Starting delayed cleanup after 30s pause")
+            self.cleanupAudioResourcesOnPause()
+        }
+    }
+    
+    private func cancelDelayedCleanup() {
+        pauseCleanupTimer?.invalidate()
+        pauseCleanupTimer = nil
     }
     
     private func cleanupAudioResourcesOnPause() {
@@ -246,15 +306,43 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     private func updateNowPlayingInfo(for song: Song) {
+        guard !song.title.isEmpty else {
+            print("⚠️ Skipping now playing info update - empty song title")
+            return
+        }
+        
         var nowPlayingInfo = [String: Any]()
         nowPlayingInfo[MPMediaItemPropertyTitle] = song.title
-        nowPlayingInfo[MPMediaItemPropertyArtist] = song.artist
-        nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = song.album
-        nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = songDuration
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = playbackTime
+        nowPlayingInfo[MPMediaItemPropertyArtist] = song.artist.isEmpty ? "Unknown Artist" : song.artist
+        nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = song.album.isEmpty ? "Unknown Album" : song.album
+        nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = max(0, songDuration)
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
         
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        // Add artwork if available
+        if let artwork = getArtwork(for: song) {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+        }
+        
+        DispatchQueue.main.async {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+            print("🎵 Updated now playing info: \(song.title) - \(song.artist) (\(self.playbackTime)s)")
+        }
+    }
+    
+    private func updateNowPlayingInfoTime() {
+        // Update only time-sensitive properties without recreating the entire info
+        guard var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo else {
+            // If no info exists, we can't update just the time
+            return
+        }
+        
+        currentInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
+        currentInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        
+        DispatchQueue.main.async {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
+        }
     }
     
     // MARK: - Audio Session & Volume Management
