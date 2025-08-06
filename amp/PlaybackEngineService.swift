@@ -50,9 +50,6 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
-        // Cancel any pending cleanup since we're starting new playback
-        cancelDelayedCleanup()
-        
         // Track the song for memory management
         lastPlayedSong = song
         pausedAt = 0
@@ -70,11 +67,8 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 stopTimer()
                 // Update now playing info to reflect paused state
                 updateNowPlayingInfoTime()
-                // Schedule cleanup after extended pause (30 seconds) to save memory
-                scheduleDelayedCleanup()
+                // Note: Removed extended pause cleanup - keep player loaded for reliable resume
             } else {
-                // Cancel any pending cleanup since we're resuming
-                cancelDelayedCleanup()
                 player.play()
                 isPlaying = true
                 startTimer()
@@ -82,7 +76,8 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 updateNowPlayingInfoTime()
             }
         } else if let song = lastPlayedSong {
-            // Player was released due to memory optimization, reload and resume
+            // Player was released, reload and resume (fallback case)
+            print("🔄 Entering resume path - song: \(song.title), pausedAt: \(pausedAt)s")
             resumeFromPause(song: song, at: pausedAt)
         }
     }
@@ -92,7 +87,6 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isPlaying = false
         playbackTime = 0.0
         stopTimer()
-        cancelDelayedCleanup()
         cleanupAudioResourcesOnStop()
         // Clear now playing info when stopping completely
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -112,10 +106,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
-        // Cancel any pending cleanup since we're loading new audio
-        cancelDelayedCleanup()
-        
-        // Track the song for memory management
+        // Track the song for memory management  
         lastPlayedSong = song
         pausedAt = 0
         
@@ -202,6 +193,28 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
+    private func commonLoadForResume(url: URL, resumeTime: TimeInterval) {
+        // Special load method for resume that preserves pause position
+        ensureAudioSessionConfigured()
+        
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
+            player?.volume = systemVolume // Apply current system volume
+            
+            songDuration = player?.duration ?? 0.0
+            // Don't reset playbackTime to 0 - preserve the pause position
+            playbackTime = resumeTime
+            
+            // Don't play, just load
+            isPlaying = false
+            stopTimer()
+        } catch {
+            print("❌ Failed to load audio for resume: \(error)")
+            isPlaying = false
+        }
+    }
+    
     private func startTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -227,7 +240,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Cancel any existing cleanup timer
         pauseCleanupTimer?.invalidate()
         
-        // Schedule cleanup after 30 seconds of being paused
+        // Schedule cleanup after 30 seconds of being paused to save memory
         pauseCleanupTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
             guard let self = self, !self.isPlaying else { return }
             
@@ -258,7 +271,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Deactivate audio session to free system resources
         deactivateAudioSessionIfNeeded()
         
-        print("🧹 Audio resources cleaned up - paused at \(pausedAt)s to free memory")
+        print("🧹 Audio resources cleaned up - stored position \(pausedAt)s for song: \(lastPlayedSong?.title ?? "Unknown")")
     }
     
     private func cleanupAudioResourcesOnStop() {
@@ -278,18 +291,48 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
-        print("🔄 Resuming playback at \(time)s after memory cleanup")
+        print("🔄 Resuming playback at \(time)s after memory cleanup for: \(song.title)")
         
-        // Reload the audio
-        commonPlay(url: url)
+        // Use a more reliable approach: load, prepare, seek, then play
+        ensureAudioSessionConfigured()
         
-        // Seek to the paused position
-        if time > 0 {
-            player?.currentTime = time
-            playbackTime = time
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
+            player?.volume = systemVolume
+            
+            // Prepare the player to ensure it's ready for operations
+            let prepareSuccess = player?.prepareToPlay() ?? false
+            print("🔧 AVAudioPlayer prepare result: \(prepareSuccess)")
+            
+            guard let player = player else {
+                print("❌ Player is nil after creation")
+                return
+            }
+            
+            songDuration = player.duration
+            
+            // Seek BEFORE setting up for playback
+            if time > 0 && time <= player.duration {
+                player.currentTime = time
+                playbackTime = time
+                print("🎯 Seeked to \(time)s (duration: \(player.duration)s)")
+            } else {
+                playbackTime = 0
+                print("⚠️ Invalid seek time \(time)s, duration is \(player.duration)s")
+            }
+            
+            // Now start playing from the seek position
+            player.play()
+            isPlaying = true
+            startTimer()
+            
+            updateNowPlayingInfo(for: song)
+            
+        } catch {
+            print("❌ Failed to resume audio: \(error)")
+            isPlaying = false
         }
-        
-        updateNowPlayingInfo(for: song)
     }
     
     private func deactivateAudioSessionIfNeeded() {
@@ -350,11 +393,21 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func ensureAudioSessionConfigured() {
         guard !audioSessionConfigured else { return }
         
+        let session = AVAudioSession.sharedInstance()
+        print("🔊 Configuring audio session - Current Category: \(session.category.rawValue)")
+        
+        // First, ensure the session is properly deactivated if needed
         do {
-            let session = AVAudioSession.sharedInstance()
-            
-            print("🔊 Configuring audio session - Current Category: \(session.category.rawValue)")
-            
+            try session.setActive(false, options: .notifyOthersOnDeactivation)
+            print("🔄 Reset audio session state")
+        } catch {
+            print("ℹ️ Audio session reset not needed: \(error)")
+        }
+        
+        // Small delay to ensure session state is stable
+        Thread.sleep(forTimeInterval: 0.1)
+        
+        do {
             // Set category with options
             try session.setCategory(.playback, options: [.duckOthers, .allowBluetoothA2DP])
             
@@ -368,12 +421,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             
             // Try a simpler approach if the full setup fails
             do {
-                try AVAudioSession.sharedInstance().setCategory(.playback)
-                try AVAudioSession.sharedInstance().setActive(true)
+                // Try with minimal options
+                try session.setCategory(.playback)
+                try session.setActive(true)
                 audioSessionConfigured = true
                 print("✅ Fallback audio session configured successfully")
             } catch {
                 print("❌ Even fallback audio session setup failed: \(error)")
+                // Even if configuration fails, mark as configured to prevent infinite loops
+                audioSessionConfigured = true
             }
         }
     }
