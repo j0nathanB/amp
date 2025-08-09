@@ -153,13 +153,45 @@ class HybridSearchIndex {
         
         let normalizedTerm = term.searchNormalized
         
-        // Try exact word match first (O(1))
+        // Get ALL matches - both exact word matches and partial matches
+        var allMatches = Set<MPMediaEntityPersistentID>()
+        
+        // 1. Add exact word matches (O(1))
         if let exactMatches = songWordIndex[normalizedTerm] {
-            return exactMatches.compactMap { songCache[$0] }.sorted { $0.title < $1.title }
+            allMatches.formUnion(exactMatches)
         }
         
-        // Fall back to partial matching
-        return searchSongsPartial(normalizedTerm)
+        // 2. Add partial word matches
+        let partialMatches = getPartialSongMatches(normalizedTerm)
+        allMatches.formUnion(partialMatches)
+        
+        // Convert to songs and sort with priority
+        return allMatches.compactMap { songCache[$0] }
+            .filter { song in
+                let normalizedTitle = song.title.searchNormalized
+                let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                // Only match if any word starts with the term (word prefix matching)
+                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                
+                return hasMatch
+            }
+            .sorted { song1, song2 in
+                let title1 = song1.title.searchNormalized
+                let title2 = song2.title.searchNormalized
+                let words1 = title1.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                let words2 = title2.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                
+                // Prioritize exact word matches over prefix matches
+                let hasExactMatch1 = words1.contains { $0 == normalizedTerm }
+                let hasExactMatch2 = words2.contains { $0 == normalizedTerm }
+                
+                if hasExactMatch1 && !hasExactMatch2 { return true }
+                if !hasExactMatch1 && hasExactMatch2 { return false }
+                
+                return song1.title < song2.title
+            }
     }
     
     func searchArtists(term: String) -> [Artist] {
@@ -168,39 +200,95 @@ class HybridSearchIndex {
         let normalizedTerm = term.searchNormalized
         
         #if DEBUG
-        if normalizedTerm.contains("bue") {
+        if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
             print("🔍 DEBUG: Searching for artist term '\(term)' normalized to '\(normalizedTerm)'")
             print("🔍 DEBUG: Exact match in artistWordIndex: \(artistWordIndex[normalizedTerm]?.count ?? 0) results")
             
-            // Check what words we have that start with the term
-            let matchingWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
-            print("🔍 DEBUG: Words starting with '\(normalizedTerm)': \(matchingWords)")
+            // Check what words we have that start with the term (exact and prefix matches)
+            let exactWords = artistWordIndex.keys.filter { $0 == normalizedTerm }
+            let prefixWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm }
+            print("🔍 DEBUG: Exact word matches for '\(normalizedTerm)': \(exactWords)")
+            print("🔍 DEBUG: Prefix word matches for '\(normalizedTerm)': \(prefixWords)")
         }
         #endif
         
-        // Try exact word match first (O(1))
+        // Get ALL matches - both exact word matches and partial matches
+        var allMatches = Set<MPMediaEntityPersistentID>()
+        
+        // 1. Add exact word matches (O(1))
         if let exactMatches = artistWordIndex[normalizedTerm] {
-            let results = exactMatches.compactMap { artistCache[$0] }.sorted { $0.name < $1.name }
+            allMatches.formUnion(exactMatches)
             
             #if DEBUG
-            if normalizedTerm.contains("bue") {
-                print("🔍 DEBUG: Exact match results: \(results.map { $0.name })")
+            if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
+                let exactResults = exactMatches.compactMap { artistCache[$0] }
+                print("🔍 DEBUG: Exact match results: \(exactResults.map { $0.name })")
             }
             #endif
-            
-            return results
         }
         
-        // Fall back to partial matching
-        let partialResults = searchArtistsPartial(normalizedTerm)
+        // 2. Add prefix word matches
+        let prefixMatches = getPartialArtistMatches(normalizedTerm)
+        allMatches.formUnion(prefixMatches)
         
         #if DEBUG
-        if normalizedTerm.contains("bue") {
-            print("🔍 DEBUG: Partial match results: \(partialResults.map { $0.name })")
+        if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
+            let prefixResults = prefixMatches.compactMap { artistCache[$0] }
+            print("🔍 DEBUG: Prefix match results: \(prefixResults.map { $0.name })")
         }
         #endif
         
-        return partialResults
+        // Convert to artists and sort with priority
+        let results = allMatches.compactMap { artistCache[$0] }
+            .filter { artist in
+                let normalizedName = artist.name.searchNormalized
+                let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                // Only match if any word starts with the term (word prefix matching)
+                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                
+                return hasMatch
+            }
+            .sorted { artist1, artist2 in
+                let name1 = artist1.name.searchNormalized
+                let name2 = artist2.name.searchNormalized
+                let words1 = name1.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                let words2 = name2.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                
+                // Prioritize word boundary matches over partial matches
+                let hasWordBoundary1 = words1.contains { $0.hasPrefix(normalizedTerm) }
+                let hasWordBoundary2 = words2.contains { $0.hasPrefix(normalizedTerm) }
+                
+                if hasWordBoundary1 && !hasWordBoundary2 { return true }
+                if !hasWordBoundary1 && hasWordBoundary2 { return false }
+                
+                return artist1.name < artist2.name
+            }
+        
+        #if DEBUG
+        if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
+            print("🔍 DEBUG: Final combined results: \(results.map { $0.name })")
+        }
+        #endif
+        
+        return results
+    }
+    
+    private func getPartialArtistMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
+        // Get artists from words that START WITH the term (word prefix matches)
+        let prefixWords = artistWordIndex.keys.filter { 
+            $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm 
+        }
+        return Set(prefixWords.flatMap { artistWordIndex[$0] ?? [] })
+    }
+    
+    private func getPartialSongMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
+        // Get songs from words that START WITH the term (word prefix matches)
+        let prefixWords = songWordIndex.keys.filter { 
+            $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm 
+        }
+        return Set(prefixWords.flatMap { songWordIndex[$0] ?? [] })
     }
     
     func searchAlbums(term: String) -> [Album] {
@@ -220,41 +308,106 @@ class HybridSearchIndex {
     // MARK: - Partial Matching Fallbacks
     
     private func searchSongsPartial(_ normalizedTerm: String) -> [Song] {
-        // Get candidate songs from words that start with the term
-        let candidateWords = songWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
-        let candidateIDs = Set(candidateWords.flatMap { songWordIndex[$0] ?? [] })
+        var candidateIDs = Set<MPMediaEntityPersistentID>()
+        
+        // 1. Get songs from words that start with the term (word boundary matches)
+        let prefixWords = songWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
+        candidateIDs.formUnion(prefixWords.flatMap { songWordIndex[$0] ?? [] })
+        
+        // 2. Get songs from words that contain the term (partial word matches)
+        let containingWords = songWordIndex.keys.filter { $0.contains(normalizedTerm) && !$0.hasPrefix(normalizedTerm) }
+        candidateIDs.formUnion(containingWords.flatMap { songWordIndex[$0] ?? [] })
         
         if !candidateIDs.isEmpty {
-            // Filter candidates that contain the term
             return candidateIDs.compactMap { songCache[$0] }
                 .filter { song in
-                    song.title.searchNormalized.contains(normalizedTerm)
+                    let normalizedTitle = song.title.searchNormalized
+                    let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
+                        .filter { !$0.isEmpty }
+                    
+                    // Prefer word boundary matches, but also include partial matches
+                    let hasWordBoundaryMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                    let hasPartialMatch = words.contains { $0.contains(normalizedTerm) }
+                    
+                    return hasWordBoundaryMatch || hasPartialMatch
                 }
-                .sorted { $0.title < $1.title }
+                .sorted { song1, song2 in
+                    let title1 = song1.title.searchNormalized
+                    let title2 = song2.title.searchNormalized
+                    let words1 = title1.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    let words2 = title2.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    
+                    // Prioritize word boundary matches over partial matches
+                    let hasWordBoundary1 = words1.contains { $0.hasPrefix(normalizedTerm) }
+                    let hasWordBoundary2 = words2.contains { $0.hasPrefix(normalizedTerm) }
+                    
+                    if hasWordBoundary1 && !hasWordBoundary2 { return true }
+                    if !hasWordBoundary1 && hasWordBoundary2 { return false }
+                    
+                    return song1.title < song2.title
+                }
         }
         
         // Final fallback: scan all songs (only if index isn't built yet)
         if !isIndexBuilt {
-            return allSongs.filter { song in
-                song.title?.searchNormalized.contains(normalizedTerm) == true
-            }.map { LibraryService.shared.song(from: $0) }
-            .sorted { $0.title < $1.title }
+            return allSongs.compactMap { song -> Song? in
+                guard let title = song.title else { return nil }
+                
+                let normalizedTitle = title.searchNormalized
+                let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                // Only match if any word starts with the term (word prefix matching)
+                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                
+                guard hasMatch else { return nil }
+                
+                return LibraryService.shared.song(from: song)
+            }.sorted { $0.title < $1.title }
         }
         
         return []
     }
     
     private func searchArtistsPartial(_ normalizedTerm: String) -> [Artist] {
-        // Get candidate artists from words that start with the term
-        let candidateWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
-        let candidateIDs = Set(candidateWords.flatMap { artistWordIndex[$0] ?? [] })
+        var candidateIDs = Set<MPMediaEntityPersistentID>()
+        
+        // 1. Get artists from words that start with the term (word boundary matches)
+        let prefixWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) }
+        candidateIDs.formUnion(prefixWords.flatMap { artistWordIndex[$0] ?? [] })
+        
+        // 2. Get artists from words that contain the term (partial word matches)
+        let containingWords = artistWordIndex.keys.filter { $0.contains(normalizedTerm) && !$0.hasPrefix(normalizedTerm) }
+        candidateIDs.formUnion(containingWords.flatMap { artistWordIndex[$0] ?? [] })
         
         if !candidateIDs.isEmpty {
             return candidateIDs.compactMap { artistCache[$0] }
                 .filter { artist in
-                    artist.name.searchNormalized.contains(normalizedTerm)
+                    let normalizedName = artist.name.searchNormalized
+                    let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
+                        .filter { !$0.isEmpty }
+                    
+                    // Prefer word boundary matches, but also include partial matches
+                    let hasWordBoundaryMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                    let hasPartialMatch = words.contains { $0.contains(normalizedTerm) }
+                    
+                    return hasWordBoundaryMatch || hasPartialMatch
                 }
-                .sorted { $0.name < $1.name }
+                .sorted { artist1, artist2 in
+                    let name1 = artist1.name.searchNormalized
+                    let name2 = artist2.name.searchNormalized
+                    let words1 = name1.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    let words2 = name2.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    
+                    // Prioritize exact word matches over prefix matches
+                    let hasExactMatch1 = words1.contains { $0 == normalizedTerm }
+                    let hasExactMatch2 = words2.contains { $0 == normalizedTerm }
+                    
+                    if hasExactMatch1 && !hasExactMatch2 { return true }
+                    if !hasExactMatch1 && hasExactMatch2 { return false }
+                    
+                    return artist1.name < artist2.name
+                }
         }
         
         // Final fallback: scan all artists (only if index isn't built yet)
@@ -262,8 +415,16 @@ class HybridSearchIndex {
             var seenIDs = Set<MPMediaEntityPersistentID>()
             return allArtists.compactMap { collection -> Artist? in
                 guard let representativeItem = collection.representativeItem,
-                      let artistName = representativeItem.artist,
-                      artistName.searchNormalized.contains(normalizedTerm) else { return nil }
+                      let artistName = representativeItem.artist else { return nil }
+                
+                let normalizedName = artistName.searchNormalized
+                let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                // Only match if any word starts with the term (word prefix matching)
+                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                
+                guard hasMatch else { return nil }
                 
                 let artistID = representativeItem.artistPersistentID
                 guard !seenIDs.contains(artistID) else { return nil }
