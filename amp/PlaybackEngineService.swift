@@ -32,6 +32,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         updateCurrentOutputName()
         setupNotifications()
         updateSystemVolume()
+        // Ensure audio session is configured before setting up remote commands
+        ensureAudioSessionConfigured()
+        setupRemoteCommandCenter()
     }
     
     deinit {
@@ -40,6 +43,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         pauseCleanupTimer?.invalidate()
         volumeView?.removeFromSuperview()
         volumeObserver?.invalidate()
+        teardownRemoteCommandCenter()
     }
     
     // MARK: - Playback Control
@@ -89,7 +93,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         stopTimer()
         cleanupAudioResourcesOnStop()
         // Clear now playing info when stopping completely
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        DispatchQueue.main.async {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            print("🧹 Cleared Now Playing info after stop")
+        }
     }
     
     func seek(to time: TimeInterval) {
@@ -354,6 +361,8 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
+        print("🎵 Setting up Now Playing info for: \(song.title) by \(song.artist)")
+        
         var nowPlayingInfo = [String: Any]()
         nowPlayingInfo[MPMediaItemPropertyTitle] = song.title
         nowPlayingInfo[MPMediaItemPropertyArtist] = song.artist.isEmpty ? "Unknown Artist" : song.artist
@@ -365,11 +374,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Add artwork if available
         if let artwork = getArtwork(for: song) {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+            print("🖼️ Added artwork to Now Playing info")
+        } else {
+            print("🚫 No artwork found for song")
         }
         
         DispatchQueue.main.async {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-            print("🎵 Updated now playing info: \(song.title) - \(song.artist) (\(self.playbackTime)s)")
+            print("✅ Now Playing info updated successfully")
+            print("📊 Now Playing Center state: \(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil ? "Active" : "Inactive")")
         }
     }
     
@@ -408,24 +421,28 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         Thread.sleep(forTimeInterval: 0.1)
         
         do {
-            // Set category with options
-            try session.setCategory(.playback, options: [.duckOthers, .allowBluetoothA2DP])
+            // Set category with options for Now Playing and Control Center support
+            try session.setCategory(.playback, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP])
+            print("🔊 Audio session category set to .playback with mode .default and bluetooth options")
             
             // Activate the session
             try session.setActive(true)
+            print("🔊 Audio session activated successfully")
             
             audioSessionConfigured = true
-            print("✅ Audio session configured successfully")
+            print("✅ Audio session configured successfully - Now Playing should be available")
         } catch let error as NSError {
             print("❌ Failed to configure audio session: \(error) - Code: \(error.code)")
             
             // Try a simpler approach if the full setup fails
             do {
-                // Try with minimal options
-                try session.setCategory(.playback)
+                // Try with just the playback category, no options
+                try session.setCategory(.playback, mode: .default, policy: .default, options: [])
+                print("🔊 Fallback: Audio session category set to .playback with default settings")
                 try session.setActive(true)
+                print("🔊 Fallback: Audio session activated successfully")
                 audioSessionConfigured = true
-                print("✅ Fallback audio session configured successfully")
+                print("✅ Fallback audio session configured successfully - Now Playing should still work")
             } catch {
                 print("❌ Even fallback audio session setup failed: \(error)")
                 // Even if configuration fails, mark as configured to prevent infinite loops
@@ -513,6 +530,128 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else {
             currentOutputName = "iPhone"
         }
+    }
+    
+    // MARK: - Remote Command Center
+    
+    private func setupRemoteCommandCenter() {
+        print("🎛️ Setting up Remote Command Center...")
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        // Play command
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            print("▶️ Remote play command received")
+            self.playPause()
+            return .success
+        }
+        
+        // Pause command
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            print("⏸️ Remote pause command received")
+            self.playPause()
+            return .success
+        }
+        
+        // Toggle play/pause command (for headphones)
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            print("⏯️ Remote toggle play/pause command received")
+            self.playPause()
+            return .success
+        }
+        
+        // Next track command
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            // Notify delegate to play next track
+            self.delegate?.playbackDidFinish(successfully: true)
+            return .success
+        }
+        
+        // Previous track command
+        commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            // Check if we should restart current track or go to previous
+            if let currentTime = self.player?.currentTime, currentTime > 3.0 {
+                // If more than 3 seconds in, restart current track
+                self.seek(to: 0)
+            } else {
+                // Otherwise, request previous track through AudioPlayerService
+                NotificationCenter.default.post(name: Notification.Name("PlayPreviousTrack"), object: nil)
+            }
+            return .success
+        }
+        
+        // Seek forward/backward commands (optional, for scrubbing)
+        commandCenter.skipForwardCommand.isEnabled = true
+        commandCenter.skipForwardCommand.preferredIntervals = [15]
+        commandCenter.skipForwardCommand.addTarget { [weak self] event in
+            guard let self = self,
+                  let skipEvent = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
+            
+            let newTime = self.playbackTime + skipEvent.interval
+            if newTime < self.songDuration {
+                self.seek(to: newTime)
+                return .success
+            }
+            return .commandFailed
+        }
+        
+        commandCenter.skipBackwardCommand.isEnabled = true
+        commandCenter.skipBackwardCommand.preferredIntervals = [15]
+        commandCenter.skipBackwardCommand.addTarget { [weak self] event in
+            guard let self = self,
+                  let skipEvent = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
+            
+            let newTime = max(0, self.playbackTime - skipEvent.interval)
+            self.seek(to: newTime)
+            return .success
+        }
+        
+        // Change playback position command (for scrubber)
+        commandCenter.changePlaybackPositionCommand.isEnabled = true
+        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self = self,
+                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            
+            self.seek(to: positionEvent.positionTime)
+            return .success
+        }
+        
+        print("✅ Remote Command Center configured")
+        print("🎛️ Commands enabled: play, pause, toggle, next, previous, skip forward/backward, scrub")
+    }
+    
+    // Force refresh Now Playing info (for debugging Control Center issues)
+    func refreshNowPlayingInfo() {
+        guard let currentSong = lastPlayedSong else {
+            print("❌ No current song to refresh Now Playing info")
+            return
+        }
+        print("🔄 Force refreshing Now Playing info...")
+        updateNowPlayingInfo(for: currentSong)
+    }
+    
+    private func teardownRemoteCommandCenter() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        commandCenter.playCommand.removeTarget(nil)
+        commandCenter.pauseCommand.removeTarget(nil)
+        commandCenter.togglePlayPauseCommand.removeTarget(nil)
+        commandCenter.nextTrackCommand.removeTarget(nil)
+        commandCenter.previousTrackCommand.removeTarget(nil)
+        commandCenter.skipForwardCommand.removeTarget(nil)
+        commandCenter.skipBackwardCommand.removeTarget(nil)
+        commandCenter.changePlaybackPositionCommand.removeTarget(nil)
+        
+        print("🧹 Remote Command Center cleaned up")
     }
     
     // MARK: - AVAudioPlayerDelegate

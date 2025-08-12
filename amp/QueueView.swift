@@ -32,8 +32,28 @@ class QueueSongCache: ObservableObject {
     }
 }
 
+// Singleton to manage queue view state across tab switches
+class QueueViewState: ObservableObject {
+    static let shared = QueueViewState()
+    
+    @Published var lastKnownCurrentIndex: Int = -1
+    @Published var isActivelyViewing: Bool = false
+    
+    private init() {}
+    
+    func updateCurrentIndex(_ index: Int) {
+        lastKnownCurrentIndex = index
+    }
+    
+    func setActiveViewing(_ active: Bool) {
+        isActivelyViewing = active
+    }
+}
+
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @StateObject private var viewState = QueueViewState.shared
+    @State private var lastCurrentIndex: Int = -1
     
     var body: some View {
         NavigationStack {
@@ -46,14 +66,51 @@ struct QueueView: View {
                         Spacer()
                     }
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
-                                LazyQueueItemView(index: index)
-                                    .id("item-\(audioPlayer.playbackQueue.getTrackID(at: index) ?? 0)")
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
+                                    LazyQueueItemView(index: index)
+                                        .id("item-\(index)-\(audioPlayer.queueVersion)")
+                                }
                             }
+                            .id("queue-\(audioPlayer.queueVersion)")
+                            .padding(.top, 1)
                         }
-                        .padding(.top, 1)
+                        .onChange(of: audioPlayer.currentIndex) { oldIndex, newIndex in
+                            let wasTracking = viewState.lastKnownCurrentIndex == oldIndex
+                            
+                            guard newIndex >= 0 else { return }
+                            
+                            // Only auto-scroll if user is actively viewing AND we were tracking the previous song
+                            if viewState.isActivelyViewing && wasTracking {
+                                // User is actively viewing and song changed - smooth scroll
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo("item-\(newIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                }
+                            }
+                            
+                            viewState.updateCurrentIndex(newIndex)
+                            lastCurrentIndex = newIndex
+                        }
+                        .onAppear {
+                            viewState.setActiveViewing(true)
+                            
+                            let currentIndex = audioPlayer.currentIndex
+                            
+                            // Always scroll to the currently playing track on appear
+                            if currentIndex >= 0 {
+                                DispatchQueue.main.async {
+                                    proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                }
+                            }
+                            
+                            viewState.updateCurrentIndex(currentIndex)
+                            lastCurrentIndex = currentIndex
+                        }
+                        .onDisappear {
+                            viewState.setActiveViewing(false)
+                        }
                     }
                 }
             }

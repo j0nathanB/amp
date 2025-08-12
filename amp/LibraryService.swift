@@ -36,7 +36,7 @@ class HybridSearchIndex {
     // Object caches for fast retrieval
     private var songCache: [MPMediaEntityPersistentID: Song] = [:]
     private var artistCache: [MPMediaEntityPersistentID: Artist] = [:]
-    private var albumCache: [MPMediaEntityPersistentID: Album] = [:]
+    private(set) var albumCache: [MPMediaEntityPersistentID: Album] = [:]
     
     // Fallback data for partial matching
     private var allSongs: [MPMediaItem] = []
@@ -291,18 +291,58 @@ class HybridSearchIndex {
         return Set(prefixWords.flatMap { songWordIndex[$0] ?? [] })
     }
     
+    private func getPartialAlbumMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
+        // Get albums from words that START WITH the term (word prefix matches)
+        let prefixWords = albumWordIndex.keys.filter { 
+            $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm 
+        }
+        return Set(prefixWords.flatMap { albumWordIndex[$0] ?? [] })
+    }
+    
     func searchAlbums(term: String) -> [Album] {
         guard !term.isEmpty else { return [] }
         
         let normalizedTerm = term.searchNormalized
         
-        // Try exact word match first (O(1))
+        // Get ALL matches - both exact word matches and partial matches (same as songs)
+        var allMatches = Set<MPMediaEntityPersistentID>()
+        
+        // 1. Add exact word matches (O(1))
         if let exactMatches = albumWordIndex[normalizedTerm] {
-            return exactMatches.compactMap { albumCache[$0] }.sorted { $0.title < $1.title }
+            allMatches.formUnion(exactMatches)
         }
         
-        // Fall back to partial matching
-        return searchAlbumsPartial(normalizedTerm)
+        // 2. Add partial word matches
+        let partialMatches = getPartialAlbumMatches(normalizedTerm)
+        allMatches.formUnion(partialMatches)
+        
+        // Convert to albums and sort with priority (same logic as songs)
+        return allMatches.compactMap { albumCache[$0] }
+            .filter { album in
+                let normalizedTitle = album.title.searchNormalized
+                let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                
+                // Only match if any word starts with the term (word prefix matching)
+                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                
+                return hasMatch
+            }
+            .sorted { album1, album2 in
+                let title1 = album1.title.searchNormalized
+                let title2 = album2.title.searchNormalized
+                let words1 = title1.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                let words2 = title2.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                
+                // Prioritize exact word matches over prefix matches
+                let hasExactMatch1 = words1.contains { $0 == normalizedTerm }
+                let hasExactMatch2 = words2.contains { $0 == normalizedTerm }
+                
+                if hasExactMatch1 && !hasExactMatch2 { return true }
+                if !hasExactMatch1 && hasExactMatch2 { return false }
+                
+                return album1.title < album2.title
+            }
     }
     
     // MARK: - Partial Matching Fallbacks
@@ -536,16 +576,36 @@ class LibraryService {
         await Task.detached(priority: .userInitiated) {
             guard !term.isEmpty else { return SearchResults(artists: [], albums: [], songs: []) }
 
-            // Parallel search using MPMediaPropertyPredicate for optimal performance
-            async let artists = self.searchArtists(term: term)
-            async let albums = self.searchAlbums(term: term)  
-            async let songs = self.searchSongs(term: term)
+            // Check if this is a multi-word query
+            let normalizedTerm = term.searchNormalized
+            let searchWords = normalizedTerm.components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
             
-            return SearchResults(
-                artists: await artists,
-                albums: await albums,
-                songs: await songs
-            )
+            #if DEBUG
+            print("🔍 SEARCH ROUTING: Raw: '\(term)' → Normalized: '\(normalizedTerm)' → Words: \(searchWords) → Count: \(searchWords.count)")
+            #endif
+            
+            if searchWords.count > 1 {
+                // Multi-word search - use the specialized method
+                #if DEBUG
+                print("🔍 ROUTING TO: Multi-word search with terms: \(searchWords)")
+                #endif
+                return await self.searchWithMultipleTerms(terms: searchWords)
+            } else {
+                // Single word search - use the optimized index-based search
+                #if DEBUG
+                print("🔍 ROUTING TO: Single-word search")
+                #endif
+                async let artists = self.searchArtists(term: term)
+                async let albums = self.searchAlbums(term: term)  
+                async let songs = self.searchSongs(term: term)
+                
+                return SearchResults(
+                    artists: await artists,
+                    albums: await albums,
+                    songs: await songs
+                )
+            }
         }.value
     }
     
@@ -557,7 +617,8 @@ class LibraryService {
     
     private func searchArtists(term: String) -> [Artist] {
         #if DEBUG
-        print("🎤 ARTIST SEARCH: Searching for '\(term)'")
+        let normalized = term.searchNormalized
+        print("🎤 ARTIST SEARCH: Raw: '\(term)' → Normalized: '\(normalized)'")
         #endif
         
         return searchIndex.searchArtists(term: term)
@@ -574,30 +635,91 @@ class LibraryService {
         await Task.detached(priority: .userInitiated) {
             guard !terms.isEmpty else { return SearchResults(artists: [], albums: [], songs: []) }
             
+            #if DEBUG
+            print("🔍 MULTI-WORD SEARCH: Starting search with terms: \(terms)")
+            #endif
+            
             async let artists = self.searchArtistsMultipleTerms(terms: terms)
             async let albums = self.searchAlbumsMultipleTerms(terms: terms)
             async let songs = self.searchSongsMultipleTerms(terms: terms)
             
-            return SearchResults(
+            let results = SearchResults(
                 artists: await artists,
                 albums: await albums,
                 songs: await songs
             )
+            
+            #if DEBUG
+            print("🔍 MULTI-WORD RESULTS: \(results.artists.count) artists, \(results.albums.count) albums, \(results.songs.count) songs")
+            #endif
+            
+            return results
         }.value
     }
     
     private func searchSongsMultipleTerms(terms: [String]) -> [Song] {
-        // For multiple terms, we need to use a different approach since
-        // MPMediaPropertyPredicate doesn't handle complex word boundary logic well
+        // Use the search index for better performance when available
+        if searchIndex.isIndexBuilt {
+            return searchSongsMultipleTermsWithIndex(terms: terms)
+        } else {
+            return searchSongsMultipleTermsFallback(terms: terms)
+        }
+    }
+    
+    private func searchSongsMultipleTermsWithIndex(terms: [String]) -> [Song] {
+        // Get candidate songs by intersecting results for each term
+        var candidateSongIDs: Set<MPMediaEntityPersistentID>?
+        
+        for term in terms {
+            let normalizedTerm = term.searchNormalized
+            let termMatches = searchIndex.searchSongs(term: normalizedTerm)
+                .map { $0.persistentID }
+            let termMatchSet = Set(termMatches)
+            
+            if candidateSongIDs == nil {
+                candidateSongIDs = termMatchSet
+            } else {
+                // Intersect with previous results (all terms must match)
+                candidateSongIDs = candidateSongIDs!.intersection(termMatchSet)
+            }
+            
+            // Early exit if no matches
+            if candidateSongIDs?.isEmpty == true {
+                break
+            }
+        }
+        
+        guard let finalCandidates = candidateSongIDs, !finalCandidates.isEmpty else {
+            return []
+        }
+        
+        // Convert back to songs and verify all terms match (additional validation)
+        return finalCandidates.compactMap { id in
+            guard let song = getSong(by: id) else { return nil }
+            
+            // Double-check that all terms match using word boundary logic
+            let searchString = terms.joined(separator: " ")
+            let allTermsMatch = wordBoundaryMatch(searchTerm: searchString, in: song.title) ||
+                              wordBoundaryMatch(searchTerm: searchString, in: song.artist) ||
+                              wordBoundaryMatch(searchTerm: searchString, in: song.album)
+            
+            return allTermsMatch ? song : nil
+        }.sorted { $0.title < $1.title }
+    }
+    
+    private func searchSongsMultipleTermsFallback(terms: [String]) -> [Song] {
+        // Fallback method when index isn't built yet
         let allSongsQuery = MPMediaQuery.songs()
         let candidateSongs = allSongsQuery.items ?? []
         
         let filteredSongs = candidateSongs.filter { item in
             guard let title = item.title else { return false }
-            // All terms must match using word boundary logic
-            return terms.allSatisfy { term in
-                self.wordBoundaryMatch(searchTerm: term, in: title)
-            }
+            
+            // All terms must match in title, artist, or album using word boundary logic
+            let searchString = terms.joined(separator: " ")
+            return wordBoundaryMatch(searchTerm: searchString, in: title) ||
+                   wordBoundaryMatch(searchTerm: searchString, in: item.artist ?? "") ||
+                   wordBoundaryMatch(searchTerm: searchString, in: item.albumTitle ?? "")
         }
         
         return filteredSongs
@@ -606,25 +728,103 @@ class LibraryService {
     }
     
     private func searchArtistsMultipleTerms(terms: [String]) -> [Artist] {
+        #if DEBUG
+        print("🎤 MULTI-WORD ARTIST SEARCH: terms = \(terms)")
+        #endif
+        
         let query = MPMediaQuery.artists()
         let candidateArtists = query.collections ?? []
+        
+        #if DEBUG
+        print("🎤 Found \(candidateArtists.count) candidate artists to check")
+        #endif
         
         let matchingArtists = candidateArtists.compactMap { collection -> Artist? in
             guard let representativeItem = collection.representativeItem,
                   let artistName = representativeItem.artist else { return nil }
             
-            // All terms must match using word boundary logic
-            let allTermsMatch = terms.allSatisfy { term in
-                self.wordBoundaryMatch(searchTerm: term, in: artistName)
-            }
+            // All terms must match in artist name using word boundary logic
+            // Join terms back into a single search string for proper order enforcement
+            let searchString = terms.joined(separator: " ")
+            let allTermsMatch = self.wordBoundaryMatch(searchTerm: searchString, in: artistName)
             
-            return allTermsMatch ? Artist(id: representativeItem.artistPersistentID, name: artistName) : nil
+            #if DEBUG
+            if artistName.lowercased().contains("natalia") || artistName.lowercased().contains("lafourcade") {
+                print("🎤 CHECKING: '\(artistName)' → allTermsMatch: \(allTermsMatch)")
+            }
+            #endif
+            
+            if allTermsMatch {
+                #if DEBUG
+                print("🎤 ✅ MATCHED: '\(artistName)'")
+                #endif
+                return Artist(id: representativeItem.artistPersistentID, name: artistName)
+            } else {
+                return nil
+            }
         }
         
-        return Array(Set(matchingArtists)).sorted { $0.name < $1.name }
+        let results = Array(Set(matchingArtists)).sorted { $0.name < $1.name }
+        
+        #if DEBUG
+        print("🎤 FINAL ARTIST RESULTS: \(results.map { $0.name })")
+        #endif
+        
+        return results
     }
     
     private func searchAlbumsMultipleTerms(terms: [String]) -> [Album] {
+        // Use the search index for better performance when available
+        if searchIndex.isIndexBuilt {
+            return searchAlbumsMultipleTermsWithIndex(terms: terms)
+        } else {
+            return searchAlbumsMultipleTermsFallback(terms: terms)
+        }
+    }
+    
+    private func searchAlbumsMultipleTermsWithIndex(terms: [String]) -> [Album] {
+        // Get candidate albums by intersecting results for each term
+        var candidateAlbumIDs: Set<MPMediaEntityPersistentID>?
+        
+        for term in terms {
+            let normalizedTerm = term.searchNormalized
+            let termMatches = searchIndex.searchAlbums(term: normalizedTerm)
+                .map { $0.id }
+            let termMatchSet = Set(termMatches)
+            
+            if candidateAlbumIDs == nil {
+                candidateAlbumIDs = termMatchSet
+            } else {
+                // Intersect with previous results (all terms must match)
+                candidateAlbumIDs = candidateAlbumIDs!.intersection(termMatchSet)
+            }
+            
+            // Early exit if no matches
+            if candidateAlbumIDs?.isEmpty == true {
+                break
+            }
+        }
+        
+        guard let finalCandidates = candidateAlbumIDs, !finalCandidates.isEmpty else {
+            return []
+        }
+        
+        // Convert back to albums and verify all terms match (additional validation)
+        return finalCandidates.compactMap { id in
+            // Get album from cache or query
+            if let album = searchIndex.albumCache[id] {
+                // Double-check that all terms match using word boundary logic
+                let searchString = terms.joined(separator: " ")
+                let allTermsMatch = wordBoundaryMatch(searchTerm: searchString, in: album.title)
+                
+                return allTermsMatch ? album : nil
+            }
+            return nil
+        }.sorted { $0.title < $1.title }
+    }
+    
+    private func searchAlbumsMultipleTermsFallback(terms: [String]) -> [Album] {
+        // Fallback method when index isn't built yet
         let query = MPMediaQuery.albums()
         let candidateAlbums = query.collections ?? []
         
@@ -632,10 +832,9 @@ class LibraryService {
             guard let representativeItem = collection.representativeItem,
                   let albumTitle = representativeItem.albumTitle else { return nil }
             
-            // All terms must match using word boundary logic
-            let allTermsMatch = terms.allSatisfy { term in
-                self.wordBoundaryMatch(searchTerm: term, in: albumTitle)
-            }
+            // All terms must match in album title using word boundary logic
+            let searchString = terms.joined(separator: " ")
+            let allTermsMatch = self.wordBoundaryMatch(searchTerm: searchString, in: albumTitle)
             
             return allTermsMatch ? Album(
                 id: representativeItem.albumPersistentID,
@@ -779,6 +978,15 @@ class LibraryService {
             ("jon", "grace jones", true, "Should match word beginning 'jones'"),
             ("rac", "grace jones", false, "Should NOT match middle of word 'grace'"),
             
+            // Order enforcement tests - NEW
+            ("la na", "La Nacional", true, "Should match 'la na' -> 'La Nacional' (correct order)"),
+            ("la na", "Natalia Lafourcade", false, "Should NOT match 'la na' -> 'Natalia Lafourcade' (wrong order)"),
+            ("nat la", "Natalia Lafourcade", true, "Should match 'nat la' -> 'Natalia Lafourcade' (correct order)"),
+            ("let it", "Let It Be", true, "Should match 'let it' -> 'Let It Be' (correct order)"),
+            ("it let", "Let It Be", false, "Should NOT match 'it let' -> 'Let It Be' (wrong order)"),
+            ("abbey road", "Abbey Road", true, "Should match 'abbey road' -> 'Abbey Road' (correct order)"),
+            ("road abbey", "Abbey Road", false, "Should NOT match 'road abbey' -> 'Abbey Road' (wrong order)"),
+            
             // Edge cases
             ("a", "a song", true, "Should match single letter word"),
             ("the", "breathe", false, "Should NOT match 'the' in 'breathe'"),
@@ -802,10 +1010,11 @@ class LibraryService {
     
     // MARK: - Smart Search Matching
     
-    /// Word-boundary matching with diacritic insensitive search
+    /// Word-boundary matching with diacritic insensitive search and ORDER ENFORCEMENT
     /// "cafe" matches "café tacuba" ✅
     /// "ace" does NOT match "grace jones" ❌ 
     /// "sun" matches "king sunny ade" and "sun ra" ✅
+    /// "la na" matches "La Nacional" ✅ but NOT "Natalia Lafourcade" ❌
     private func wordBoundaryMatch(searchTerm: String, in text: String) -> Bool {
         guard !searchTerm.isEmpty else { return false }
         
@@ -816,25 +1025,60 @@ class LibraryService {
         
         // Use consistent normalization for text
         let normalizedText = text.searchNormalized
+        let textWords = normalizedText.components(separatedBy: LibraryService.wordSeparators)
+            .filter { !$0.isEmpty }
         
-        // All search words must match word boundaries in the text
-        return searchWords.allSatisfy { normalizedSearchWord in
-            return self.matchesWordBoundaryOptimized(normalizedWord: normalizedSearchWord, in: normalizedText)
-        }
+        // All search words must match word boundaries in the text IN THE SAME ORDER
+        return matchesInOrder(searchWords: searchWords, textWords: textWords)
     }
     
-    private func matchesWordBoundaryOptimized(normalizedWord: String, in normalizedText: String) -> Bool {
-        // Use static character set to avoid recreating it on every call
-        let textWords = normalizedText.components(separatedBy: LibraryService.wordSeparators)
+    /// Check if search words match text words in the same order (with gaps allowed)
+    private func matchesInOrder(searchWords: [String], textWords: [String]) -> Bool {
+        guard !searchWords.isEmpty else { return true }
+        guard !textWords.isEmpty else { return false }
         
-        // Use faster containment check - no need to create intermediate arrays
+        var searchIndex = 0
+        
+        #if DEBUG
+        // Debug logging for specific problematic cases
+        if searchWords.contains("la") && searchWords.contains("na") {
+            let textContent = textWords.joined(separator: " ")
+            print("🔍 ORDER CHECK: '\(searchWords.joined(separator: " "))' vs '\(textContent)'")
+        }
+        #endif
+        
         for textWord in textWords {
-            if !textWord.isEmpty && textWord.hasPrefix(normalizedWord) {
-                return true
+            // Check if current text word matches the current search word we're looking for
+            if searchIndex < searchWords.count && textWord.hasPrefix(searchWords[searchIndex]) {
+                #if DEBUG
+                if searchWords.contains("la") && searchWords.contains("na") {
+                    print("   ✅ Matched '\(searchWords[searchIndex])' with '\(textWord)' (index \(searchIndex))")
+                }
+                #endif
+                searchIndex += 1
+                
+                // If we've matched all search words in order, we're done
+                if searchIndex == searchWords.count {
+                    #if DEBUG
+                    if searchWords.contains("la") && searchWords.contains("na") {
+                        print("   🎯 ALL WORDS MATCHED - RESULT: true")
+                    }
+                    #endif
+                    return true
+                }
             }
         }
-        return false
+        
+        // Return true only if we matched ALL search words
+        let result = searchIndex == searchWords.count
+        #if DEBUG
+        if searchWords.contains("la") && searchWords.contains("na") {
+            print("   🎯 FINAL RESULT: \(result) (matched \(searchIndex)/\(searchWords.count))")
+        }
+        #endif
+        return result
     }
+    
     
     // Keep the old textMatches method for backward compatibility if needed
     private func textMatches(searchTerm: String, in text: String?) -> Bool {

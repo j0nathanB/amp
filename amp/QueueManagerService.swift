@@ -31,6 +31,8 @@ class QueueManagerService: ObservableObject {
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
         }
+        // Trigger @Published update by reassigning the struct
+        playbackQueue = playbackQueue
         queueDidChange()
         saveQueue()
         
@@ -43,6 +45,8 @@ class QueueManagerService: ObservableObject {
     func playTrack(at index: Int) -> Song? {
         guard let track = playbackQueue.play(at: index) else { return nil }
         
+        // Trigger @Published update by reassigning the struct
+        playbackQueue = playbackQueue
         currentTrack = track
         queueDidChange()
         saveQueue()
@@ -54,6 +58,8 @@ class QueueManagerService: ObservableObject {
     func nextTrack() -> Song? {
         guard let track = playbackQueue.next() else { return nil }
         
+        // Trigger @Published update by reassigning the struct
+        playbackQueue = playbackQueue
         currentTrack = track
         queueDidChange()
         saveQueue()
@@ -65,6 +71,8 @@ class QueueManagerService: ObservableObject {
     func previousTrack() -> Song? {
         guard let track = playbackQueue.previous() else { return nil }
         
+        // Trigger @Published update by reassigning the struct
+        playbackQueue = playbackQueue
         currentTrack = track
         queueDidChange()
         saveQueue()
@@ -75,6 +83,8 @@ class QueueManagerService: ObservableObject {
     
     func shuffleCurrentQueue() {
         playbackQueue.shuffle(keepCurrentFirst: true)
+        // Trigger @Published update by reassigning the struct
+        playbackQueue = playbackQueue
         queueDidChange()
         saveQueue()
     }
@@ -85,6 +95,8 @@ class QueueManagerService: ObservableObject {
         
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
+            // Trigger @Published update by reassigning the struct
+            playbackQueue = playbackQueue
         } else {
             // Restore original order (would need to store original order)
             // For now, just keep current state
@@ -145,6 +157,8 @@ class QueueManagerService: ObservableObject {
         
         await MainActor.run {
             playbackQueue.restore(from: savedIDs, currentIndex: 0)
+            // Trigger @Published update by reassigning the struct
+            playbackQueue = playbackQueue
             if let firstSong = songs.first {
                 currentTrack = firstSong
             }

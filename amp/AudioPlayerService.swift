@@ -36,6 +36,9 @@ class AudioPlayerService: ObservableObject {
         
         // Bind published properties
         setupBindings()
+        
+        // Set up notifications for remote commands
+        setupNotifications()
     }
     
     private func setupBindings() {
@@ -143,6 +146,26 @@ class AudioPlayerService: ObservableObject {
     
     func navigateToQueue() {
         navigation.navigateToQueue()
+    }
+    
+    // Debug method to refresh Now Playing info
+    func refreshNowPlayingInfo() {
+        playbackEngine.refreshNowPlayingInfo()
+    }
+    
+    // MARK: - Private Methods
+    
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePlayPreviousTrack),
+            name: Notification.Name("PlayPreviousTrack"),
+            object: nil
+        )
+    }
+    
+    @objc private func handlePlayPreviousTrack() {
+        previousTrack()
     }
 }
 

@@ -26,7 +26,7 @@ struct Theme {
     static let secondaryInfoFont = Font.custom("AtkinsonHyperlegibleMono-Regular", size: 18)
     
     // A distinct font for section headers in lists.
-    static let sectionHeaderFont = Font.custom("AtkinsonHyperlegibleMono-BoldItalic", size: 16)
+    static let sectionHeaderFont = Font.custom("AtkinsonHyperlegibleMono-BoldItalic", size: 18)
     
     static let bodyItalicFont = Font.custom("AtkinsonHyperlegibleMono-RegularItalic", size: 18)
     
