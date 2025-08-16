@@ -4,6 +4,7 @@ import MediaPlayer
 struct SearchView: View {
     @StateObject private var viewModel = SearchViewModel()
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @State private var circleID = UUID() // Force regeneration each time view loads
 
     var body: some View {
         NavigationStack {
@@ -16,8 +17,23 @@ struct SearchView: View {
                         viewModel.performSearch()
                     }
                 
-                SearchResultsView(results: viewModel.searchResults)
-                    .environmentObject(audioPlayer)
+                // Content area with conditional circle or search results
+                ZStack {
+                    // Show circle when search is empty or no results
+                    if shouldShowCircle {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 300)) // Fixed size to prevent stretching
+                            .foregroundStyle(Theme.accentGreen)
+                            .id(circleID) // Force regeneration with unique ID
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    
+                    // Show search results when available
+                    if hasSearchResults {
+                        SearchResultsView(results: viewModel.searchResults)
+                            .environmentObject(audioPlayer)
+                    }
+                }
                 
                 // The spacer to push the tab bar to the bottom
                 Spacer(minLength: 0)
@@ -30,7 +46,22 @@ struct SearchView: View {
                         .foregroundColor(Theme.primaryText)
                 }
             }
+            .onAppear {
+                // Regenerate circle ID each time view appears
+                circleID = UUID()
+            }
         }
+    }
+    
+    // Computed properties for conditional display
+    private var shouldShowCircle: Bool {
+        viewModel.searchText.isEmpty || !hasSearchResults
+    }
+    
+    private var hasSearchResults: Bool {
+        !viewModel.searchResults.artists.isEmpty ||
+        !viewModel.searchResults.albums.isEmpty ||
+        !viewModel.searchResults.songs.isEmpty
     }
 }
 
