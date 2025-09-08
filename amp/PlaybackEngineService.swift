@@ -589,31 +589,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return .success
         }
         
-        // Seek forward/backward commands (optional, for scrubbing)
-        commandCenter.skipForwardCommand.isEnabled = true
-        commandCenter.skipForwardCommand.preferredIntervals = [15]
-        commandCenter.skipForwardCommand.addTarget { [weak self] event in
-            guard let self = self,
-                  let skipEvent = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
-            
-            let newTime = self.playbackTime + skipEvent.interval
-            if newTime < self.songDuration {
-                self.seek(to: newTime)
-                return .success
-            }
-            return .commandFailed
-        }
-        
-        commandCenter.skipBackwardCommand.isEnabled = true
-        commandCenter.skipBackwardCommand.preferredIntervals = [15]
-        commandCenter.skipBackwardCommand.addTarget { [weak self] event in
-            guard let self = self,
-                  let skipEvent = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
-            
-            let newTime = max(0, self.playbackTime - skipEvent.interval)
-            self.seek(to: newTime)
-            return .success
-        }
+        // Disable seek forward/backward commands to ensure track navigation buttons appear
+        // These commands cause the 10-second seek buttons to appear instead of track navigation
+        commandCenter.skipForwardCommand.isEnabled = false
+        commandCenter.skipBackwardCommand.isEnabled = false
         
         // Change playback position command (for scrubber)
         commandCenter.changePlaybackPositionCommand.isEnabled = true
@@ -626,7 +605,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         
         print("✅ Remote Command Center configured")
-        print("🎛️ Commands enabled: play, pause, toggle, next, previous, skip forward/backward, scrub")
+        print("🎛️ Commands enabled: play, pause, toggle, next track, previous track, scrub")
     }
     
     // Force refresh Now Playing info (for debugging Control Center issues)
@@ -647,8 +626,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         commandCenter.togglePlayPauseCommand.removeTarget(nil)
         commandCenter.nextTrackCommand.removeTarget(nil)
         commandCenter.previousTrackCommand.removeTarget(nil)
-        commandCenter.skipForwardCommand.removeTarget(nil)
-        commandCenter.skipBackwardCommand.removeTarget(nil)
+        // Skip commands are disabled, no need to remove targets
         commandCenter.changePlaybackPositionCommand.removeTarget(nil)
         
         print("🧹 Remote Command Center cleaned up")

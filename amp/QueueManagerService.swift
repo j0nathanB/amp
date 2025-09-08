@@ -1,5 +1,6 @@
 import Foundation
 import MediaPlayer
+import CryptoKit
 
 protocol QueueManagerDelegate: AnyObject {
     func queueDidChange()
@@ -14,13 +15,19 @@ class QueueManagerService: ObservableObject {
     @Published var currentTrack: Song?
     @Published var isShuffled = false
     
+    // Keep for migration only
     private let queueUserDefaultsKey = "savedPlaybackQueueIDs"
+    private let persistenceService = QueuePersistenceService.shared
+    
+    // Flags to prevent recursive loading
+    private var isPerformingOperation = false
+    private var hasLoadedInitialQueue = false
     
     init() {
         self.isShuffled = UserDefaults.standard.bool(forKey: "shuffleOnStart")
-        // Load queue asynchronously to avoid blocking main thread
+        // Load queue asynchronously to avoid blocking main thread - ONLY ONCE
         Task {
-            await loadQueue()
+            await loadQueueOnce()
         }
     }
     
@@ -33,7 +40,7 @@ class QueueManagerService: ObservableObject {
         }
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
-        queueDidChange()
+        queueDidChange(triggeredBy: "startPlayback")
         saveQueue()
         
         if let track = playbackQueue.getCurrentTrack() {
@@ -48,7 +55,7 @@ class QueueManagerService: ObservableObject {
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
         currentTrack = track
-        queueDidChange()
+        queueDidChange(triggeredBy: "playTrack")
         saveQueue()
         delegate?.currentTrackDidChange(track)
         
@@ -61,7 +68,7 @@ class QueueManagerService: ObservableObject {
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
         currentTrack = track
-        queueDidChange()
+        queueDidChange(triggeredBy: "nextTrack")
         saveQueue()
         delegate?.currentTrackDidChange(track)
         
@@ -74,7 +81,7 @@ class QueueManagerService: ObservableObject {
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
         currentTrack = track
-        queueDidChange()
+        queueDidChange(triggeredBy: "previousTrack")
         saveQueue()
         delegate?.currentTrackDidChange(track)
         
@@ -82,14 +89,26 @@ class QueueManagerService: ObservableObject {
     }
     
     func shuffleCurrentQueue() {
+        print("[QueueManager] Starting shuffle operation")
+        isPerformingOperation = true
+        
         playbackQueue.shuffle(keepCurrentFirst: true)
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
-        queueDidChange()
+        queueDidChange(triggeredBy: "shuffle")
         saveQueue()
+        
+        // Clear flag after operation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.isPerformingOperation = false
+            print("[QueueManager] Shuffle operation complete")
+        }
     }
     
     func toggleShuffle() {
+        print("[QueueManager] Toggling shuffle to: \(!isShuffled)")
+        isPerformingOperation = true
+        
         isShuffled.toggle()
         UserDefaults.standard.set(isShuffled, forKey: "shuffleOnStart")
         
@@ -98,11 +117,18 @@ class QueueManagerService: ObservableObject {
             // Trigger @Published update by reassigning the struct
             playbackQueue = playbackQueue
         } else {
-            // Restore original order (would need to store original order)
-            // For now, just keep current state
+            // Restore original order
+            playbackQueue.unshuffle()
+            playbackQueue = playbackQueue
         }
-        queueDidChange()
+        queueDidChange(triggeredBy: "toggleShuffle")
         saveQueue()
+        
+        // Clear flag after operation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.isPerformingOperation = false
+            print("[QueueManager] Toggle shuffle operation complete")
+        }
     }
     
     // MARK: - Queue Access
@@ -129,40 +155,110 @@ class QueueManagerService: ObservableObject {
     
     // MARK: - Private Methods
     
-    private func queueDidChange() {
+    private func queueDidChange(triggeredBy: String = "unknown") {
+        print("[QueueManager] Queue changed by: \(triggeredBy)")
         queueVersion += 1
         delegate?.queueDidChange()
+        // DO NOT reload the queue here!
     }
     
-    private func saveQueue() {
+    internal func saveQueue() {
+        // Don't trigger any loads after saving
+        print("[QueueManager] Saving queue - will NOT reload after save")
+        
+        Task {
+            let persisted = PersistedQueue(
+                savedAt: Date(),
+                trackIDs: playbackQueue.getAllTrackIDs(),
+                currentIndex: playbackQueue.currentIndex,
+                isShuffled: isShuffled,
+                originalOrder: playbackQueue.originalOrder,
+                checksum: generateChecksum()
+            )
+            await persistenceService.saveQueue(persisted)
+            
+            print("[QueueManager] Queue saved successfully")
+        }
+    }
+    
+    private func generateChecksum() -> String {
         let trackIDs = playbackQueue.getAllTrackIDs()
-        UserDefaults.standard.set(trackIDs, forKey: queueUserDefaultsKey)
+        let idString = trackIDs.map { String($0) }.joined(separator: ",")
+        let data = Data(idString.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
     
-    private func loadQueue() async {
-        guard let savedIDs = UserDefaults.standard.array(forKey: queueUserDefaultsKey) as? [MPMediaEntityPersistentID],
-              !savedIDs.isEmpty else {
+    private func loadQueueOnce() async {
+        // Only load once at startup
+        guard !hasLoadedInitialQueue else {
+            print("[QueueManager] Queue already loaded once, skipping")
+            return
+        }
+        hasLoadedInitialQueue = true
+        await loadQueue()
+    }
+    
+    internal func loadQueue() async {
+        // Critical debug: This should NOT be called during shuffle!
+        print("🔴 [QueueManager] loadQueue called - isPerformingOperation: \(isPerformingOperation)")
+        
+        // Prevent loading during operations
+        guard !isPerformingOperation else {
+            print("🟢 [QueueManager] Skipping load - operation in progress")
             return
         }
         
-        // Load songs from saved IDs asynchronously
-        var songs: [Song] = []
-        for id in savedIDs {
-            if let song = LibraryService.shared.getSong(by: id) {
-                songs.append(song)
-            }
+        // If we already have a queue, don't reload unless explicitly requested
+        if !playbackQueue.isEmpty && hasLoadedInitialQueue {
+            print("🟢 [QueueManager] Skipping load - queue already populated")
+            return
         }
         
-        guard !songs.isEmpty else { return }
-        
-        await MainActor.run {
-            playbackQueue.restore(from: savedIDs, currentIndex: 0)
-            // Trigger @Published update by reassigning the struct
-            playbackQueue = playbackQueue
-            if let firstSong = songs.first {
-                currentTrack = firstSong
+        // Try loading from file-based storage
+        if let persisted = await persistenceService.loadQueue() {
+            // Filter out any tracks that no longer exist in the library
+            let validTrackIDs: [MPMediaEntityPersistentID] = persisted.trackIDs.compactMap { id in
+                LibraryService.shared.getSong(by: id) != nil ? id : nil
             }
-            queueDidChange()
+            
+            guard !validTrackIDs.isEmpty else {
+                print("[QueueManager] No valid tracks found in persisted queue")
+                return
+            }
+            
+            let songs: [Song] = validTrackIDs.compactMap { id in
+                LibraryService.shared.getSong(by: id)
+            }
+            
+            let validOriginalOrder = persisted.originalOrder.filter { validTrackIDs.contains($0) }
+            let shuffled = persisted.isShuffled
+            let currentIndex = persisted.currentIndex
+            
+            await MainActor.run {
+                // Restore the queue state
+                playbackQueue = PlaybackQueue()
+                playbackQueue.setTrackIDs(validTrackIDs, startingIndex: currentIndex)
+                playbackQueue.originalOrder = validOriginalOrder
+                playbackQueue.isShuffled = shuffled
+                
+                // Update published properties
+                self.isShuffled = shuffled
+                
+                // Set current track if we have a valid index
+                if let index = currentIndex,
+                   index < songs.count {
+                    self.currentTrack = songs[index]
+                }
+                
+                // Trigger @Published update by reassigning the struct
+                playbackQueue = playbackQueue
+                queueDidChange(triggeredBy: "loadQueue")
+                
+                print("[QueueManager] Loaded queue with \(validTrackIDs.count) tracks")
+            }
+        } else {
+            print("[QueueManager] No persisted queue found, starting fresh")
         }
     }
 }

@@ -3,10 +3,10 @@ import MediaPlayer
 
 struct PlaybackQueue {
     // MARK: - Properties
-    private(set) var trackIDs: [MPMediaEntityPersistentID]
-    private(set) var currentIndex: Int?
-    private(set) var originalOrder: [MPMediaEntityPersistentID] // For unshuffle functionality
-    private(set) var isShuffled: Bool = false
+    internal var trackIDs: [MPMediaEntityPersistentID]
+    internal var currentIndex: Int?
+    internal var originalOrder: [MPMediaEntityPersistentID] // For unshuffle functionality
+    internal var isShuffled: Bool = false
     
     // Cache for recently accessed tracks (limit to 50 to prevent memory buildup)
     private var songCache: [MPMediaEntityPersistentID: Song] = [:]

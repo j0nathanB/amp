@@ -169,6 +169,31 @@ class AudioPlayerService: ObservableObject {
     }
 }
 
+// MARK: - Debug/Testing Methods
+
+#if DEBUG
+extension AudioPlayerService {
+    func debugPersistenceInfo() -> String {
+        return QueuePersistenceService.shared.debugInfo()
+    }
+    
+    func debugClearAllStorage() async {
+        await QueuePersistenceService.shared.clearAllStorage()
+        print("[AudioPlayerService] Cleared all queue storage")
+    }
+    
+    func debugForceLoadQueue() async {
+        await queueManager.loadQueue()
+        print("[AudioPlayerService] Force reloaded queue from storage")
+    }
+    
+    func debugForceSaveQueue() {
+        queueManager.saveQueue()
+        print("[AudioPlayerService] Force saved current queue to storage")
+    }
+}
+#endif
+
 // MARK: - PlaybackEngineDelegate
 
 extension AudioPlayerService: PlaybackEngineDelegate {
