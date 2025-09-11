@@ -23,6 +23,19 @@ class QueueManagerService: ObservableObject {
     private var isPerformingOperation = false
     private var hasLoadedInitialQueue = false
     
+    // Session state management
+    enum SessionState {
+        case idle
+        case active
+        case paused
+        case background
+    }
+    
+    private var sessionState: SessionState = .idle
+    private var sessionStartTime: Date?
+    private var lastUserInteraction = Date()
+    private var hasActiveSession = false
+    
     init() {
         self.isShuffled = UserDefaults.standard.bool(forKey: "shuffleOnStart")
         // Load queue asynchronously to avoid blocking main thread - ONLY ONCE
@@ -34,6 +47,13 @@ class QueueManagerService: ObservableObject {
     // MARK: - Queue Management
     
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
+        // Mark session as active
+        sessionState = .active
+        hasActiveSession = true
+        sessionStartTime = Date()
+        lastUserInteraction = Date()
+        print("[QueueManager] 🟢 Session started - blocking queue loads")
+        
         playbackQueue.setTracks(songs, startingWith: startSong)
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
@@ -50,6 +70,11 @@ class QueueManagerService: ObservableObject {
     }
     
     func playTrack(at index: Int) -> Song? {
+        // Mark session as active
+        hasActiveSession = true
+        sessionState = .active
+        lastUserInteraction = Date()
+        
         guard let track = playbackQueue.play(at: index) else { return nil }
         
         // Trigger @Published update by reassigning the struct
@@ -63,6 +88,8 @@ class QueueManagerService: ObservableObject {
     }
     
     func nextTrack() -> Song? {
+        lastUserInteraction = Date()
+        
         guard let track = playbackQueue.next() else { return nil }
         
         // Trigger @Published update by reassigning the struct
@@ -76,6 +103,8 @@ class QueueManagerService: ObservableObject {
     }
     
     func previousTrack() -> Song? {
+        lastUserInteraction = Date()
+        
         guard let track = playbackQueue.previous() else { return nil }
         
         // Trigger @Published update by reassigning the struct
@@ -153,6 +182,43 @@ class QueueManagerService: ObservableObject {
         return playbackQueue.currentIndex ?? -1
     }
     
+    // MARK: - Session Management
+    
+    func pauseSession() {
+        sessionState = .paused
+        print("[QueueManager] Session paused")
+        // Save but don't load
+        saveQueue()
+    }
+    
+    func resumeSession() {
+        sessionState = .active
+        print("[QueueManager] Session resumed")
+        // Don't reload queue
+    }
+    
+    func endSession() {
+        sessionState = .idle
+        hasActiveSession = false
+        sessionStartTime = nil
+        print("[QueueManager] Session ended")
+        saveQueue()
+    }
+    
+    func enterBackground() {
+        sessionState = .background
+        print("[QueueManager] Entered background")
+        saveQueue()
+    }
+    
+    func enterForeground() {
+        if sessionState == .background {
+            sessionState = hasActiveSession ? .active : .idle
+            print("[QueueManager] Entered foreground - session state: \(sessionState)")
+        }
+        // Don't reload queue!
+    }
+    
     // MARK: - Private Methods
     
     private func queueDidChange(triggeredBy: String = "unknown") {
@@ -200,20 +266,52 @@ class QueueManagerService: ObservableObject {
     }
     
     internal func loadQueue() async {
-        // Critical debug: This should NOT be called during shuffle!
-        print("🔴 [QueueManager] loadQueue called - isPerformingOperation: \(isPerformingOperation)")
+        // Critical debug: Log call stack to find trigger
+        print("🔴 [QueueManager] loadQueue called")
+        print("🔴 [QueueManager] Session state: \(sessionState)")
+        print("🔴 [QueueManager] Has active session: \(hasActiveSession)")
+        print("🔴 [QueueManager] Current track: \(currentTrack?.title ?? "none")")
+        print("🔴 [QueueManager] Is performing operation: \(isPerformingOperation)")
+        
+        // Log call stack to identify the trigger
+        Thread.callStackSymbols.prefix(15).enumerated().forEach { index, symbol in
+            if symbol.contains("amp") {
+                print("🔴 [QueueManager] Stack[\(index)]: \(symbol)")
+            }
+        }
+        
+        // CRITICAL: Never load queue during active session
+        guard !hasActiveSession else {
+            print("[QueueManager] ⛔ BLOCKED: Attempted to load queue during active session")
+            return
+        }
+        
+        // Don't load if user interacted recently (within 30 seconds)
+        let timeSinceInteraction = Date().timeIntervalSince(lastUserInteraction)
+        guard timeSinceInteraction > 30 else {
+            print("[QueueManager] ⛔ BLOCKED: Attempted to load queue \(Int(timeSinceInteraction))s after user interaction")
+            return
+        }
+        
+        // Don't load if we have a current track (active or paused playback)
+        guard currentTrack == nil else {
+            print("[QueueManager] ⛔ BLOCKED: Not loading - track is active")
+            return
+        }
         
         // Prevent loading during operations
         guard !isPerformingOperation else {
-            print("🟢 [QueueManager] Skipping load - operation in progress")
+            print("[QueueManager] ⛔ BLOCKED: Operation in progress")
             return
         }
         
         // If we already have a queue, don't reload unless explicitly requested
         if !playbackQueue.isEmpty && hasLoadedInitialQueue {
-            print("🟢 [QueueManager] Skipping load - queue already populated")
+            print("[QueueManager] ⛔ BLOCKED: Queue already populated")
             return
         }
+        
+        print("[QueueManager] ✅ Loading queue for app restoration")
         
         // Try loading from file-based storage
         if let persisted = await persistenceService.loadQueue() {

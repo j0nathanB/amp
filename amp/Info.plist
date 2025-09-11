@@ -14,5 +14,7 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>This app uses notifications to let you know when songs change while you're using other apps or screens.</string>
 </dict>
 </plist>

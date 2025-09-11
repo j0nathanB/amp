@@ -6,7 +6,7 @@ class AudioPlayerService: ObservableObject {
     
     // Services
     private let playbackEngine = PlaybackEngineService()
-    private let queueManager = QueueManagerService()
+    let queueManager = QueueManagerService()  // Made internal for app lifecycle access
     private let navigation = NavigationService()
     
     // Public interface - delegate to services
@@ -82,13 +82,13 @@ class AudioPlayerService: ObservableObject {
         navigation.navigateToNowPlaying()
         // Explicitly start playing the selected song
         if let track = currentTrack {
-            playbackEngine.play(song: track)
+            playbackEngine.play(song: track, isManualSelection: true)
         }
     }
     
     func playTrack(at index: Int) {
         if let track = queueManager.playTrack(at: index) {
-            playbackEngine.play(song: track)
+            playbackEngine.play(song: track, isManualSelection: true)
             navigation.navigateToNowPlaying()
         }
     }
@@ -97,17 +97,24 @@ class AudioPlayerService: ObservableObject {
         // If no audio is loaded but we have a current track, load and play it
         if currentTrack != nil && !isPlaying && !playbackEngine.hasAudioReady {
             if let track = currentTrack {
-                playbackEngine.play(song: track)
+                playbackEngine.play(song: track, isManualSelection: true)
+                queueManager.resumeSession()
             }
         } else {
             playbackEngine.playPause()
+            // Update session state based on play/pause
+            if playbackEngine.isPlaying {
+                queueManager.resumeSession()
+            } else {
+                queueManager.pauseSession()
+            }
         }
     }
     
     func nextTrack() {
         if let track = queueManager.nextTrack() {
             if isPlaying {
-                playbackEngine.play(song: track)
+                playbackEngine.play(song: track, isManualSelection: true)
             } else {
                 // If paused, just load the track without playing
                 playbackEngine.loadWithoutPlaying(song: track)
@@ -118,7 +125,7 @@ class AudioPlayerService: ObservableObject {
     func previousTrack() {
         if let track = queueManager.previousTrack() {
             if isPlaying {
-                playbackEngine.play(song: track)
+                playbackEngine.play(song: track, isManualSelection: true)
             } else {
                 // If paused, just load the track without playing
                 playbackEngine.loadWithoutPlaying(song: track)
@@ -201,7 +208,7 @@ extension AudioPlayerService: PlaybackEngineDelegate {
         if successfully {
             // When a track finishes, automatically play the next track
             if let track = queueManager.nextTrack() {
-                playbackEngine.play(song: track)
+                playbackEngine.play(song: track, isManualSelection: false)
             }
         }
     }
@@ -223,7 +230,7 @@ extension AudioPlayerService: QueueManagerDelegate {
         // Load the new track, but only play if we were already playing
         if let track = track {
             if isPlaying {
-                playbackEngine.play(song: track)
+                playbackEngine.play(song: track, isManualSelection: false)
             } else {
                 playbackEngine.loadWithoutPlaying(song: track)
             }

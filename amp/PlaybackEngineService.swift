@@ -48,7 +48,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     // MARK: - Playback Control
     
-    func play(song: Song) {
+    func play(song: Song, isManualSelection: Bool = false) {
         guard let url = getAudioURL(for: song) else {
             print("❌ No audio URL found for song: \(song.title)")
             return
@@ -60,6 +60,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         
         commonPlay(url: url)
         updateNowPlayingInfo(for: song)
+        
+        // Schedule notification for track change
+        scheduleTrackChangeNotification(for: song, isManualSelection: isManualSelection)
     }
     
     func playPause() {
@@ -630,6 +633,22 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         commandCenter.changePlaybackPositionCommand.removeTarget(nil)
         
         print("🧹 Remote Command Center cleaned up")
+    }
+    
+    // MARK: - Notification Integration
+    
+    private func scheduleTrackChangeNotification(for song: Song, isManualSelection: Bool) {
+        Task {
+            // Get artwork for the notification
+            let artwork = await NotificationService.shared.getArtwork(for: song)
+            
+            // Schedule the notification
+            NotificationService.shared.scheduleTrackChangeNotification(
+                song: song,
+                artwork: artwork,
+                isManualSelection: isManualSelection
+            )
+        }
     }
     
     // MARK: - AVAudioPlayerDelegate

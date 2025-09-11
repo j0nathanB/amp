@@ -4,10 +4,12 @@ import MediaPlayer
 @main
 struct ampApp: App {
     @StateObject private var audioPlayer = AudioPlayerService.shared
+    @Environment(\.scenePhase) var scenePhase
     
     init() {
         // Audio session is now managed by PlaybackEngineService
         setupMemoryWarningObserver()
+        setupNotificationService()
     }
     
     var body: some Scene {
@@ -17,6 +19,24 @@ struct ampApp: App {
                     .preferredColorScheme(.light)
                     .accentColor(Theme.accentGreen) // This sets the global accent color including keyboard buttons
                     .ignoresSafeArea(.keyboard, edges: .bottom) // Handle keyboard at the app level
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                        print("[App] Entering foreground")
+                        audioPlayer.queueManager.enterForeground()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                        print("[App] Entering background")
+                        audioPlayer.queueManager.enterBackground()
+                    }
+                    .onChange(of: scenePhase) { oldPhase, newPhase in
+                        switch newPhase {
+                        case .active:
+                            NotificationService.shared.clearAllNotifications()
+                        case .background:
+                            break
+                        default:
+                            break
+                        }
+                    }
             }
         }
 }
@@ -72,6 +92,21 @@ extension ampApp {
         ) { _ in
             print("⚠️ Memory warning received")
 //            AudioPlayerService.shared.handleMemoryPressure()
+        }
+    }
+    
+    func setupNotificationService() {
+        // Set up notification categories
+        NotificationService.shared.setupNotificationCategories()
+        
+        // Request permissions after a short delay to let the app finish launching
+        Task {
+            // Wait for the app to finish launching
+            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            
+            // Request notification permission
+            let granted = await NotificationService.shared.requestPermission()
+            print("🔔 Notification permission granted: \(granted)")
         }
     }
 }
