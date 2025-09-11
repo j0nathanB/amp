@@ -457,8 +457,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
             self, 
-            selector: #selector(handleRouteChange), 
+            selector: #selector(handleRouteChange(notification:)), 
             name: AVAudioSession.routeChangeNotification, 
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionInterruption(notification:)),
+            name: AVAudioSession.interruptionNotification,
             object: nil
         )
         
@@ -497,13 +504,129 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
-    @objc private func handleRouteChange() {
-        updateCurrentOutputName()
-        updateSystemVolume()
+    @objc private func handleRouteChange(notification: Notification) {
+        print("🔄 Audio route change detected")
+        
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            print("⚠️ Could not determine route change reason")
+            updateCurrentOutputName()
+            updateSystemVolume()
+            return
+        }
+        
+        print("🔄 Route change reason: \(routeChangeReasonDescription(reason))")
+        
+        switch reason {
+        case .oldDeviceUnavailable:
+            print("🎧 Bluetooth device disconnected - handling disconnection")
+            handleBluetoothDisconnection()
+            
+        case .newDeviceAvailable:
+            print("🎧 New audio device connected - seamless handoff")
+            updateCurrentOutputName()
+            updateSystemVolume()
+            // Continue playback seamlessly for new device connections
+            
+        default:
+            print("🔄 Other route change - updating audio state")
+            updateCurrentOutputName()
+            updateSystemVolume()
+        }
     }
     
     @objc private func handleVolumeChange() {
         updateSystemVolume()
+    }
+    
+    @objc private func handleAudioSessionInterruption(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            print("⚠️ Could not determine interruption type")
+            return
+        }
+        
+        switch type {
+        case .began:
+            print("📞 Audio session interruption began (phone call, etc.) - pausing playback")
+            if isPlaying {
+                player?.pause()
+                isPlaying = false
+                stopTimer()
+                updateNowPlayingInfoTime()
+            }
+            
+        case .ended:
+            print("📞 Audio session interruption ended")
+            
+            // Check if we should resume playback
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    print("🔄 System suggests resuming playback after interruption")
+                    // Note: We don't auto-resume - let user manually resume
+                    // This provides predictable behavior like Bluetooth disconnection
+                }
+            }
+            
+        @unknown default:
+            print("❓ Unknown interruption type")
+        }
+    }
+    
+    private func handleBluetoothDisconnection() {
+        print("🎧 Handling Bluetooth disconnection")
+        
+        // Always pause playback when Bluetooth disconnects
+        if let player = player {
+            if player.isPlaying {
+                print("⏸️ Pausing playback due to Bluetooth disconnection")
+                player.pause()
+            }
+            
+            // Sync player state if inconsistent
+            if player.isPlaying != isPlaying {
+                print("🔧 Syncing player state - player.isPlaying: \(player.isPlaying), UI isPlaying: \(isPlaying)")
+            }
+        }
+        
+        // Update UI state
+        isPlaying = false
+        stopTimer()
+        
+        // Update Now Playing info to reflect paused state
+        updateNowPlayingInfoTime()
+        
+        // Update output name and volume for the new route
+        updateCurrentOutputName()
+        updateSystemVolume()
+        
+        print("✅ Bluetooth disconnection handled - playback paused, UI updated")
+    }
+    
+    private func routeChangeReasonDescription(_ reason: AVAudioSession.RouteChangeReason) -> String {
+        switch reason {
+        case .unknown:
+            return "Unknown"
+        case .newDeviceAvailable:
+            return "New Device Available"
+        case .oldDeviceUnavailable:
+            return "Old Device Unavailable (Bluetooth Disconnected)"
+        case .categoryChange:
+            return "Category Change"
+        case .override:
+            return "Override"
+        case .wakeFromSleep:
+            return "Wake From Sleep"
+        case .noSuitableRouteForCategory:
+            return "No Suitable Route For Category"
+        case .routeConfigurationChange:
+            return "Route Configuration Change"
+        @unknown default:
+            return "Unknown Default"
+        }
     }
     
     private func updateSystemVolume() {
