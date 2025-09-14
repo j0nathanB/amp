@@ -57,14 +57,33 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
+        // Check if this is the same song being resumed
+        let isSameSong = lastPlayedSong?.persistentID == song.persistentID
+        let storedPausePosition = pausedAt
+        
         // Track the song for memory management
         lastPlayedSong = song
-        pausedAt = 0
+        
+        // CRITICAL FIX: Only reset pausedAt if this is a genuinely new song
+        if !isSameSong {
+            pausedAt = 0
+            print("🎵 Playing new song: \(song.title)")
+        } else {
+            print("🎵 Resuming same song: \(song.title) from position \(storedPausePosition)s")
+        }
         
         // Cancel any pending cleanup since we're starting new playback
         cancelDelayedCleanup()
         
         commonPlay(url: url)
+        
+        // If resuming same song, seek to stored position
+        if isSameSong && storedPausePosition > 0 {
+            player?.currentTime = storedPausePosition
+            playbackTime = storedPausePosition
+            print("✅ Seeked to stored position: \(storedPausePosition)s")
+        }
+        
         updateNowPlayingInfo(for: song)
         
         // Schedule notification for track change
@@ -75,6 +94,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if let player = player {
             // Player exists, normal pause/resume
             if player.isPlaying {
+                // CRITICAL FIX: Store current playback position BEFORE pausing
+                pausedAt = player.currentTime
+                print("⏸️ Pausing at position: \(pausedAt)s")
+                
                 player.pause()
                 isPlaying = false
                 stopTimer()
@@ -85,6 +108,16 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             } else {
                 // Mark this as a resume, not a new track
                 isResumingFromPause = true
+                
+                // CRITICAL FIX: Seek to the paused position before resuming
+                if pausedAt > 0 {
+                    player.currentTime = pausedAt
+                    playbackTime = pausedAt
+                    print("▶️ Resuming from stored position: \(pausedAt)s")
+                } else {
+                    print("▶️ Resuming from current position: \(player.currentTime)s")
+                }
+                
                 player.play()
                 isPlaying = true
                 startTimer()
