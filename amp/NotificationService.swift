@@ -13,6 +13,11 @@ class NotificationService: NSObject, ObservableObject {
     private var lastNotificationTime: TimeInterval = 0
     private let debounceInterval: TimeInterval = 2.0
     
+    // App lifecycle tracking to prevent inappropriate notifications
+    private var isResumingFromBackground = false
+    private var lastNotificationSongID: MPMediaEntityPersistentID?
+    private var appWasInBackground = false
+    
     // User preference for notifications
     var isEnabled: Bool {
         get {
@@ -28,10 +33,72 @@ class NotificationService: NSObject, ObservableObject {
         super.init()
         setupNotificationCategories()
         checkAuthorizationStatus()
+        setupAppLifecycleObservers()
         // Enable notifications by default for new users
         if UserDefaults.standard.object(forKey: "songChangeNotificationsEnabled") == nil {
             UserDefaults.standard.set(true, forKey: "songChangeNotificationsEnabled")
         }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    // MARK: - App Lifecycle Tracking
+    
+    private func setupAppLifecycleObservers() {
+        // Track when app enters background
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        
+        // Track when app becomes active
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        
+        // Track when app will enter foreground
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func appDidEnterBackground() {
+        print("🔔 [Lifecycle] App entered background")
+        appWasInBackground = true
+        isResumingFromBackground = false
+    }
+    
+    @objc private func appDidBecomeActive() {
+        print("🔔 [Lifecycle] App became active")
+        // Clear any pending notifications when app becomes active
+        clearDeliveredNotifications()
+        
+        // Set flag to prevent notifications for a short period
+        if appWasInBackground {
+            print("🔔 [Lifecycle] Setting resuming flag - preventing notifications")
+            isResumingFromBackground = true
+            // Reset flag after a delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                print("🔔 [Lifecycle] Clearing resuming flag - notifications re-enabled")
+                self.isResumingFromBackground = false
+                self.appWasInBackground = false
+            }
+        }
+    }
+    
+    @objc private func appWillEnterForeground() {
+        print("🔔 [Lifecycle] App will enter foreground")
+        isResumingFromBackground = true
     }
     
     // MARK: - Permission Management
@@ -68,10 +135,24 @@ class NotificationService: NSObject, ObservableObject {
     // MARK: - Notification Scheduling
     
     func scheduleTrackChangeNotification(song: Song, artwork: UIImage? = nil, isManualSelection: Bool = false) {
-        // Check if notifications should be sent
-        guard shouldSendNotification(isManualSelection: isManualSelection) else {
+        print("🔔 [DEBUG] scheduleTrackChangeNotification called for: \(song.title)")
+        print("🔔 [DEBUG] isEnabled: \(isEnabled), isAuthorized: \(isAuthorized)")
+        print("🔔 [DEBUG] authorizationStatus: \(authorizationStatus)")
+        
+        // CRITICAL: Don't send notification for the same song twice
+        if lastNotificationSongID == song.persistentID {
+            print("🔔 Skipping duplicate notification for same song: \(song.title)")
             return
         }
+        
+        // Check if notifications should be sent
+        guard shouldSendNotification(isManualSelection: isManualSelection) else {
+            print("🔔 [DEBUG] shouldSendNotification returned false")
+            return
+        }
+        
+        // Update last notification tracking
+        lastNotificationSongID = song.persistentID
         
         // Debounce rapid track changes
         let currentTime = Date().timeIntervalSince1970
@@ -81,6 +162,7 @@ class NotificationService: NSObject, ObservableObject {
         }
         lastNotificationTime = currentTime
         
+        print("🔔 [DEBUG] Proceeding to send notification")
         Task {
             await sendTrackChangeNotification(song: song, artwork: artwork)
         }
@@ -102,6 +184,12 @@ class NotificationService: NSObject, ObservableObject {
         // Don't send for manual selections (user-initiated track changes)
         if isManualSelection {
             print("🔔 Skipping notification for manual track selection")
+            return false
+        }
+        
+        // CRITICAL FIX: Don't send if resuming from background
+        if isResumingFromBackground {
+            print("🔔 Skipping notification - resuming from background")
             return false
         }
         
@@ -137,42 +225,57 @@ class NotificationService: NSObject, ObservableObject {
     }
     
     private func sendTrackChangeNotification(song: Song, artwork: UIImage?) async {
+        print("🔔 [DEBUG] sendTrackChangeNotification started")
+        
+        // Check current notification settings
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        print("🔔 [DEBUG] Current notification settings:")
+        print("🔔 [DEBUG] - authorizationStatus: \(settings.authorizationStatus.rawValue)")
+        print("🔔 [DEBUG] - alertSetting: \(settings.alertSetting.rawValue)")
+        print("🔔 [DEBUG] - notificationCenterSetting: \(settings.notificationCenterSetting.rawValue)")
+        
         // Remove any existing notifications with the same identifier
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [notificationIdentifier])
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notificationIdentifier])
         
         let content = UNMutableNotificationContent()
-        content.title = song.title.isEmpty ? "Unknown Song" : song.title
-        content.subtitle = song.artist.isEmpty ? "Unknown Artist" : song.artist
-        content.body = song.album.isEmpty ? "" : song.album
+//        content.title = "Now playing"
+//        content.subtitle = song.artist.isEmpty ? "Unknown Artist" : song.artist
+        content.body = """
+                        \(song.artist.isEmpty ? "Unknown Artist" : song.artist)
+                        \(song.title.isEmpty ? "Unknown Song" : song.title)
+                        """
         content.sound = nil
         content.categoryIdentifier = "TRACK_CHANGE"
         
-        if #available(iOS 15.0, *) {
-            content.interruptionLevel = .passive
-            content.relevanceScore = 0
-        }
+        print("🔔 [DEBUG] Notification content:")
+//        print("🔔 [DEBUG] - title: '\(content.title)'")
+//        print("🔔 [DEBUG] - subtitle: '\(content.subtitle)'")
+        print("🔔 [DEBUG] - body: '\(content.body)'")
         
-        // Add artwork attachment if available
-        if let artwork = artwork {
-            do {
-                let attachment = try await createImageAttachment(from: artwork, identifier: "artwork")
-                content.attachments = [attachment]
-            } catch {
-                print("⚠️ Failed to create artwork attachment: \(error)")
-            }
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .active  // Try active instead of passive
+            content.relevanceScore = 1.0  // Higher relevance
+            print("🔔 [DEBUG] Set iOS 15+ properties: active interruption, relevance 1.0")
         }
         
         // Create request with the constant identifier for replacement behavior
         let request = UNNotificationRequest(
             identifier: notificationIdentifier,
             content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)  // Longer delay
         )
+        
+        print("🔔 [DEBUG] Created notification request with identifier: \(notificationIdentifier)")
         
         do {
             try await UNUserNotificationCenter.current().add(request)
             print("🔔 Track change notification sent: \(song.title) by \(song.artist)")
+            
+            // Verify the notification was added
+            let pendingRequests = await UNUserNotificationCenter.current().pendingNotificationRequests()
+            print("🔔 [DEBUG] Pending requests after adding: \(pendingRequests.count)")
+            
         } catch {
             print("❌ Failed to send track change notification: \(error)")
         }

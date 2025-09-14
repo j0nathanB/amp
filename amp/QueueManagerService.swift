@@ -186,7 +186,8 @@ class QueueManagerService: ObservableObject {
     
     func pauseSession() {
         sessionState = .paused
-        print("[QueueManager] Session paused")
+        hasActiveSession = true  // CRITICAL: Keep session active during pause to prevent queue reload
+        print("[QueueManager] Session paused - keeping active session flag set")
         // Save but don't load
         saveQueue()
     }
@@ -217,6 +218,18 @@ class QueueManagerService: ObservableObject {
             print("[QueueManager] Entered foreground - session state: \(sessionState)")
         }
         // Don't reload queue!
+    }
+    
+    // MARK: - Memory Management Coordination
+    
+    func notifyMemoryCleanup() {
+        // Called when PlaybackEngine cleans up memory during pause
+        // This ensures we maintain session state during memory optimization
+        if sessionState == .paused {
+            print("[QueueManager] Memory cleanup during pause - maintaining session state")
+            lastUserInteraction = Date() // Reset timer to prevent queue reload
+            // hasActiveSession remains true to block any queue loads
+        }
     }
     
     // MARK: - Private Methods
@@ -295,7 +308,13 @@ class QueueManagerService: ObservableObject {
         
         // Don't load if we have a current track (active or paused playback)
         guard currentTrack == nil else {
-            print("[QueueManager] ⛔ BLOCKED: Not loading - track is active")
+            print("[QueueManager] ⛔ BLOCKED: Not loading - track is active: \(currentTrack?.title ?? "unknown")")
+            return
+        }
+        
+        // Extra safety: Don't load if session is paused (user might be taking a break)
+        guard sessionState != .paused else {
+            print("[QueueManager] ⛔ BLOCKED: Not loading during paused session")
             return
         }
         

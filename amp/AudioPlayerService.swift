@@ -160,6 +160,11 @@ class AudioPlayerService: ObservableObject {
         playbackEngine.refreshNowPlayingInfo()
     }
     
+    // Internal method for service coordination
+    internal func notifyMemoryCleanup() {
+        queueManager.notifyMemoryCleanup()
+    }
+    
     // MARK: - Private Methods
     
     private func setupNotifications() {

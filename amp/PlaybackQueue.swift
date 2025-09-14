@@ -95,6 +95,8 @@ struct PlaybackQueue {
     }
     
     mutating func clear() {
+        print("🔴 [CRITICAL] PlaybackQueue being cleared - call stack:")
+        Thread.callStackSymbols.prefix(10).forEach { print("🔴 \($0)") }
         trackIDs.removeAll()
         currentIndex = nil
         originalOrder.removeAll()

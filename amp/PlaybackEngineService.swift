@@ -21,6 +21,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var lastNowPlayingUpdate: TimeInterval = 0
     private var pauseCleanupTimer: Timer?
     
+    // Track resume operations to suppress notifications
+    private var isResumingFromPause = false
+    
     @Published var isPlaying = false
     @Published var songDuration: TimeInterval = 0.0
     @Published var playbackTime: TimeInterval = 0.0
@@ -58,6 +61,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         lastPlayedSong = song
         pausedAt = 0
         
+        // Cancel any pending cleanup since we're starting new playback
+        cancelDelayedCleanup()
+        
         commonPlay(url: url)
         updateNowPlayingInfo(for: song)
         
@@ -74,18 +80,26 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 stopTimer()
                 // Update now playing info to reflect paused state
                 updateNowPlayingInfoTime()
-                // Note: Removed extended pause cleanup - keep player loaded for reliable resume
+                // Schedule cleanup after 30 seconds to free memory during long pauses
+                scheduleDelayedCleanup()
             } else {
+                // Mark this as a resume, not a new track
+                isResumingFromPause = true
                 player.play()
                 isPlaying = true
                 startTimer()
+                // Cancel any pending cleanup since we're resuming
+                cancelDelayedCleanup()
                 // Update now playing info to reflect playing state
                 updateNowPlayingInfoTime()
+                isResumingFromPause = false
             }
         } else if let song = lastPlayedSong {
             // Player was released, reload and resume (fallback case)
             print("🔄 Entering resume path - song: \(song.title), pausedAt: \(pausedAt)s")
+            isResumingFromPause = true
             resumeFromPause(song: song, at: pausedAt)
+            isResumingFromPause = false
         }
     }
     
@@ -281,6 +295,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Deactivate audio session to free system resources
         deactivateAudioSessionIfNeeded()
         
+        // CRITICAL: Notify AudioPlayerService to coordinate with QueueManager
+        // This prevents the queue from being reloaded after memory cleanup
+        AudioPlayerService.shared.notifyMemoryCleanup()
+        
         print("🧹 Audio resources cleaned up - stored position \(pausedAt)s for song: \(lastPlayedSong?.title ?? "Unknown")")
     }
     
@@ -374,17 +392,17 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
         
-        // Add artwork if available
+        // CRITICAL FIX: Add artwork to Now Playing info
         if let artwork = getArtwork(for: song) {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
-            print("🖼️ Added artwork to Now Playing info")
+            print("✅ Added artwork to Now Playing info")
         } else {
-            print("🚫 No artwork found for song")
+            print("⚠️ No artwork available for Now Playing info")
         }
         
         DispatchQueue.main.async {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-            print("✅ Now Playing info updated successfully")
+            print("✅ Now Playing info updated with artwork and album info")
             print("📊 Now Playing Center state: \(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil ? "Active" : "Inactive")")
         }
     }
@@ -392,10 +410,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func updateNowPlayingInfoTime() {
         // Update only time-sensitive properties without recreating the entire info
         guard var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo else {
-            // If no info exists, we can't update just the time
+            // If no info exists, we need to recreate it with artwork
+            if let song = lastPlayedSong {
+                print("🎵 Recreating Now Playing info with artwork during time update")
+                updateNowPlayingInfo(for: song)
+            }
             return
         }
         
+        // Just update time properties, preserving artwork and all other metadata
         currentInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
         currentInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
         
@@ -761,17 +784,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // MARK: - Notification Integration
     
     private func scheduleTrackChangeNotification(for song: Song, isManualSelection: Bool) {
-        Task {
-            // Get artwork for the notification
-            let artwork = await NotificationService.shared.getArtwork(for: song)
-            
-            // Schedule the notification
-            NotificationService.shared.scheduleTrackChangeNotification(
-                song: song,
-                artwork: artwork,
-                isManualSelection: isManualSelection
-            )
-        }
+        // Don't send notification for resume operations
+        let shouldSkip = isManualSelection || isResumingFromPause
+        
+        // Schedule the notification without artwork
+        NotificationService.shared.scheduleTrackChangeNotification(
+            song: song,
+            artwork: nil,
+            isManualSelection: shouldSkip
+        )
     }
     
     // MARK: - AVAudioPlayerDelegate

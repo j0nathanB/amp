@@ -121,7 +121,12 @@ struct QueueView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !audioPlayer.playbackQueue.isEmpty {
-                        Button("Shuffle Queue") {
+                        Button("Loop") {
+//                            audioPlayer.shuffleCurrentQueue()
+                        }
+                        .foregroundColor(Theme.accentPink)
+                        .font(Theme.bodyFont)
+                        Button("Shuffle") {
                             audioPlayer.shuffleCurrentQueue()
                         }
                         .foregroundColor(Theme.accentPink)
