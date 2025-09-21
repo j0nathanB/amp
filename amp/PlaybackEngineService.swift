@@ -77,11 +77,21 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         
         commonPlay(url: url)
         
-        // If resuming same song, seek to stored position
-        if isSameSong && storedPausePosition > 0 {
-            player?.currentTime = storedPausePosition
-            playbackTime = storedPausePosition
-            print("✅ Seeked to stored position: \(storedPausePosition)s")
+        // If resuming same song, determine the correct position to resume from
+        if isSameSong {
+            // Check if user has manually sought to a different position
+            let hasManuallySeeeked = abs(playbackTime - storedPausePosition) > 0.1 // 0.1s tolerance
+            let resumePosition = hasManuallySeeeked ? playbackTime : storedPausePosition
+            
+            if resumePosition > 0 {
+                player?.currentTime = resumePosition
+                playbackTime = resumePosition
+                if hasManuallySeeeked {
+                    print("✅ Resuming from manual seek position: \(resumePosition)s")
+                } else {
+                    print("✅ Resuming from stored pause position: \(resumePosition)s")
+                }
+            }
         }
         
         updateNowPlayingInfo(for: song)
@@ -109,11 +119,18 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 // Mark this as a resume, not a new track
                 isResumingFromPause = true
                 
-                // CRITICAL FIX: Seek to the paused position before resuming
-                if pausedAt > 0 {
-                    player.currentTime = pausedAt
-                    playbackTime = pausedAt
-                    print("▶️ Resuming from stored position: \(pausedAt)s")
+                // CRITICAL FIX: Determine the correct position to resume from
+                let hasManuallySeeeked = abs(playbackTime - pausedAt) > 0.1 // 0.1s tolerance
+                let resumePosition = hasManuallySeeeked ? playbackTime : pausedAt
+                
+                if resumePosition > 0 {
+                    player.currentTime = resumePosition
+                    playbackTime = resumePosition
+                    if hasManuallySeeeked {
+                        print("▶️ Resuming from manual seek position: \(resumePosition)s")
+                    } else {
+                        print("▶️ Resuming from stored pause position: \(resumePosition)s")
+                    }
                 } else {
                     print("▶️ Resuming from current position: \(player.currentTime)s")
                 }
@@ -152,6 +169,13 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func seek(to time: TimeInterval) {
         player?.currentTime = time
         playbackTime = time
+        
+        // Update stored pause position if seeking while paused
+        // This ensures that if the user seeks while paused, the new position is remembered
+        if !isPlaying {
+            pausedAt = time
+            print("📍 Manual seek while paused to: \(time)s")
+        }
         
         // Update now playing info with new elapsed time
         updateNowPlayingInfoTime()

@@ -267,6 +267,7 @@ class QueuePersistenceService {
                 trackIDs: savedIDs,
                 currentIndex: 0,
                 isShuffled: isShuffled,
+                isLooped: false,
                 originalOrder: savedIDs,
                 checksum: self.generateChecksum(for: savedIDs)
             )
@@ -370,14 +371,16 @@ struct PersistedQueue: Codable {
     let trackIDs: [MPMediaEntityPersistentID]
     let currentIndex: Int?
     let isShuffled: Bool
+    let isLooped: Bool
     let originalOrder: [MPMediaEntityPersistentID]
     let checksum: String
     
-    init(savedAt: Date, trackIDs: [MPMediaEntityPersistentID], currentIndex: Int?, isShuffled: Bool, originalOrder: [MPMediaEntityPersistentID], checksum: String) {
+    init(savedAt: Date, trackIDs: [MPMediaEntityPersistentID], currentIndex: Int?, isShuffled: Bool, isLooped: Bool, originalOrder: [MPMediaEntityPersistentID], checksum: String) {
         self.savedAt = savedAt
         self.trackIDs = trackIDs
         self.currentIndex = currentIndex
         self.isShuffled = isShuffled
+        self.isLooped = isLooped
         self.originalOrder = originalOrder
         self.checksum = checksum
     }

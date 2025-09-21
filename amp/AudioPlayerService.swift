@@ -16,6 +16,7 @@ class AudioPlayerService: ObservableObject {
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
     @Published var isShuffled = false
+    @Published var isLooped = false
     @Published var selectedTab: Tab = .queue
     @Published var currentIndex: Int = -1
     @Published var systemVolume: Float = 1.0
@@ -64,6 +65,9 @@ class AudioPlayerService: ObservableObject {
         
         queueManager.$isShuffled
             .assign(to: &$isShuffled)
+        
+        queueManager.$isLooped
+            .assign(to: &$isLooped)
         
         // Bind navigation properties
         navigation.$selectedTab
@@ -143,6 +147,10 @@ class AudioPlayerService: ObservableObject {
     
     func toggleShuffle() {
         queueManager.toggleShuffle()
+    }
+    
+    func toggleLoop() {
+        queueManager.toggleLoop()
     }
     
     // MARK: - Navigation

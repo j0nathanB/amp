@@ -122,19 +122,19 @@ struct QueueView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if !audioPlayer.playbackQueue.isEmpty {
                         
-                        HStack(spacing: 0) {
-                            // --- CORRECTED ACTION ---
+                        HStack(spacing: 16) {
                             Button("Loop") {
-    //                            audioPlayer.shuffleCurrentQueue()
+                                audioPlayer.toggleLoop()
                             }
-                            .foregroundColor(Theme.accentPink)
+                            .foregroundColor(audioPlayer.isLooped ? Theme.accentGreen : Theme.accentPink)
                             .font(Theme.bodyFont)
-                            Spacer()
+                            
                             Button("Shuffle") {
-                                audioPlayer.shuffleCurrentQueue()
+                                audioPlayer.toggleShuffle()
                             }
-                            .foregroundColor(Theme.accentPink)
-                            .font(Theme.bodyFont)                        }
+                            .foregroundColor(audioPlayer.isShuffled ? Theme.accentGreen : Theme.accentPink)
+                            .font(Theme.bodyFont)
+                        }
                     }
                 }
             }

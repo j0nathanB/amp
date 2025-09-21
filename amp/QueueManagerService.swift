@@ -14,6 +14,7 @@ class QueueManagerService: ObservableObject {
     @Published private(set) var queueVersion = 0
     @Published var currentTrack: Song?
     @Published var isShuffled = false
+    @Published var isLooped = false
     
     // Keep for migration only
     private let queueUserDefaultsKey = "savedPlaybackQueueIDs"
@@ -29,15 +30,26 @@ class QueueManagerService: ObservableObject {
         case active
         case paused
         case background
+        
+        var description: String {
+            switch self {
+            case .idle: return "idle"
+            case .active: return "active"
+            case .paused: return "paused"
+            case .background: return "background"
+            }
+        }
     }
     
     private var sessionState: SessionState = .idle
     private var sessionStartTime: Date?
     private var lastUserInteraction = Date()
     private var hasActiveSession = false
+    private var stateBeforeBackground: SessionState?
     
     init() {
         self.isShuffled = UserDefaults.standard.bool(forKey: "shuffleOnStart")
+        self.isLooped = UserDefaults.standard.bool(forKey: "loopEnabled")
         // Load queue asynchronously to avoid blocking main thread - ONLY ONCE
         Task {
             await loadQueueOnce()
@@ -90,16 +102,31 @@ class QueueManagerService: ObservableObject {
     func nextTrack() -> Song? {
         lastUserInteraction = Date()
         
-        guard let track = playbackQueue.next() else { return nil }
+        // Try normal next track first
+        if let track = playbackQueue.next() {
+            // Trigger @Published update by reassigning the struct
+            playbackQueue = playbackQueue
+            currentTrack = track
+            queueDidChange(triggeredBy: "nextTrack")
+            saveQueue()
+            delegate?.currentTrackDidChange(track)
+            return track
+        }
         
-        // Trigger @Published update by reassigning the struct
-        playbackQueue = playbackQueue
-        currentTrack = track
-        queueDidChange(triggeredBy: "nextTrack")
-        saveQueue()
-        delegate?.currentTrackDidChange(track)
+        // If at end and loop is enabled, go to first track
+        if isLooped && !playbackQueue.isEmpty {
+            print("[QueueManager] 🔄 Loop enabled - restarting from beginning")
+            if let track = playbackQueue.play(at: 0) {
+                playbackQueue = playbackQueue
+                currentTrack = track
+                queueDidChange(triggeredBy: "nextTrack-loop")
+                saveQueue()
+                delegate?.currentTrackDidChange(track)
+                return track
+            }
+        }
         
-        return track
+        return nil
     }
     
     func previousTrack() -> Song? {
@@ -160,6 +187,14 @@ class QueueManagerService: ObservableObject {
         }
     }
     
+    func toggleLoop() {
+        print("[QueueManager] Toggling loop to: \(!isLooped)")
+        isLooped.toggle()
+        UserDefaults.standard.set(isLooped, forKey: "loopEnabled")
+        print("[QueueManager] Loop state saved: \(isLooped)")
+        // Note: Loop doesn't modify current queue, only affects playback behavior
+    }
+    
     // MARK: - Queue Access
     
     func getCurrentTrack() -> Song? {
@@ -207,15 +242,23 @@ class QueueManagerService: ObservableObject {
     }
     
     func enterBackground() {
+        stateBeforeBackground = sessionState
         sessionState = .background
-        print("[QueueManager] Entered background")
+        print("[QueueManager] Entered background - saved previous state: \(stateBeforeBackground?.description ?? "nil")")
         saveQueue()
     }
     
     func enterForeground() {
         if sessionState == .background {
-            sessionState = hasActiveSession ? .active : .idle
-            print("[QueueManager] Entered foreground - session state: \(sessionState)")
+            // Restore the previous state if we have one, otherwise default logic
+            if let previousState = stateBeforeBackground {
+                sessionState = previousState
+                print("[QueueManager] Entered foreground - restored previous state: \(sessionState)")
+            } else {
+                sessionState = hasActiveSession ? .active : .idle
+                print("[QueueManager] Entered foreground - default state: \(sessionState)")
+            }
+            stateBeforeBackground = nil // Clear the saved state
         }
         // Don't reload queue!
     }
@@ -251,6 +294,7 @@ class QueueManagerService: ObservableObject {
                 trackIDs: playbackQueue.getAllTrackIDs(),
                 currentIndex: playbackQueue.currentIndex,
                 isShuffled: isShuffled,
+                isLooped: isLooped,
                 originalOrder: playbackQueue.originalOrder,
                 checksum: generateChecksum()
             )
@@ -279,6 +323,14 @@ class QueueManagerService: ObservableObject {
     }
     
     internal func loadQueue() async {
+        // CRITICAL SAFETY CHECK: Never clear queue if there's any playback context
+        guard currentTrack == nil && playbackQueue.isEmpty else {
+            print("[QueueManager] 🛡️ CRITICAL PROTECTION: Refusing to load queue - current track exists or queue not empty")
+            print("[QueueManager] 🛡️ Current track: \(currentTrack?.title ?? "none")")
+            print("[QueueManager] 🛡️ Queue size: \(playbackQueue.count)")
+            return
+        }
+        
         // Critical debug: Log call stack to find trigger
         print("🔴 [QueueManager] loadQueue called")
         print("🔴 [QueueManager] Session state: \(sessionState)")
@@ -361,6 +413,7 @@ class QueueManagerService: ObservableObject {
                 
                 // Update published properties
                 self.isShuffled = shuffled
+                self.isLooped = persisted.isLooped
                 
                 // Set current track if we have a valid index
                 if let index = currentIndex,
