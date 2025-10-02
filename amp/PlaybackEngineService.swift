@@ -841,14 +841,11 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // MARK: - Notification Integration
     
     private func scheduleTrackChangeNotification(for song: Song, isManualSelection: Bool) {
-        // Don't send notification for resume operations
-        let shouldSkip = isManualSelection || isResumingFromPause
-        
-        // Schedule the notification without artwork
+        // Schedule the notification - let the notification service decide whether to send it
         NotificationService.shared.scheduleTrackChangeNotification(
             song: song,
             artwork: nil,
-            isManualSelection: shouldSkip
+            isManualSelection: isManualSelection
         )
     }
     

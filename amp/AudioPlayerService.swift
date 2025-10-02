@@ -98,20 +98,12 @@ class AudioPlayerService: ObservableObject {
     }
     
     func playPause() {
-        // If no audio is loaded but we have a current track, load and play it
-        if currentTrack != nil && !isPlaying && !playbackEngine.hasAudioReady {
-            if let track = currentTrack {
-                playbackEngine.play(song: track, isManualSelection: true)
-                queueManager.resumeSession()
-            }
+        playbackEngine.playPause()
+        // Update session state based on play/pause
+        if playbackEngine.isPlaying {
+            queueManager.resumeSession()
         } else {
-            playbackEngine.playPause()
-            // Update session state based on play/pause
-            if playbackEngine.isPlaying {
-                queueManager.resumeSession()
-            } else {
-                queueManager.pauseSession()
-            }
+            queueManager.pauseSession()
         }
     }
     

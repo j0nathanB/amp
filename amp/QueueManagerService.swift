@@ -351,12 +351,8 @@ class QueueManagerService: ObservableObject {
             return
         }
         
-        // Don't load if user interacted recently (within 30 seconds)
-        let timeSinceInteraction = Date().timeIntervalSince(lastUserInteraction)
-        guard timeSinceInteraction > 30 else {
-            print("[QueueManager] ⛔ BLOCKED: Attempted to load queue \(Int(timeSinceInteraction))s after user interaction")
-            return
-        }
+        // REMOVED: 30-second user interaction timeout that was causing queue resets
+        // The existing session state and current track protections below are sufficient
         
         // Don't load if we have a current track (active or paused playback)
         guard currentTrack == nil else {

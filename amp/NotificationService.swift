@@ -138,6 +138,8 @@ class NotificationService: NSObject, ObservableObject {
         print("🔔 [DEBUG] scheduleTrackChangeNotification called for: \(song.title)")
         print("🔔 [DEBUG] isEnabled: \(isEnabled), isAuthorized: \(isAuthorized)")
         print("🔔 [DEBUG] authorizationStatus: \(authorizationStatus)")
+        print("🔔 [DEBUG] isManualSelection: \(isManualSelection)")
+        print("🔔 [DEBUG] isResumingFromBackground: \(isResumingFromBackground)")
         
         // CRITICAL: Don't send notification for the same song twice
         if lastNotificationSongID == song.persistentID {
@@ -325,6 +327,29 @@ class NotificationService: NSObject, ObservableObject {
     
     func clearDeliveredNotifications() {
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
+    
+    // MARK: - Test Methods
+    
+    func testNotification() {
+        print("🔔 [TEST] Testing notification system")
+        print("🔔 [TEST] isEnabled: \(isEnabled)")
+        print("🔔 [TEST] isAuthorized: \(isAuthorized)")
+        print("🔔 [TEST] authorizationStatus: \(authorizationStatus)")
+        
+        Task {
+            let testSong = Song(
+                persistentID: 12345,
+                title: "Test Song",
+                artist: "Test Artist",
+                album: "Test Album",
+                releaseDate: Date(),
+                albumTrackNumber: 1
+                
+            )
+            
+            await sendTrackChangeNotification(song: testSong, artwork: nil)
+        }
     }
     
     func setupNotificationCategories() {

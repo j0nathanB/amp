@@ -1,9 +1,18 @@
 import Foundation
 import MediaPlayer
 
+private enum SearchResultComponent {
+    case artists([Artist])
+    case albums([Album])
+    case songs([Song])
+}
+
 extension String {
     /// Normalize text for search queries (preserves articles when explicitly typed)
     var searchQueryNormalized: String {
+        // Safety check for empty or very long strings
+        guard !self.isEmpty && self.count < 200 else { return "" }
+        
         var normalized = self
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
             
@@ -48,25 +57,32 @@ extension String {
             .replacingOccurrences(of: "→", with: "")
             
         // Clean up whitespace but PRESERVE articles in queries
-        return normalized
+        let components = normalized
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            .prefix(20) // Limit number of words to prevent issues
+            
+        return Array(components).joined(separator: " ")
     }
     
     /// Normalize target text for matching (makes articles optional)
     var searchTargetNormalized: String {
+        guard !self.isEmpty && self.count < 200 else { return "" }
+        
         let normalized = self.searchQueryNormalized
+        guard !normalized.isEmpty else { return "" }
+        
         let words = normalized.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
+            .prefix(20) // Limit number of words
         
         // Remove leading articles for target text to make them optional
         let articles = ["the", "a", "an", "el", "la", "los", "las", "le", "les", "der", "die", "das"]
         if let firstWord = words.first, articles.contains(firstWord) {
-            return words.dropFirst().joined(separator: " ")
+            return Array(words.dropFirst()).joined(separator: " ")
         }
         
-        return words.joined(separator: " ")
+        return Array(words).joined(separator: " ")
     }
     
     /// Legacy method for backward compatibility
@@ -197,9 +213,10 @@ class HybridSearchIndex {
     }
     
     func searchSongs(term: String) -> [Song] {
-        guard !term.isEmpty else { return [] }
+        guard !term.isEmpty && term.count < 50 else { return [] }
         
         let normalizedTerm = term.searchQueryNormalized
+        guard !normalizedTerm.isEmpty else { return [] }
         
         // Get ALL matches - both exact word matches and partial matches
         var allMatches = Set<MPMediaEntityPersistentID>()
@@ -209,22 +226,33 @@ class HybridSearchIndex {
             allMatches.formUnion(exactMatches)
         }
         
-        // 2. Add partial word matches
+        // 2. Add partial word matches with safety check
         let partialMatches = getPartialSongMatches(normalizedTerm)
         allMatches.formUnion(partialMatches)
+        
+        // Limit results to prevent memory issues
+        if allMatches.count > 1000 {
+            allMatches = Set(allMatches.prefix(1000))
+        }
         
         // Convert to songs and sort with priority
         return allMatches.compactMap { songCache[$0] }
             .filter { song in
+                guard !song.title.isEmpty else { return false }
+                
                 let normalizedTitle = song.title.searchTargetNormalized
                 let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
                 
                 // Only match if any word starts with the term (word prefix matching)
-                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                let hasMatch = words.contains { word in
+                    guard !word.isEmpty else { return false }
+                    return word.hasPrefix(normalizedTerm)
+                }
                 
                 return hasMatch
             }
+            .prefix(500) // Limit final results
             .sorted { song1, song2 in
                 let title1 = song1.title.searchTargetNormalized
                 let title2 = song2.title.searchTargetNormalized
@@ -239,22 +267,10 @@ class HybridSearchIndex {
     }
     
     func searchArtists(term: String) -> [Artist] {
-        guard !term.isEmpty else { return [] }
+        guard !term.isEmpty && term.count < 50 else { return [] }
         
         let normalizedTerm = term.searchQueryNormalized
-        
-        #if DEBUG
-        if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
-            print("🔍 DEBUG: Searching for artist term '\(term)' normalized to '\(normalizedTerm)'")
-            print("🔍 DEBUG: Exact match in artistWordIndex: \(artistWordIndex[normalizedTerm]?.count ?? 0) results")
-            
-            // Check what words we have that start with the term (exact and prefix matches)
-            let exactWords = artistWordIndex.keys.filter { $0 == normalizedTerm }
-            let prefixWords = artistWordIndex.keys.filter { $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm }
-            print("🔍 DEBUG: Exact word matches for '\(normalizedTerm)': \(exactWords)")
-            print("🔍 DEBUG: Prefix word matches for '\(normalizedTerm)': \(prefixWords)")
-        }
-        #endif
+        guard !normalizedTerm.isEmpty else { return [] }
         
         // Get ALL matches - both exact word matches and partial matches
         var allMatches = Set<MPMediaEntityPersistentID>()
@@ -262,38 +278,35 @@ class HybridSearchIndex {
         // 1. Add exact word matches (O(1))
         if let exactMatches = artistWordIndex[normalizedTerm] {
             allMatches.formUnion(exactMatches)
-            
-            #if DEBUG
-            if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
-                let exactResults = exactMatches.compactMap { artistCache[$0] }
-                print("🔍 DEBUG: Exact match results: \(exactResults.map { $0.name })")
-            }
-            #endif
         }
         
-        // 2. Add prefix word matches
+        // 2. Add prefix word matches with safety check
         let prefixMatches = getPartialArtistMatches(normalizedTerm)
         allMatches.formUnion(prefixMatches)
         
-        #if DEBUG
-        if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
-            let prefixResults = prefixMatches.compactMap { artistCache[$0] }
-            print("🔍 DEBUG: Prefix match results: \(prefixResults.map { $0.name })")
+        // Limit results to prevent memory issues
+        if allMatches.count > 500 {
+            allMatches = Set(allMatches.prefix(500))
         }
-        #endif
         
         // Convert to artists and sort with priority
         let results = allMatches.compactMap { artistCache[$0] }
             .filter { artist in
+                guard !artist.name.isEmpty else { return false }
+                
                 let normalizedName = artist.name.searchTargetNormalized
                 let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
                 
                 // Only match if any word starts with the term (word prefix matching)
-                let hasMatch = words.contains { $0.hasPrefix(normalizedTerm) }
+                let hasMatch = words.contains { word in
+                    guard !word.isEmpty else { return false }
+                    return word.hasPrefix(normalizedTerm)
+                }
                 
                 return hasMatch
             }
+            .prefix(200) // Limit final results
             .sorted { artist1, artist2 in
                 let name1 = artist1.name.searchTargetNormalized
                 let name2 = artist2.name.searchTargetNormalized
@@ -306,29 +319,59 @@ class HybridSearchIndex {
                 return artist1.name < artist2.name
             }
         
-        #if DEBUG
-        if normalizedTerm.contains("sun") || normalizedTerm.contains("ace") || normalizedTerm.contains("bea") {
-            print("🔍 DEBUG: Final combined results: \(results.map { $0.name })")
+        return Array(results)
+    }
+    
+    private func getPartialArtistMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
+        guard !normalizedTerm.isEmpty && normalizedTerm.count < 50 else { return Set() }
+        
+        // Get artists from words that START WITH the term (word prefix matches)
+        let prefixWords = artistWordIndex.keys.filter { word in
+            guard !word.isEmpty && word != normalizedTerm else { return false }
+            return word.hasPrefix(normalizedTerm)
         }
-        #endif
+        
+        // Limit the number of prefix words to process
+        let limitedPrefixWords = Array(prefixWords.prefix(100))
+        
+        var results = Set<MPMediaEntityPersistentID>()
+        for word in limitedPrefixWords {
+            if let wordMatches = artistWordIndex[word] {
+                results.formUnion(wordMatches)
+                // Prevent result set from growing too large
+                if results.count > 500 {
+                    break
+                }
+            }
+        }
         
         return results
     }
     
-    private func getPartialArtistMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
-        // Get artists from words that START WITH the term (word prefix matches)
-        let prefixWords = artistWordIndex.keys.filter { 
-            $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm 
-        }
-        return Set(prefixWords.flatMap { artistWordIndex[$0] ?? [] })
-    }
-    
     private func getPartialSongMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
+        guard !normalizedTerm.isEmpty && normalizedTerm.count < 50 else { return Set() }
+        
         // Get songs from words that START WITH the term (word prefix matches)
-        let prefixWords = songWordIndex.keys.filter { 
-            $0.hasPrefix(normalizedTerm) && $0 != normalizedTerm 
+        let prefixWords = songWordIndex.keys.filter { word in
+            guard !word.isEmpty && word != normalizedTerm else { return false }
+            return word.hasPrefix(normalizedTerm)
         }
-        return Set(prefixWords.flatMap { songWordIndex[$0] ?? [] })
+        
+        // Limit the number of prefix words to process
+        let limitedPrefixWords = Array(prefixWords.prefix(100))
+        
+        var results = Set<MPMediaEntityPersistentID>()
+        for word in limitedPrefixWords {
+            if let wordMatches = songWordIndex[word] {
+                results.formUnion(wordMatches)
+                // Prevent result set from growing too large
+                if results.count > 1000 {
+                    break
+                }
+            }
+        }
+        
+        return results
     }
     
     private func getPartialAlbumMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
@@ -613,28 +656,69 @@ class LibraryService {
     }
 
     func search(for term: String) async -> SearchResults {
-        await Task.detached(priority: .userInitiated) {
-            guard !term.isEmpty else { return SearchResults(artists: [], albums: [], songs: []) }
-
-            // Check if this is a multi-word query
-            let normalizedTerm = term.searchQueryNormalized
-            let searchWords = normalizedTerm.components(separatedBy: .whitespacesAndNewlines)
-                .filter { !$0.isEmpty }
+        // Add safety checks and error handling to prevent crashes
+        guard !term.isEmpty && term.count < 100 else { 
+            return SearchResults(artists: [], albums: [], songs: []) 
+        }
+        
+        return await Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { 
+                return SearchResults(artists: [], albums: [], songs: []) 
+            }
             
-            if searchWords.count > 1 {
-                // Multi-word search - use the specialized method
-                return await self.searchWithMultipleTerms(terms: searchWords)
-            } else {
-                // Single word search - use the optimized index-based search
-                async let artists = self.searchArtists(term: term)
-                async let albums = self.searchAlbums(term: term)  
-                async let songs = self.searchSongs(term: term)
+            do {
+                // Check if this is a multi-word query
+                let normalizedTerm = term.searchQueryNormalized
+                let searchWords = normalizedTerm.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
                 
-                return SearchResults(
-                    artists: await artists,
-                    albums: await albums,
-                    songs: await songs
-                )
+                // Limit search words to prevent performance issues
+                guard searchWords.count <= 10 else {
+                    return SearchResults(artists: [], albums: [], songs: [])
+                }
+                
+                if searchWords.count > 1 {
+                    // Multi-word search - use the specialized method
+                    return await self.searchWithMultipleTerms(terms: searchWords)
+                } else {
+                    // Single word search - use the optimized index-based search with error handling
+                    return await withTaskGroup(of: SearchResultComponent.self) { group in
+                        group.addTask {
+                            .artists(self.searchArtists(term: term))
+                        }
+                        group.addTask {
+                            .albums(self.searchAlbums(term: term))
+                        }
+                        group.addTask {
+                            .songs(self.searchSongs(term: term))
+                        }
+                        
+                        var artists: [Artist] = []
+                        var albums: [Album] = []
+                        var songs: [Song] = []
+                        
+                        for await result in group {
+                            switch result {
+                            case .artists(let a):
+                                artists = a
+                            case .albums(let a):
+                                albums = a
+                            case .songs(let s):
+                                songs = s
+                            }
+                        }
+                        
+                        return SearchResults(
+                            artists: artists,
+                            albums: albums,
+                            songs: songs
+                        )
+                    }
+                }
+            } catch {
+                // This catch block is needed for potential future async errors
+                print("Search error: \(error.localizedDescription)")
+                return SearchResults(artists: [], albums: [], songs: [])
             }
         }.value
     }

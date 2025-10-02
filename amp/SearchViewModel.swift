@@ -21,8 +21,10 @@ class SearchViewModel: ObservableObject {
     func performSearch() {
         searchTask?.cancel()
         
-        let currentSearchText = searchText
-        if currentSearchText.isEmpty {
+        let currentSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Add safety checks for search text
+        guard !currentSearchText.isEmpty && currentSearchText.count < 100 else {
             self.searchResults = SearchResults(artists: [], albums: [], songs: [])
             self.isSearching = false
             return
@@ -33,17 +35,49 @@ class SearchViewModel: ObservableObject {
             do {
                 try await Task.sleep(nanoseconds: 300_000_000) // Debounce
                 
-                // Use the real service on a physical device
-                let results = await LibraryService.shared.search(for: currentSearchText)
+                // Add timeout to prevent infinite searches
+                let results = try await withThrowingTaskGroup(of: SearchResults.self) { group in
+                    group.addTask {
+                        await LibraryService.shared.search(for: currentSearchText)
+                    }
+                    
+                    // Add timeout task
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 10_000_000_000) // 10 second timeout
+                        throw SearchError.timeout
+                    }
+                    
+                    // Return the first result (either search results or timeout)
+                    for try await result in group {
+                        group.cancelAll()
+                        return result
+                    }
+                    
+                    return SearchResults(artists: [], albums: [], songs: [])
+                }
                 
                 // This check ensures we only update for the latest search term
-                if currentSearchText == self.searchText {
-                    self.searchResults = results
+                if currentSearchText == self.searchText.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    await MainActor.run {
+                        self.searchResults = results
+                        self.isSearching = false
+                    }
+                }
+            } catch SearchError.timeout {
+                print("Search timed out for: \(currentSearchText)")
+                await MainActor.run {
+                    self.isSearching = false
                 }
             } catch {
-                print("Search task cancelled.")
+                print("Search task cancelled or failed: \(error)")
+                await MainActor.run {
+                    self.isSearching = false
+                }
             }
-            isSearching = false
         }
     }
+}
+
+private enum SearchError: Error {
+    case timeout
 }

@@ -3,6 +3,36 @@
 ## Project Overview
 SwiftUI-based music player app for iPhone with clean service-oriented architecture. The app provides music library browsing, queue management, and audio playback with optimized search and responsive UI.
 
+## Project Location & Build Instructions
+
+### Project Structure
+- **Project Path**: `/Users/zen/dev/src/amp/amp/`
+- **Xcode Project**: `/Users/zen/dev/src/amp/amp/amp.xcodeproj`
+- **Source Files**: `/Users/zen/dev/src/amp/amp/amp/` (this directory)
+
+### Build Commands
+```bash
+# Navigate to project directory
+cd /Users/zen/dev/src/amp/amp
+
+# List available schemes and targets
+xcodebuild -list -project amp.xcodeproj
+
+# Build for iOS Simulator (iPhone 16)
+xcodebuild -scheme amp -destination 'platform=iOS Simulator,name=iPhone 16' build
+
+# Clean and build
+xcodebuild -scheme amp -destination 'platform=iOS Simulator,name=iPhone 16' clean build
+
+# Run tests
+xcodebuild -scheme amp -destination 'platform=iOS Simulator,name=iPhone 16' test
+```
+
+### Available Targets
+- **amp**: Main app target
+- **ampTests**: Unit tests
+- **ampUITests**: UI tests
+
 ## Tech Stack
 - **Framework**: SwiftUI
 - **Audio**: MediaPlayer framework (MPMediaItem, MPMediaQuery), AVAudioPlayer
@@ -192,6 +222,14 @@ Task {
 - ✅ Added multi-language support and edge case handling
 - ✅ Established iterative improvement workflow with regression detection
 
+### ✅ Phase 6: Search Stability & Crash Prevention (Completed)
+**Goal**: Eliminate search crashes and ensure robust error handling
+- ✅ Fixed critical search crashes when searching for single letters ("s") or common terms ("Spice Girls")
+- ✅ Added comprehensive input validation and safety checks
+- ✅ Implemented memory management limits to prevent out-of-memory crashes
+- ✅ Added search timeouts and graceful error handling
+- ✅ Enhanced string processing safety with bounds checking and Unicode protection
+
 ## Search Engine Test-Driven Development Framework
 
 ### Search Testing Architecture
@@ -322,12 +360,23 @@ ComprehensiveSearchTesting.quickValidateYourExamples()
 - **Word Boundary Logic**: Implement prefix matching with false positive prevention
 - **Performance First**: Index-based lookups with fallback scanning
 - **Unicode Awareness**: Handle international characters properly
+- **Safety First**: Always add input validation and result limits
+- **Memory Management**: Implement result set limits and early termination
+- **Error Handling**: Use timeout patterns and graceful degradation
 
 #### **Testing Best Practices**
 - **Comprehensive Coverage**: Test edge cases, not just happy paths
 - **Real-world Data**: Use realistic band names, song titles, scenarios
 - **Performance Validation**: Ensure changes don't degrade performance
 - **Regression Prevention**: Always run full suite before considering complete
+- **Crash Testing**: Test with problematic inputs like single letters and very long strings
+
+#### **Search Safety Requirements**
+- **Input Validation**: Maximum string lengths, character limits, word count limits
+- **Memory Limits**: Result set size limits (1000 songs, 500 artists maximum)
+- **Timeout Protection**: 10-second maximum search time with automatic cancellation
+- **Thread Safety**: Proper async/await patterns with MainActor for UI updates
+- **Unicode Safety**: String processing protection against malformed characters
 
 ## Current Status: Production Ready ✅
 
@@ -337,11 +386,42 @@ The app now has:
 - ✅ **Responsive UI**: No main thread blocking, smooth animations
 - ✅ **Feature Complete**: All original functionality preserved and enhanced
 - ✅ **Maintainable**: Clear patterns and guidelines for future development
-- ✅ **Bug-Free**: Track auto-play and other issues resolved
+- ✅ **Bug-Free**: Track auto-play and search crashes resolved
 - ✅ **Robust Search**: 180+ test cases with TDD framework for reliable search improvements
 - ✅ **International Support**: Full Unicode normalization and multi-language search
 - ✅ **User-Focused**: Natural prefix matching ("def" → "Deftones") with comprehensive validation
+- ✅ **Crash-Resistant**: Search stability with comprehensive safety checks and error handling
+- ✅ **Memory Safe**: Result limits and timeout protection prevent resource exhaustion
+
+## Recent Improvements
+
+### Notification Bug Fix (Latest)
+- **Problem**: Track change notifications weren't showing at all
+- **Root Cause**: Inverted logic in `PlaybackEngineService.swift` where `shouldSkip` was incorrectly passed as `isManualSelection`, causing all automatic track changes to be treated as manual selections and thus skipped
+- **Solution**: Fixed notification parameter passing and added comprehensive debug logging
+- **Impact**: Notifications now properly show when tracks change automatically (when app is backgrounded or user is not on Now Playing view)
+- **Files**: `PlaybackEngineService.swift:843-853`, `NotificationService.swift:137-171`
+
+### Previous: Pause/Resume Bug Fix
+- **Problem**: Paused songs restarted from the beginning instead of resuming from the paused position
+- **Root Cause**: `AudioPlayerService.playPause()` incorrectly called `playbackEngine.play()` when no audio was ready, bypassing the proper resume logic
+- **Solution**: Simplified `playPause()` to always delegate to `playbackEngine.playPause()`, which contains comprehensive pause/resume handling
+- **Impact**: Songs now properly resume from their paused position, maintaining user's playback context
+- **Files**: `AudioPlayerService.swift:100-108`
+
+### Previous: Search Crash Prevention
+- **Problem**: App crashed when searching for single letters ("s") or common terms ("Spice Girls")
+- **Root Cause**: Memory explosion from uncontrolled result sets, missing input validation, and unsafe string processing
+- **Solution**: Comprehensive safety system with input validation, result limits, timeouts, and error handling
+- **Impact**: Search is now stable and responsive for all queries, including previously problematic ones
+
+### Key Safety Features Added
+- **Input Validation**: 100-character search limit, 10-word maximum, empty string protection
+- **Memory Management**: 1000 song/500 artist result limits with early termination
+- **Timeout Protection**: 10-second search timeout with automatic cancellation
+- **String Safety**: Unicode processing protection and bounds checking
+- **Error Handling**: Graceful degradation with proper async/await patterns
 
 ---
 
-*Updated after search engine refinement - comprehensive TDD framework ensures reliable search improvements*
+*Updated after notification bug fix - track change notifications now work properly*
