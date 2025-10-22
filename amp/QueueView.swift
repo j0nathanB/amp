@@ -57,87 +57,136 @@ struct QueueView: View {
     
     var body: some View {
         NavigationStack {
-            Group {
-                if audioPlayer.playbackQueue.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text("The queue is empty.")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                } else {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
-                                    LazyQueueItemView(index: index)
-                                        .id("item-\(index)-\(audioPlayer.queueVersion)")
-                                }
-                            }
-                            .id("queue-\(audioPlayer.queueVersion)")
-                            .padding(.top, 1)
-                        }
-                        .onChange(of: audioPlayer.currentIndex) { oldIndex, newIndex in
-                            let wasTracking = viewState.lastKnownCurrentIndex == oldIndex
-                            
-                            guard newIndex >= 0 else { return }
-                            
-                            // Only auto-scroll if user is actively viewing AND we were tracking the previous song
-                            if viewState.isActivelyViewing && wasTracking {
-                                // User is actively viewing and song changed - smooth scroll
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("item-\(newIndex)-\(audioPlayer.queueVersion)", anchor: .top)
-                                }
-                            }
-                            
-                            viewState.updateCurrentIndex(newIndex)
-                            lastCurrentIndex = newIndex
-                        }
-                        .onAppear {
-                            viewState.setActiveViewing(true)
-                            
-                            let currentIndex = audioPlayer.currentIndex
-                            
-                            // Always scroll to the currently playing track on appear
-                            if currentIndex >= 0 {
-                                DispatchQueue.main.async {
-                                    proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
-                                }
-                            }
-                            
-                            viewState.updateCurrentIndex(currentIndex)
-                            lastCurrentIndex = currentIndex
-                        }
-                        .onDisappear {
-                            viewState.setActiveViewing(false)
-                        }
-                    }
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Text("Up Next").font(Theme.titleFont).foregroundColor(Theme.primaryText)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
+            VStack(spacing: 0) {
+                // Custom header with controlled spacing
+                ZStack(alignment: .leading) {
+                    Text("Queue")
+                        .font(Theme.titleFont)
+                        .foregroundColor(Theme.primaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                     if !audioPlayer.playbackQueue.isEmpty {
-                        
-                        HStack(spacing: 16) {
+                        HStack(spacing: 12) {
                             Button("Loop") {
                                 audioPlayer.toggleLoop()
                             }
-                            .foregroundColor(audioPlayer.isLooped ? Theme.accentGreen : Theme.accentPink)
+                            .foregroundColor(audioPlayer.isLooped ? .white : Theme.primaryText)
                             .font(Theme.bodyFont)
-                            
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                ZStack {
+                                    // Layer 1: The hard shadow (offset background)
+                                    Rectangle()
+                                        .fill(Theme.accentGreen)
+                                        .offset(x: -6, y: 6)
+
+                                    // Layer 2: The main button background
+                                    Rectangle()
+                                        .fill(audioPlayer.isLooped ? Theme.accentPink : .white)
+                                }
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Theme.primaryText, lineWidth: 2)
+                            )
+
                             Button("Shuffle") {
                                 audioPlayer.toggleShuffle()
                             }
-                            .foregroundColor(audioPlayer.isShuffled ? Theme.accentGreen : Theme.accentPink)
+                            .foregroundColor(audioPlayer.isShuffled ? .white : Theme.primaryText)
                             .font(Theme.bodyFont)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                ZStack {
+                                    // Layer 1: The hard shadow (offset background)
+                                    Rectangle()
+                                        .fill(Theme.accentGreen)
+                                        .offset(x: -6, y: 6)
+
+                                    // Layer 2: The main button background
+                                    Rectangle()
+                                        .fill(audioPlayer.isShuffled ? Theme.accentPink : .white)
+                                }
+                            )
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Theme.primaryText, lineWidth: 2)
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+                .frame(height: 28)
+                .padding(.vertical, 20)
+                .padding(.horizontal, 16)
+                .background(Theme.background)
+
+                // Separator line below header
+                Rectangle()
+                    .fill(Theme.primaryText)
+                    .frame(height: 2)
+
+                // Content area
+                Group {
+                    if audioPlayer.playbackQueue.isEmpty {
+                        VStack {
+                            Spacer()
+                            Text("The queue is empty.")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+                    } else {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(spacing: 0) {
+                                    ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
+                                        LazyQueueItemView(index: index)
+                                            .id("item-\(index)-\(audioPlayer.queueVersion)")
+                                    }
+                                }
+                                .id("queue-\(audioPlayer.queueVersion)")
+                            }
+                            .onChange(of: audioPlayer.currentIndex) { oldIndex, newIndex in
+                                let wasTracking = viewState.lastKnownCurrentIndex == oldIndex
+
+                                guard newIndex >= 0 else { return }
+
+                                // Only auto-scroll if user is actively viewing AND we were tracking the previous song
+                                if viewState.isActivelyViewing && wasTracking {
+                                    // User is actively viewing and song changed - smooth scroll
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        proxy.scrollTo("item-\(newIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                    }
+                                }
+
+                                viewState.updateCurrentIndex(newIndex)
+                                lastCurrentIndex = newIndex
+                            }
+                            .onAppear {
+                                viewState.setActiveViewing(true)
+
+                                let currentIndex = audioPlayer.currentIndex
+
+                                // Always scroll to the currently playing track on appear
+                                if currentIndex >= 0 {
+                                    DispatchQueue.main.async {
+                                        proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                    }
+                                }
+
+                                viewState.updateCurrentIndex(currentIndex)
+                                lastCurrentIndex = currentIndex
+                            }
+                            .onDisappear {
+                                viewState.setActiveViewing(false)
+                            }
                         }
                     }
                 }
             }
+            .navigationBarHidden(true)
         }
     }
 }
@@ -152,32 +201,43 @@ private struct LazyQueueItemView: View {
     private let songCache = QueueSongCache.shared
 
     var body: some View {
-        ListItemView(
-            title: song?.title ?? "Loading...",
-            subtitle: song?.artist ?? "",
-            isPlaying: index == audioPlayer.currentIndex,
-            detail: song?.album ?? "",
-            playPauseAction: {
-                if song != nil {
-                    audioPlayer.playPause()
+        VStack(spacing: 0) {
+            ListItemView(
+                title: song?.title ?? "Loading...",
+                subtitle: song?.artist ?? "",
+                isPlaying: index == audioPlayer.currentIndex,
+                detail: nil,
+                playPauseAction: {
+                    if song != nil {
+                        audioPlayer.playPause()
+                    }
+                },
+                isPressed: isPressed,
+                showTopBorder: index == 0 // Only show top border for first item
+            )
+            .opacity(song != nil ? 1.0 : 0.6) // Slightly dim loading items
+            .onTapGesture {
+                // Allow tap even if song is still loading, as long as we have a valid index
+                if index < audioPlayer.playbackQueue.count {
+                    audioPlayer.playTrack(at: index)
                 }
-            },
-            isPressed: isPressed,
-            showTopBorder: index == 0 // Only show top border for first item
-        )
-        .opacity(song != nil ? 1.0 : 0.6) // Slightly dim loading items
-        .onTapGesture {
-            // Allow tap even if song is still loading, as long as we have a valid index
-            if index < audioPlayer.playbackQueue.count {
-                audioPlayer.playTrack(at: index)
             }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($isPressed) { _, state, _ in
+                        state = true
+                    }
+            )
+
+            // Add separator between items (not after the last item)
+//            if index < audioPlayer.playbackQueue.count - 1 {
+//                Rectangle()
+//                    .fill(Theme.primaryText)
+//                    .frame(height: 1)
+//                    .frame(maxWidth: .infinity)
+//                    .padding(.horizontal, UIScreen.main.bounds.width / 8) // Centers and covers 2/3 width
+//            }
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .updating($isPressed) { _, state, _ in
-                    state = true
-                }
-        )
         .onAppear {
             loadSongIfNeeded()
         }

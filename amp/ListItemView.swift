@@ -68,11 +68,11 @@ struct ListItemView: View {
                 HStack {
                     Rectangle()
                         .fill(Theme.primaryText)
-                        .frame(width: 1)
+                        .frame(width: 0)
                     Spacer()
                     Rectangle()
                         .fill(Theme.primaryText)
-                        .frame(width: 1)
+                        .frame(width: 0)
                 }
                 
                 // Top and bottom borders - secondary color (conditional)
@@ -80,13 +80,13 @@ struct ListItemView: View {
                     if showTopBorder {
                         Rectangle()
                             .fill(Theme.secondaryText)
-                            .frame(height: 1)
+                            .frame(height: 0)
                     }
                     Spacer()
                     if showBottomBorder {
                         Rectangle()
                             .fill(Theme.secondaryText)
-                            .frame(height: 1)
+                            .frame(height: 0)
                     }
                 }
             }

@@ -147,6 +147,43 @@ Task {
 }
 ```
 
+### Race Condition Prevention Pattern
+```swift
+// ANTI-PATTERN: State captured inside async Task (can become stale)
+Task {
+    let state = captureCurrentState()  // ❌ State captured asynchronously
+    await performOperation(state)
+}
+
+// CORRECT: State captured synchronously before async operation
+let state = captureCurrentState()  // ✅ State captured immediately
+Task {
+    await performOperation(state)  // Only operation is async
+}
+
+// CORRECT: Fail-safe checks before mutation after async operations
+await MainActor.run {
+    // Re-check state before mutation
+    guard currentState.isValid else { return }  // ✅ Catch state changes
+    mutateState()
+}
+```
+
+### Combine Binding Safety Pattern
+```swift
+// ANTI-PATTERN: Using bound property immediately (race condition)
+func doAction() {
+    service.updateProperty()  // Sets service.property
+    useProperty(self.property)  // ❌ Binding may not have propagated yet
+}
+
+// CORRECT: Use source property directly when immediate access needed
+func doAction() {
+    service.updateProperty()  // Sets service.property
+    useProperty(service.property)  // ✅ Direct access, no race
+}
+```
+
 ## Development Workflow
 
 ### Adding New Features
@@ -382,20 +419,39 @@ ComprehensiveSearchTesting.quickValidateYourExamples()
 
 The app now has:
 - ✅ **Clean Architecture**: Service-oriented design with clear separation of concerns
-- ✅ **Optimized Performance**: Hybrid search, lazy loading, async operations  
+- ✅ **Optimized Performance**: Hybrid search, lazy loading, async operations
 - ✅ **Responsive UI**: No main thread blocking, smooth animations
 - ✅ **Feature Complete**: All original functionality preserved and enhanced
 - ✅ **Maintainable**: Clear patterns and guidelines for future development
-- ✅ **Bug-Free**: Track auto-play and search crashes resolved
+- ✅ **Stable Queue**: Ghost queue issue resolved with multi-layered fail-safe protections
 - ✅ **Robust Search**: 180+ test cases with TDD framework for reliable search improvements
 - ✅ **International Support**: Full Unicode normalization and multi-language search
 - ✅ **User-Focused**: Natural prefix matching ("def" → "Deftones") with comprehensive validation
-- ✅ **Crash-Resistant**: Search stability with comprehensive safety checks and error handling
+- ✅ **Crash-Resistant**: Search and queue stability with comprehensive safety checks
 - ✅ **Memory Safe**: Result limits and timeout protection prevent resource exhaustion
+- ✅ **Race Condition Safe**: Synchronous state capture and fail-safe checks prevent async corruption
 
 ## Recent Improvements
 
-### Notification Bug Fix (Latest)
+### Queue Stability & Ghost Queue Fix (Latest)
+- **Problem**: Queue would become corrupted during playback, showing wrong album art and tracks from previous sessions. Specifically, album art would change to songs from the same position in a previously-loaded queue, and going back to "previous" would play the ghost track instead of the actual track.
+- **Root Cause**: Multiple interconnected race conditions:
+  1. **State Capture Race in `saveQueue()`**: Queue state was captured inside async `Task` block, allowing state to change between capture and persistence
+  2. **Combine Binding Race in `startPlayback()`**: Used bound `currentTrack` property instead of direct source, causing stale track references
+  3. **Double Playback Calls**: Both manual playback and delegate callback would trigger `playbackEngine.play()`, creating conflicts
+  4. **Async Load Race**: `loadQueue()` would pass initial protections but state would change during the ~1 second disk load, then overwrite active queue when mutation happened
+- **Solution**: Multi-layered protection system:
+  1. Synchronous state capture in `saveQueue()` before async persistence (`QueueManagerService.swift:287-308`)
+  2. Direct track reference in `startPlayback()` to avoid Combine binding delay (`AudioPlayerService.swift:90-106`)
+  3. `isManuallyStarting` flag to prevent delegate double-play (`AudioPlayerService.swift:15-16, 258-278`)
+  4. Fail-safe checks in `loadQueue()` MainActor block to catch state changes during async load (`QueueManagerService.swift:432-447`)
+  5. Comprehensive entry logging to track all `loadQueue()` calls (`QueueManagerService.swift:342-343`)
+- **Impact**: Queue is now completely stable. No more ghost tracks, correct album art throughout playback, proper previous/next track behavior, and reliable queue persistence.
+- **Files**:
+  - `QueueManagerService.swift:15-28, 287-308, 341-474` (state capture, logging, fail-safes)
+  - `AudioPlayerService.swift:15-16, 90-121, 258-278` (manual start protection)
+
+### Previous: Notification Bug Fix
 - **Problem**: Track change notifications weren't showing at all
 - **Root Cause**: Inverted logic in `PlaybackEngineService.swift` where `shouldSkip` was incorrectly passed as `isManualSelection`, causing all automatic track changes to be treated as manual selections and thus skipped
 - **Solution**: Fixed notification parameter passing and added comprehensive debug logging
@@ -421,7 +477,8 @@ The app now has:
 - **Timeout Protection**: 10-second search timeout with automatic cancellation
 - **String Safety**: Unicode processing protection and bounds checking
 - **Error Handling**: Graceful degradation with proper async/await patterns
+- **Queue Protection**: Multi-layered fail-safes prevent ghost queue loading during active playback
 
 ---
 
-*Updated after notification bug fix - track change notifications now work properly*
+*Updated after queue stability fix - ghost queue issue completely resolved*

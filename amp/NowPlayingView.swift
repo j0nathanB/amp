@@ -39,12 +39,23 @@ struct NowPlayingView: View {
 
 private struct PlayerArtworkView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
-    
+    @State private var showInfo = false
+
     var body: some View {
         // Always maintain the same frame size for consistent layout
         Group {
             if let currentTrack = audioPlayer.currentTrack {
-                ArtworkImage(song: currentTrack)
+                if showInfo {
+                    AlbumInfoView(song: currentTrack)
+                        .onTapGesture {
+                            showInfo = false
+                        }
+                } else {
+                    ArtworkImage(song: currentTrack)
+                        .onTapGesture {
+                            showInfo = true
+                        }
+                }
             } else {
                 // Default artwork when no track is playing - same size as when loaded
                 Image(systemName: "circle.fill")
@@ -60,14 +71,10 @@ private struct PlayerArtworkView: View {
 
 private struct ArtworkImage: View {
     let song: Song
-    
-    private var artwork: UIImage? {
-        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: song.persistentID), forProperty: MPMediaItemPropertyPersistentID)
-        let query = MPMediaQuery.songs()
-        query.addFilterPredicate(predicate)
-        return query.items?.first?.artwork?.image(at: CGSize(width: 500, height: 500))
-    }
-    
+
+    @State private var artwork: UIImage?
+    @State private var loadedSongID: UInt64 = 0
+
     var body: some View {
         Group {
             if let image = artwork {
@@ -78,7 +85,27 @@ private struct ArtworkImage: View {
         }
         .aspectRatio(contentMode: .fit)
         .frame(width: 322, height: 322)
-        .overlay(Rectangle().stroke(Theme.primaryText, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
+        .onChange(of: song.persistentID) { oldValue, newValue in
+            // Only reload artwork if the song actually changed
+            if newValue != loadedSongID {
+                loadArtwork()
+            }
+        }
+        .onAppear {
+            // Load artwork on first appearance
+            if loadedSongID != song.persistentID {
+                loadArtwork()
+            }
+        }
+    }
+
+    private func loadArtwork() {
+        loadedSongID = song.persistentID
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: song.persistentID), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        artwork = query.items?.first?.artwork?.image(at: CGSize(width: 500, height: 500))
     }
 }
 
@@ -87,14 +114,6 @@ private struct PlayerTrackInfoView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Artist - fixed height container
-            Text(track?.artist ?? "Artist")
-                .font(Theme.bodyFont)
-                .foregroundColor(Theme.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(height: 20, alignment: .leading) // Fixed height to prevent layout shifts
-            
             // Title - fixed height container  
             Text(track?.title ?? "Track")
                 .font(Theme.nowPlayingFont)
@@ -103,13 +122,21 @@ private struct PlayerTrackInfoView: View {
                 .minimumScaleFactor(0.6)
                 .frame(height: 28, alignment: .leading) // Fixed height for title font
             
-            // Album - in a visual container box with fixed height
-            Text(track?.album ?? "Album")
-                .font(Theme.bodyItalicFont)
+            // Artist - fixed height container
+            Text(track?.artist ?? "Artist")
+                .font(Theme.bodyFont)
                 .foregroundColor(Theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(height: 24, alignment: .leading) // Fixed height container
+                .frame(height: 20, alignment: .leading) // Fixed height to prevent layout shifts
+            
+            // Album - in a visual container box with fixed height
+//            Text(track?.album ?? "Album")
+//                .font(Theme.bodyItalicFont)
+//                .foregroundColor(Theme.primaryText)
+//                .lineLimit(1)
+//                .minimumScaleFactor(0.7)
+//                .frame(height: 24, alignment: .leading) // Fixed height container
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -136,20 +163,20 @@ private struct PlayerProgressView: View {
                     // Background of the progress bar
                     Rectangle()
                         .fill(Theme.accentGreen)
-                        .stroke(Theme.primaryText, lineWidth: 1)
+                        .stroke(Theme.primaryText, lineWidth: 2)
                         .frame(height: barHeight)
                     
                     // The elapsed progress portion
                     Rectangle()
                         .fill(Theme.backgroundColor) // Changed to lime green
-                        .stroke(Theme.primaryText, lineWidth: 1)
+                        .stroke(Theme.primaryText, lineWidth: 2)
                     // The width is calculated based on playback progress
                     .frame(width: geometry.size.width * progress, height: barHeight)
                     
                     // The draggable square slider thumb
                     Rectangle()
                         .fill(.white)
-                        .stroke(Theme.primaryText, lineWidth: 1)
+                        .stroke(Theme.primaryText, lineWidth: 2)
                         .frame(width: thumbWidth, height: thumbHeight)
                         .offset(x: thumbOffset) // Position the thumb
 
@@ -244,8 +271,56 @@ struct PlayerButtonStyle: ButtonStyle {
                     .opacity(configuration.isPressed ? 0 : 1)
             )
             .overlay(
-                Rectangle()
-                    .stroke(Theme.primaryText, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Theme.primaryText, lineWidth: 2)
             )
+    }
+}
+
+private struct AlbumInfoView: View {
+    let song: Song
+
+    private var yearString: String {
+        if let releaseDate = song.releaseDate {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy"
+            return formatter.string(from: releaseDate)
+        }
+        return "Unknown"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            InfoRow(label: "Song", value: song.title)
+            InfoRow(label: "Artist", value: song.artist)
+            InfoRow(label: "Album", value: song.album)
+            InfoRow(label: "Year", value: yearString)
+            InfoRow(label: "Genre", value: song.genre ?? "Unknown")
+        }
+        .padding(22)
+        .frame(width: 325, height: 322)
+        .background(Color.white)
+        .overlay(Rectangle().stroke(Theme.primaryText, lineWidth: 1))
+    }
+}
+
+private struct InfoRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 18) {
+            Text("\(label):")
+                .font(Theme.bodyFont.weight(.semibold))
+                .foregroundColor(Theme.primaryText)
+                .frame(width: 80, alignment: .leading)
+            
+            Text(value)
+                .font(Theme.bodyFont)
+                .foregroundColor(Theme.primaryText)
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/zen/dev/src/amp/amp/**)",
+      "Bash(xcodebuild:*)",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

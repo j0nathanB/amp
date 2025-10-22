@@ -3,12 +3,18 @@ import SwiftUI
 
 class AudioPlayerService: ObservableObject {
     static let shared = AudioPlayerService()
-    
+
     // Services
     private let playbackEngine = PlaybackEngineService()
     let queueManager = QueueManagerService()  // Made internal for app lifecycle access
     private let navigation = NavigationService()
-    
+
+    // Track whether we're auto-advancing after track completion
+    private var isAutoAdvancing = false
+
+    // Track whether we're manually starting playback (to prevent delegate double-play)
+    private var isManuallyStarting = false
+
     // Public interface - delegate to services
     @Published var isPlaying = false
     @Published var currentTrack: Song?
@@ -82,18 +88,35 @@ class AudioPlayerService: ObservableObject {
     // MARK: - Public API (same as before)
     
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
+        // Set flag to prevent delegate from also starting playback
+        isManuallyStarting = true
+
         queueManager.startPlayback(from: songs, startingWith: startSong)
         navigation.navigateToNowPlaying()
-        // Explicitly start playing the selected song
-        if let track = currentTrack {
+
+        // Get the track directly from queueManager to avoid Combine binding race condition
+        if let track = queueManager.currentTrack {
             playbackEngine.play(song: track, isManualSelection: true)
+        }
+
+        // Clear flag after a brief delay to allow delegate to complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isManuallyStarting = false
         }
     }
     
     func playTrack(at index: Int) {
+        // Set flag to prevent delegate from also starting playback
+        isManuallyStarting = true
+
         if let track = queueManager.playTrack(at: index) {
             playbackEngine.play(song: track, isManualSelection: true)
             navigation.navigateToNowPlaying()
+        }
+
+        // Clear flag after a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isManuallyStarting = false
         }
     }
     
@@ -211,13 +234,14 @@ extension AudioPlayerService {
 extension AudioPlayerService: PlaybackEngineDelegate {
     func playbackDidFinish(successfully: Bool) {
         if successfully {
-            // When a track finishes, automatically play the next track
-            if let track = queueManager.nextTrack() {
-                playbackEngine.play(song: track, isManualSelection: false)
-            }
+            // When a track finishes, automatically advance to the next track
+            // Set flag to indicate we're auto-advancing (should continue playing)
+            isAutoAdvancing = true
+            _ = queueManager.nextTrack()
+            isAutoAdvancing = false
         }
     }
-    
+
     func playbackTimeDidUpdate(_ time: TimeInterval) {
         // Already bound via Combine, but could add additional logic here
     }
@@ -230,11 +254,22 @@ extension AudioPlayerService: QueueManagerDelegate {
         // Trigger UI updates - objectWillChange is automatically called
         // due to @Published properties in queueManager
     }
-    
+
     func currentTrackDidChange(_ track: Song?) {
-        // Load the new track, but only play if we were already playing
+        // Skip delegate-triggered playback if we're manually starting
+        // This prevents double playback calls
+        guard !isManuallyStarting else {
+            print("[AudioPlayerService] Skipping delegate playback - manual start in progress")
+            return
+        }
+
+        // This is called when the current track changes (manual or automatic)
         if let track = track {
-            if isPlaying {
+            // If we're auto-advancing (track finished), continue playing
+            // Otherwise, respect the current play/pause state
+            if isAutoAdvancing {
+                playbackEngine.play(song: track, isManualSelection: false)
+            } else if isPlaying {
                 playbackEngine.play(song: track, isManualSelection: false)
             } else {
                 playbackEngine.loadWithoutPlaying(song: track)

@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>This app uses notifications to let you know when songs change while you're using other apps or screens.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>AtkinsonHyperlegibleMono-Regular.otf</string>
@@ -9,12 +11,14 @@
 		<string>AtkinsonHyperlegibleMono-Bold.otf</string>
 		<string>AtkinsonHyperlegibleMono-RegularItalic.otf</string>
 		<string>AtkinsonHyperlegibleMono-BoldItalic.otf</string>
+		<string>AtkinsonHyperlegibleNext-Regular.otf</string>
+		<string>AtkinsonHyperlegibleNext-BoldItalic.otf</string>
+		<string>AtkinsonHyperlegibleNext-Bold.otf</string>
+		<string>AtkinsonHyperlegibleNext-RegularItalic.otf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
 	</array>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>This app uses notifications to let you know when songs change while you're using other apps or screens.</string>
 </dict>
 </plist>

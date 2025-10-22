@@ -5,26 +5,28 @@ import UIKit
 struct Song: Identifiable, Hashable, Codable {
     // The id now refers back to the persistentID from the library
     var id: MPMediaEntityPersistentID { persistentID }
-    
+
     let persistentID: MPMediaEntityPersistentID
     let title: String
     let artist: String
     let album: String
     let releaseDate: Date?
     let albumTrackNumber: Int
-    
+    let genre: String?
+
     enum CodingKeys: String, CodingKey {
-        case persistentID, title, artist, album, releaseDate, albumTrackNumber
+        case persistentID, title, artist, album, releaseDate, albumTrackNumber, genre
     }
 
     // The initializer is now simpler
-    init(persistentID: MPMediaEntityPersistentID, title: String, artist: String, album: String, releaseDate: Date?, albumTrackNumber: Int) {
+    init(persistentID: MPMediaEntityPersistentID, title: String, artist: String, album: String, releaseDate: Date?, albumTrackNumber: Int, genre: String? = nil) {
         self.persistentID = persistentID
         self.title = title
         self.artist = artist
         self.album = album
         self.releaseDate = releaseDate
         self.albumTrackNumber = albumTrackNumber
+        self.genre = genre
     }
 
     // Hash by the persistentID

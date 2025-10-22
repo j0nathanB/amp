@@ -6,21 +6,32 @@ struct PlaylistsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: -1) {
-                    ForEach(playlists) { playlist in
-                        PlaylistItemView(playlist: playlist) {
-                            play(playlist: playlist)
+            VStack(spacing: 0) {
+                // Custom header with controlled spacing
+                Text("Playlists")
+                    .font(Theme.titleFont)
+                    .foregroundColor(Theme.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 20)
+                    .padding(.horizontal, 16)
+                    .background(Theme.background)
+
+                // Separator line below header
+                Rectangle()
+                    .fill(Theme.primaryText)
+                    .frame(height: 2)
+
+                ScrollView {
+                    LazyVStack(spacing: -1) {
+                        ForEach(playlists) { playlist in
+                            PlaylistItemView(playlist: playlist) {
+                                play(playlist: playlist)
+                            }
                         }
                     }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Text("Playlists").font(Theme.titleFont).foregroundColor(Theme.primaryText)
-                }
-            }
+            .navigationBarHidden(true)
             .onAppear {
                 var userPlaylists = LibraryService.shared.getPlaylists()
                 let allSongsPlaylist = Playlist(id: 0, name: "All Songs")

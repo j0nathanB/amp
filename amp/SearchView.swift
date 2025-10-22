@@ -9,14 +9,25 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // The top spacer for padding
-                Spacer().frame(height: 20)
-                
+                // Custom header with controlled spacing
+//                Text("Search")
+//                    .font(Theme.titleFont)
+//                    .foregroundColor(Theme.primaryText)
+//                    .frame(maxWidth: .infinity, alignment: .leading)
+//                    .padding(.vertical, 20)
+//                    .padding(.horizontal, 16)
+//                    .background(Theme.background)
+
                 SearchBarView(searchText: $viewModel.searchText)
                     .onChange(of: viewModel.searchText) {
                         viewModel.performSearch()
                     }
-                
+
+                // Separator line below header
+                Rectangle()
+                    .fill(Theme.primaryText)
+                    .frame(height: 2)
+
                 // Content area with conditional circle or search results
                 ZStack {
                     // Show circle when search is empty or no results
@@ -27,25 +38,18 @@ struct SearchView: View {
                             .id(circleID) // Force regeneration with unique ID
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    
+
                     // Show search results when available
                     if hasSearchResults {
                         SearchResultsView(results: viewModel.searchResults)
                             .environmentObject(audioPlayer)
                     }
                 }
-                
+
                 // The spacer to push the tab bar to the bottom
                 Spacer(minLength: 0)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Text("Search")
-                        .font(Theme.titleFont)
-                        .foregroundColor(Theme.primaryText)
-                }
-            }
+            .navigationBarHidden(true)
             .onAppear {
                 // Regenerate circle ID each time view appears
                 circleID = UUID()
@@ -68,33 +72,54 @@ struct SearchView: View {
 struct SearchBarView: View {
     @Binding var searchText: String
     @FocusState private var isSearchFieldFocused: Bool
-    
-    var body: some View {
-        HStack {
-            TextField("Search Songs, Artists, Albums...", text: $searchText)
-                .focused($isSearchFieldFocused)
-                .submitLabel(.done)
-                .onSubmit {
-                    isSearchFieldFocused = false
-                }
 
-            if !searchText.isEmpty {
+    var body: some View {
+        ZStack {
+            // Offset shadow layer
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Theme.accentDarkBlue)
+                .frame(height: 44) // Match main container height
+                .offset(x: -6, y: 6)
+
+            // Main search bar container
+            HStack(spacing: 0) {
+                // Text field area
+                TextField("Search Songs, Artists, Albums...", text: $searchText)
+                    .focused($isSearchFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        isSearchFieldFocused = false
+                    }
+                    .padding(.horizontal, 12)
+                    .font(Theme.bodyFont)
+
+                // Separator line between text field and button
+                Rectangle()
+                    .fill(Theme.primaryText)
+                    .frame(width: 1)
+
+                // Magnifying glass button
                 Button(action: {
-                    self.searchText = ""
-                    self.isSearchFieldFocused = false
+                    // Dismiss keyboard when search button is tapped
+                    isSearchFieldFocused = false
                 }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(Theme.primaryText)
+                        .font(.system(size: 20, weight: .bold))
+                        .frame(width: 44, height: 44)
                 }
+                .background(Theme.accentYellow)
             }
+            .frame(height: 44) // Constrain entire HStack height
+            .background(.white)
+            .cornerRadius(4)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Theme.primaryText, lineWidth: 2)
+            )
         }
-        .padding()
-        .background(
-            Rectangle()
-                .fill(.white)
-                .stroke(.black, lineWidth: 1)
-        )
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12) // Add vertical padding around the entire search bar
     }
 }
 
@@ -149,6 +174,9 @@ struct SearchResultsView: View {
                     }
                 }
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear.frame(height: 20)
         }
         .scrollDismissesKeyboard(.immediately)
     }

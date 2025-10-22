@@ -628,7 +628,8 @@ class LibraryService {
             artist: item.artist ?? "Artist",
             album: item.albumTitle ?? "Album",
             releaseDate: item.releaseDate,
-            albumTrackNumber: item.albumTrackNumber
+            albumTrackNumber: item.albumTrackNumber,
+            genre: item.genre
         )
     }
 

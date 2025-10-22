@@ -12,7 +12,20 @@ class QueueManagerService: ObservableObject {
     
     @Published private(set) var playbackQueue = PlaybackQueue()
     @Published private(set) var queueVersion = 0
-    @Published var currentTrack: Song?
+    @Published var currentTrack: Song? {
+        didSet {
+            // Debug logging to track when currentTrack changes
+            if let old = oldValue, let new = currentTrack {
+                if old.persistentID != new.persistentID {
+                    print("🎵 [QueueManager] currentTrack changed: '\(old.title)' → '\(new.title)'")
+                }
+            } else if let new = currentTrack {
+                print("🎵 [QueueManager] currentTrack set: '\(new.title)'")
+            } else {
+                print("🎵 [QueueManager] currentTrack cleared")
+            }
+        }
+    }
     @Published var isShuffled = false
     @Published var isLooped = false
     
@@ -286,21 +299,24 @@ class QueueManagerService: ObservableObject {
     
     internal func saveQueue() {
         // Don't trigger any loads after saving
-        print("[QueueManager] Saving queue - will NOT reload after save")
-        
+        print("[QueueManager] Saving queue - currentIndex: \(playbackQueue.currentIndex ?? -1), track: \(currentTrack?.title ?? "none")")
+
+        // CRITICAL FIX: Capture state synchronously on main thread, not in async Task
+        // This prevents race conditions where queue state changes between capture and persistence
+        let persisted = PersistedQueue(
+            savedAt: Date(),
+            trackIDs: playbackQueue.getAllTrackIDs(),
+            currentIndex: playbackQueue.currentIndex,
+            isShuffled: isShuffled,
+            isLooped: isLooped,
+            originalOrder: playbackQueue.originalOrder,
+            checksum: generateChecksum()
+        )
+
+        // Now persist asynchronously with the already-captured state
         Task {
-            let persisted = PersistedQueue(
-                savedAt: Date(),
-                trackIDs: playbackQueue.getAllTrackIDs(),
-                currentIndex: playbackQueue.currentIndex,
-                isShuffled: isShuffled,
-                isLooped: isLooped,
-                originalOrder: playbackQueue.originalOrder,
-                checksum: generateChecksum()
-            )
             await persistenceService.saveQueue(persisted)
-            
-            print("[QueueManager] Queue saved successfully")
+            print("[QueueManager] Queue saved successfully - index: \(persisted.currentIndex ?? -1)")
         }
     }
     
@@ -323,11 +339,26 @@ class QueueManagerService: ObservableObject {
     }
     
     internal func loadQueue() async {
-        // CRITICAL SAFETY CHECK: Never clear queue if there's any playback context
-        guard currentTrack == nil && playbackQueue.isEmpty else {
-            print("[QueueManager] 🛡️ CRITICAL PROTECTION: Refusing to load queue - current track exists or queue not empty")
-            print("[QueueManager] 🛡️ Current track: \(currentTrack?.title ?? "none")")
-            print("[QueueManager] 🛡️ Queue size: \(playbackQueue.count)")
+        // Log entry to loadQueue with current state
+        print("⚠️ [QueueManager] loadQueue() ENTERED - currentTrack: \(currentTrack?.title ?? "nil"), queueSize: \(playbackQueue.count), hasActiveSession: \(hasActiveSession)")
+
+        // CRITICAL SAFETY CHECK: Never load queue if there's ANY sign of active playback
+
+        // Check 1: Never load if we have a current track
+        if currentTrack != nil {
+            print("[QueueManager] 🛡️ PROTECTION 1: Refusing load - current track exists: \(currentTrack?.title ?? "unknown")")
+            return
+        }
+
+        // Check 2: Never load if queue is not empty
+        if !playbackQueue.isEmpty {
+            print("[QueueManager] 🛡️ PROTECTION 2: Refusing load - queue not empty (size: \(playbackQueue.count))")
+            return
+        }
+
+        // Check 3: Never load during active session
+        if hasActiveSession {
+            print("[QueueManager] 🛡️ PROTECTION 3: Refusing load - active session in progress")
             return
         }
         
@@ -401,26 +432,43 @@ class QueueManagerService: ObservableObject {
             let currentIndex = persisted.currentIndex
             
             await MainActor.run {
+                // CRITICAL FAIL-SAFE: Check state again before mutating queue
+                // State might have changed during the async load operation
+                if self.currentTrack != nil {
+                    print("[QueueManager] 🛡️ FAIL-SAFE 1: State changed during load - currentTrack now exists: \(self.currentTrack!.title)")
+                    return
+                }
+
+                if !self.playbackQueue.isEmpty {
+                    print("[QueueManager] 🛡️ FAIL-SAFE 2: State changed during load - queue not empty (size: \(self.playbackQueue.count))")
+                    return
+                }
+
+                if self.hasActiveSession {
+                    print("[QueueManager] 🛡️ FAIL-SAFE 3: State changed during load - session now active")
+                    return
+                }
+
                 // Restore the queue state
                 playbackQueue = PlaybackQueue()
                 playbackQueue.setTrackIDs(validTrackIDs, startingIndex: currentIndex)
                 playbackQueue.originalOrder = validOriginalOrder
                 playbackQueue.isShuffled = shuffled
-                
+
                 // Update published properties
                 self.isShuffled = shuffled
                 self.isLooped = persisted.isLooped
-                
+
                 // Set current track if we have a valid index
                 if let index = currentIndex,
                    index < songs.count {
                     self.currentTrack = songs[index]
                 }
-                
+
                 // Trigger @Published update by reassigning the struct
                 playbackQueue = playbackQueue
                 queueDidChange(triggeredBy: "loadQueue")
-                
+
                 print("[QueueManager] Loaded queue with \(validTrackIDs.count) tracks")
             }
         } else {
