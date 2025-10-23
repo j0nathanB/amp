@@ -68,8 +68,12 @@ class SearchViewModel: ObservableObject {
                 await MainActor.run {
                     self.isSearching = false
                 }
+            } catch is CancellationError {
+                // Task was cancelled (normal when user types quickly)
+                // No need to log or update state - the new search is already running
             } catch {
-                print("Search task cancelled or failed: \(error)")
+                // Only log unexpected errors
+                print("Unexpected search error: \(error)")
                 await MainActor.run {
                     self.isSearching = false
                 }

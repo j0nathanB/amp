@@ -46,7 +46,7 @@ struct ListItemView: View {
                         if let detail = detail {
                             Text(detail)
                                 .font(Theme.bodyItalicFont)
-                                .foregroundColor(isPressed ? .white : Theme.secondaryText)
+                                .foregroundColor(isPressed ? .white : Theme.primaryText)
                                 .lineLimit(1)
                         }
                     }

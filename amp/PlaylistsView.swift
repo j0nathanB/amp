@@ -22,13 +22,15 @@ struct PlaylistsView: View {
                     .frame(height: 2)
 
                 ScrollView {
-                    LazyVStack(spacing: -1) {
+                    LazyVStack(spacing: 12) {
                         ForEach(playlists) { playlist in
                             PlaylistItemView(playlist: playlist) {
                                 play(playlist: playlist)
                             }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
             }
             .navigationBarHidden(true)
@@ -68,15 +70,28 @@ private struct PlaylistItemView: View {
     let playlist: Playlist
     let action: () -> Void
     @GestureState private var isPressed = false
-    
+
     var body: some View {
-        ListItemView(
-            title: playlist.name,
-            subtitle: "",
-            detail: nil,
-            isPressed: isPressed,
-            textAlignment: .center
-        )
+        ZStack {
+            // Offset shadow layer
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Theme.accentGreen)
+                .offset(x: -6, y: 6)
+
+            // Main content
+            ListItemView(
+                title: playlist.name,
+                subtitle: "",
+                detail: nil,
+                isPressed: isPressed,
+                textAlignment: .center
+            )
+            .cornerRadius(4)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Theme.primaryText, lineWidth: 2)
+            )
+        }
         .onTapGesture {
             action()
         }

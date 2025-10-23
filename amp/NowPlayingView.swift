@@ -7,19 +7,20 @@ struct NowPlayingView: View {
     var body: some View {
         VStack(spacing: 0) {
             PlayerArtworkView()
-                .padding(.horizontal, 16) // Align artwork with other elements
-            
+                .padding(.horizontal, 8) // Reduced horizontal padding for larger artwork
+                .padding(.top, 8) // Minimal top padding
+
             Spacer()
-            
+
             VStack(spacing: 16) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
-                
+
                 PlayerProgressView()
                     .padding(.horizontal, 16)
                     // No horizontal padding - border to border
-                
+
                 PlayerControlsView()
                     .padding(.horizontal, 12) // Standard padding for controls
             }
@@ -64,8 +65,9 @@ private struct PlayerArtworkView: View {
                     .foregroundStyle(Theme.accentGreen)
             }
         }
-        .frame(width: 322, height: 322) // Fixed size to prevent layout shifts
-        .padding(.vertical)
+        .frame(maxWidth: .infinity) // Let it fill available width
+        .aspectRatio(1, contentMode: .fit) // Keep it square
+        .animation(.none, value: showInfo) // Prevent resize animation when toggling
     }
 }
 
@@ -84,7 +86,6 @@ private struct ArtworkImage: View {
             }
         }
         .aspectRatio(contentMode: .fit)
-        .frame(width: 322, height: 322)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
         .onChange(of: song.persistentID) { oldValue, newValue in
             // Only reload artwork if the song actually changed
@@ -298,9 +299,9 @@ private struct AlbumInfoView: View {
             InfoRow(label: "Genre", value: song.genre ?? "Unknown")
         }
         .padding(22)
-        .frame(width: 325, height: 322)
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Match artwork dimensions exactly
         .background(Color.white)
-        .overlay(Rectangle().stroke(Theme.primaryText, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
     }
 }
 

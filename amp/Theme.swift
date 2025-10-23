@@ -8,6 +8,8 @@ struct Theme {
     static let accentLightBlue = Color(red: 0.86667, green: 0.96863, blue: 1.00000)
     static let accentDarkBlue = Color(red:0.00000, green:  0.30196, blue:  0.43922)
     static let accentYellow = Color(red: 0.98824, green: 0.86275, blue:  0.24314)
+    static let accentDarkGreen = Color(red: 0.32549, green: 0.87059, blue:  0.47843)
+    static let accentRed = Color(red:0.87843, green: 0.18039, blue: 0.28627)
     static let primaryText = Color.black
     static let secondaryText = Color.gray
     static let backgroundColor = Color(red: 0.9, green: 0.9, blue: 0.9)
@@ -23,17 +25,17 @@ struct Theme {
     static let queueSongFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
     
     // Using size variation instead of italics for albums
-    static let searchAlbumFont = Font.custom("AtkinsonHyperlegibleMono-Regular", size: 18)
+    static let searchAlbumFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
     // The standard font for all list items.
-    static let bodyFont = Font.custom("AtkinsonHyperlegiblenext-Regular", size: 18)
+    static let bodyFont = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 18)
     
     // Secondary information with tighter tracking
     static let secondaryInfoFont = Font.custom("AtkinsonHyperlegibleMono-Regular", size: 18)
     
     // A distinct font for section headers in lists.
-    static let sectionHeaderFont = Font.custom("AtkinsonHyperlegibleMono-BoldItalic", size: 22)
+    static let sectionHeaderFont = Font.custom("AtkinsonHyperlegibleMono-Bold", size: 22)
     
-    static let bodyItalicFont = Font.custom("AtkinsonHyperlegibleMono-RegularItalic", size: 18)
+    static let bodyItalicFont = Font.custom("AtkinsonHyperlegibleNext-RegularItalic", size: 18)
     
     static let tabFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 18)
     static let tabFontSelected = Font.custom("AtkinsonHyperlegibleMono-Bold", size: 16)

@@ -599,20 +599,22 @@ class HybridSearchIndex {
 
 class LibraryService {
     static let shared = LibraryService()
-    
+
     // Hybrid search index for fast diacritics-insensitive search
     private let searchIndex = HybridSearchIndex()
-    
+
     // Static character set to improve performance
     private static let wordSeparators = CharacterSet.whitespacesAndNewlines
         .union(.punctuationCharacters)
         .union(CharacterSet(charactersIn: "()[]{}"))  // Add more separators
-    
+
     init() {
-        // Start building search index in background
+        #if !targetEnvironment(simulator)
+        // Only build real search index on physical device
         Task.detached(priority: .background) {
             await self.searchIndex.buildIndex()
         }
+        #endif
     }
     
     private func getNormalizedSearchTerms(for term: String) -> (normalized: String, words: [String]) {
@@ -657,27 +659,30 @@ class LibraryService {
     }
 
     func search(for term: String) async -> SearchResults {
+        #if targetEnvironment(simulator)
+        return await MockLibraryService.shared.search(for: term)
+        #else
         // Add safety checks and error handling to prevent crashes
-        guard !term.isEmpty && term.count < 100 else { 
-            return SearchResults(artists: [], albums: [], songs: []) 
+        guard !term.isEmpty && term.count < 100 else {
+            return SearchResults(artists: [], albums: [], songs: [])
         }
-        
+
         return await Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self = self else { 
-                return SearchResults(artists: [], albums: [], songs: []) 
+            guard let self = self else {
+                return SearchResults(artists: [], albums: [], songs: [])
             }
-            
+
             do {
                 // Check if this is a multi-word query
                 let normalizedTerm = term.searchQueryNormalized
                 let searchWords = normalizedTerm.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
-                
+
                 // Limit search words to prevent performance issues
                 guard searchWords.count <= 10 else {
                     return SearchResults(artists: [], albums: [], songs: [])
                 }
-                
+
                 if searchWords.count > 1 {
                     // Multi-word search - use the specialized method
                     return await self.searchWithMultipleTerms(terms: searchWords)
@@ -693,11 +698,11 @@ class LibraryService {
                         group.addTask {
                             .songs(self.searchSongs(term: term))
                         }
-                        
+
                         var artists: [Artist] = []
                         var albums: [Album] = []
                         var songs: [Song] = []
-                        
+
                         for await result in group {
                             switch result {
                             case .artists(let a):
@@ -708,7 +713,7 @@ class LibraryService {
                                 songs = s
                             }
                         }
-                        
+
                         return SearchResults(
                             artists: artists,
                             albums: albums,
@@ -722,6 +727,7 @@ class LibraryService {
                 return SearchResults(artists: [], albums: [], songs: [])
             }
         }.value
+        #endif
     }
     
     // MARK: - Optimized Search Methods
@@ -1176,62 +1182,94 @@ class LibraryService {
     }
     
     func getSong(by id: MPMediaEntityPersistentID) -> Song? {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getSong(by: id)
+        #else
         let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
+
         guard let item = query.items?.first else { return nil }
-        
+
         return self.song(from: item)
+        #endif
     }
-    
+
     func getPlaylists() -> [Playlist] {
-            let query = MPMediaQuery.playlists()
-            guard let playlists = query.collections else { return [] }
-            
-            return playlists.compactMap { playlist in
-                guard let name = playlist.value(forProperty: MPMediaPlaylistPropertyName) as? String else {
-                    return nil
-                }
-                return Playlist(id: playlist.persistentID, name: name)
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getPlaylists()
+        #else
+        let query = MPMediaQuery.playlists()
+        guard let playlists = query.collections else { return [] }
+
+        return playlists.compactMap { collection in
+            // For MPMediaPlaylist (which is a subclass of MPMediaItemCollection),
+            // we can access the name via value(forProperty:) on the collection itself
+            guard let playlist = collection as? MPMediaPlaylist,
+                  let name = playlist.value(forProperty: MPMediaPlaylistPropertyName) as? String else {
+                return nil
             }
+            return Playlist(id: playlist.persistentID, name: name)
         }
-    
-    func getSongs(forPlaylist playlistID: MPMediaEntityPersistentID) -> [Song] {
-            let predicate = MPMediaPropertyPredicate(value: playlistID, forProperty: MPMediaPlaylistPropertyPersistentID)
-            let query = MPMediaQuery.playlists()
-            query.addFilterPredicate(predicate)
-            
-            guard let songs = query.collections?.first?.items else { return [] }
-            
-            return songs.map { self.song(from: $0) }
-        }
-    
-    func getTotalSongCount() -> Int {
-        return MPMediaQuery.songs().items?.count ?? 0
+        #endif
     }
-    
+
+    func getSongs(forPlaylist playlistID: MPMediaEntityPersistentID) -> [Song] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getSongs(forPlaylist: playlistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(value: playlistID, forProperty: MPMediaPlaylistPropertyPersistentID)
+        let query = MPMediaQuery.playlists()
+        query.addFilterPredicate(predicate)
+
+        guard let songs = query.collections?.first?.items else { return [] }
+
+        return songs.map { self.song(from: $0) }
+        #endif
+    }
+
+    func getTotalSongCount() -> Int {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getTotalSongCount()
+        #else
+        return MPMediaQuery.songs().items?.count ?? 0
+        #endif
+    }
+
     func getSongs(forAlbum albumID: MPMediaEntityPersistentID) -> [Song] {
-        let predicate = MPMediaPropertyPredicate(value: albumID, forProperty: MPMediaItemPropertyAlbumPersistentID)
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getSongs(forAlbum: albumID)
+        #else
+        print("🔍 DEBUG LibraryService: getSongs(forAlbum: \(albumID))")
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: albumID), forProperty: MPMediaItemPropertyAlbumPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
-        guard let songs = query.items else { return [] }
-        
+
+        guard let songs = query.items else {
+            print("🔍 DEBUG LibraryService: query.items is nil")
+            return []
+        }
+
+        print("🔍 DEBUG LibraryService: Found \(songs.count) songs")
         let mappedSongs = songs.map { self.song(from: $0) }
-                
+
         // Sort by track number for albums
-        return mappedSongs.sorted { $0.albumTrackNumber < $1.albumTrackNumber }    }
-    
+        return mappedSongs.sorted { $0.albumTrackNumber < $1.albumTrackNumber }
+        #endif
+    }
+
     func getSongs(forArtist artistID: MPMediaEntityPersistentID) -> [Song] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getSongs(forArtist: artistID)
+        #else
         let predicate = MPMediaPropertyPredicate(value: artistID, forProperty: MPMediaItemPropertyArtistPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
+
         guard let songs = query.items else { return [] }
-        
+
         let mappedSongs = songs.map { self.song(from: $0) }
-            
+
         // Apply the multi-level sort
         return mappedSongs.sorted { songA, songB in
             // 1. Sort by Release Date (oldest first)
@@ -1245,57 +1283,77 @@ class LibraryService {
             // 3. If albums are same, sort by Track Number
             return songA.albumTrackNumber < songB.albumTrackNumber
         }
+        #endif
     }
-    
+
     func getAllSongs() -> [Song] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getAllSongs()
+        #else
         guard let items = MPMediaQuery.songs().items else { return [] }
         return items.map { self.song(from: $0) }
+        #endif
     }
-    
+
     // Memory-efficient version for large libraries
     func getAllSongIDs() -> [MPMediaEntityPersistentID] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getAllSongIDs()
+        #else
         guard let items = MPMediaQuery.songs().items else { return [] }
         return items.map { $0.persistentID }
+        #endif
     }
 }
 
 extension LibraryService {
     func getSongIDs(forPlaylist playlistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
+        #if targetEnvironment(simulator)
+        return await MockLibraryService.shared.getSongIDs(forPlaylist: playlistID)
+        #else
         await Task.detached(priority: .userInitiated) {
             let predicate = MPMediaPropertyPredicate(value: playlistID, forProperty: MPMediaPlaylistPropertyPersistentID)
             let query = MPMediaQuery.playlists()
             query.addFilterPredicate(predicate)
-            
+
             guard let songs = query.collections?.first?.items else { return [] }
-            
+
             // Return just the IDs, not full Song objects
             return songs.map { $0.persistentID }
         }.value
+        #endif
     }
-    
+
     // For search results and other scenarios
     func getSongIDs(forAlbum albumID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
+        #if targetEnvironment(simulator)
+        return await MockLibraryService.shared.getSongIDs(forAlbum: albumID)
+        #else
         await Task.detached(priority: .userInitiated) {
             let predicate = MPMediaPropertyPredicate(value: albumID, forProperty: MPMediaItemPropertyAlbumPersistentID)
             let query = MPMediaQuery.songs()
             query.addFilterPredicate(predicate)
-            
+
             guard let songs = query.items else { return [] }
-            
+
             // Sort by track number for albums
             return songs.sorted { $0.albumTrackNumber < $1.albumTrackNumber }
                        .map { $0.persistentID }
         }.value
+        #endif
     }
-    
+
     func getSongIDs(forArtist artistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
+        #if targetEnvironment(simulator)
+        return await MockLibraryService.shared.getSongIDs(forArtist: artistID)
+        #else
         await Task.detached(priority: .userInitiated) {
             let predicate = MPMediaPropertyPredicate(value: artistID, forProperty: MPMediaItemPropertyArtistPersistentID)
             let query = MPMediaQuery.songs()
             query.addFilterPredicate(predicate)
-            
+
             guard let songs = query.items else { return [] }
-            
+
             // Apply the multi-level sort
             return songs.sorted { songA, songB in
                 // 1. Sort by Release Date (oldest first)
@@ -1310,28 +1368,36 @@ extension LibraryService {
                 return songA.albumTrackNumber < songB.albumTrackNumber
             }.map { $0.persistentID }
         }.value
+        #endif
     }
 }
 extension LibraryService {
     // Get media items instead of Song objects for better performance
     func getMediaItems(forAlbum albumID: MPMediaEntityPersistentID) -> [MPMediaItem] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getMediaItems(forAlbum: albumID)
+        #else
         let predicate = MPMediaPropertyPredicate(value: albumID, forProperty: MPMediaItemPropertyAlbumPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
+
         guard let items = query.items else { return [] }
-        
+
         // Sort by track number
         return items.sorted { $0.albumTrackNumber < $1.albumTrackNumber }
+        #endif
     }
-    
+
     func getMediaItems(forArtist artistID: MPMediaEntityPersistentID) -> [MPMediaItem] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getMediaItems(forArtist: artistID)
+        #else
         let predicate = MPMediaPropertyPredicate(value: artistID, forProperty: MPMediaItemPropertyArtistPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
+
         guard let items = query.items else { return [] }
-        
+
         // Apply multi-level sort
         return items.sorted { itemA, itemB in
             if let dateA = itemA.releaseDate, let dateB = itemB.releaseDate, dateA != dateB {
@@ -1342,5 +1408,6 @@ extension LibraryService {
             }
             return itemA.albumTrackNumber < itemB.albumTrackNumber
         }
+        #endif
     }
 }
