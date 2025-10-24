@@ -127,6 +127,7 @@ struct SearchResultsView: View {
     let results: SearchResults
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var selectedAlbum: Album?
+    @State private var selectedArtist: Artist?
 
     var body: some View {
         // Use a ScrollView for the stacked-card layout
@@ -140,7 +141,8 @@ struct SearchResultsView: View {
                                 subtitle: nil,
                                 detail: nil
                             ) {
-                                playArtist(artist)
+                                hideKeyboard()
+                                selectedArtist = artist
                             }
                         }
                     }
@@ -187,8 +189,12 @@ struct SearchResultsView: View {
             AlbumDetailView(album: album, searchResults: results)
                 .environmentObject(audioPlayer)
         }
+        .sheet(item: $selectedArtist) { artist in
+            ArtistDetailView(artist: artist, searchResults: results)
+                .environmentObject(audioPlayer)
+        }
     }
-    
+
     // Helper functions for playing collections
     private func playArtist(_ artist: Artist) {
         Task {
@@ -201,7 +207,7 @@ struct SearchResultsView: View {
             }
         }
     }
-    
+
     private func playAlbum(_ album: Album) {
         Task {
             let songs = LibraryService.shared.getSongs(forAlbum: album.id)
@@ -213,7 +219,7 @@ struct SearchResultsView: View {
             }
         }
     }
-    
+
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
@@ -298,7 +304,7 @@ struct AlbumDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            AlbumDetailHeaderView(albumTitle: album.title) {
+            AlbumDetailHeaderView(albumTitle: album.title, albumArtist: album.artist) {
                 dismiss()
             } playAction: {
                 playAlbum()
@@ -315,6 +321,21 @@ struct AlbumDetailView: View {
                     // Album artwork and info
                     AlbumArtworkSection(album: album, songs: albumSongs)
                         .padding(.top, 20)
+
+                    // Album name and artist name (moved below artwork)
+                    VStack(spacing: 4) {
+                        Text(album.title)
+                            .font(Theme.sectionHeaderFont)
+                            .foregroundColor(Theme.primaryText)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+
+                        Text(album.artist)
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.primaryText)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 16)
 
                     // Track listing or loading/empty state
                     if isLoading {
@@ -428,51 +449,71 @@ struct AlbumDetailView: View {
     }
 }
 
-// Header with back button, "Album" label, and play button
+// Header with back button, album name, artist name, and play button
 private struct AlbumDetailHeaderView: View {
     let albumTitle: String
+    let albumArtist: String
     let backAction: () -> Void
     let playAction: () -> Void
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
     var body: some View {
         HStack(spacing: 12) {
-            // Back button
-            Button(action: backAction) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .bold))
-                    Text("Back")
-                        .font(Theme.bodyFont)
+            // Back button with rounded rectangle and drop shadow
+            ZStack {
+                // Offset shadow layer
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.accentDarkBlue)
+                    .frame(height: 44)
+                    .offset(x: -4, y: 4)
+
+                // Main button container
+                Button(action: backAction) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .bold))
+                        Text("Back")
+                            .font(Theme.bodyFont)
+                    }
+                    .foregroundColor(Theme.primaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                 }
-                .foregroundColor(Theme.primaryText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .frame(height: 44)
+                .background(Color.white)
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                )
             }
+            .fixedSize()
 
-            // "Album" label
-            Text("Album")
-                .font(Theme.sectionHeaderFont)
-                .foregroundColor(Theme.primaryText)
+            // Album name box with rounded rectangle and drop shadow
+            ZStack {
+                // Offset shadow layer
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.accentDarkBlue)
+                    .frame(height: 44)
+                    .offset(x: -4, y: 4)
 
-            Spacer()
-
-            // Play button (similar to ListItemView)
-            Button(action: playAction) {
-                ZStack {
-                    Rectangle()
-                        .fill(Theme.accentGreen)
-                        .frame(width: 60, height: 60)
-
-                    Image(systemName: "play.fill")
-                        .foregroundColor(.white)
-                }
+                // Main info box container
+                Text(albumTitle)
+                    .font(Theme.bodyFont.weight(.bold))
+                    .foregroundColor(Theme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(height: 44)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .background(Color.white)
+                    .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
             }
-            .buttonStyle(PlainButtonStyle())
-            .overlay(
-                Rectangle()
-                    .stroke(Theme.primaryText, lineWidth: 2)
-            )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -502,22 +543,9 @@ private struct AlbumArtworkSection: View {
                         }
                 }
             }
-            .frame(width: 375, height: 375)
-
-            // Album title and artist
-            VStack(spacing: 4) {
-                Text(album.title)
-                    .font(Theme.searchAlbumFont)
-                    .foregroundColor(Theme.primaryText)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-
-                Text(album.artist)
-                    .font(Theme.bodyFont)
-                    .foregroundColor(Theme.primaryText)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .padding(.horizontal, 8)
         }
     }
 }
@@ -540,7 +568,7 @@ private struct AlbumArtworkImage: View {
                     .foregroundStyle(Theme.accentGreen)
             }
         }
-        .frame(width: 375, height: 375)
+        .aspectRatio(contentMode: .fit)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
         .onAppear {
             loadArtwork()
@@ -580,9 +608,9 @@ private struct AlbumDetailInfoView: View {
             AlbumInfoRow(label: "Genre", value: song.genre ?? "Unknown")
         }
         .padding(22)
-        .frame(width: 375, height: 375)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
-        .overlay(Rectangle().stroke(Theme.primaryText, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
     }
 }
 
@@ -604,5 +632,243 @@ private struct AlbumInfoRow: View {
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// MARK: - Artist Detail View
+
+private enum ArtistLoadError: Error {
+    case timeout
+}
+
+struct ArtistDetailView: View {
+    let artist: Artist
+    let searchResults: SearchResults
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var audioPlayer: AudioPlayerService
+    @State private var artistAlbums: [Album] = []
+    @State private var artistSongs: [Song] = []
+    @State private var isLoading = true
+    @State private var loadError: String?
+    @State private var selectedAlbum: Album?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            ArtistDetailHeaderView(artistName: artist.name) {
+                dismiss()
+            }
+
+            // Separator
+            Rectangle()
+                .fill(Theme.primaryText)
+                .frame(height: 2)
+
+            // Content
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Album and Songs sections
+                    if isLoading {
+                        ProgressView("Loading artist content...")
+                            .padding(.top, 40)
+                    } else if let error = loadError {
+                        VStack(spacing: 8) {
+                            Text("Error loading artist content")
+                                .font(Theme.bodyFont.weight(.semibold))
+                                .foregroundColor(Theme.primaryText)
+                            Text(error)
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.secondaryText)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.top, 40)
+                        .padding(.horizontal, 32)
+                    } else {
+                        // Albums section
+                        if !artistAlbums.isEmpty {
+                            SearchSectionView(title: "Albums") {
+                                ForEach(artistAlbums) { album in
+                                    SearchItemView(
+                                        title: album.title,
+                                        subtitle: album.artist,
+                                        detail: nil,
+                                        italicizeTitle: true
+                                    ) {
+                                        selectedAlbum = album
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 20)
+                        }
+
+                        // Songs section (alphabetized)
+                        if !artistSongs.isEmpty {
+                            SearchSectionView(title: "Songs") {
+                                ForEach(artistSongs) { song in
+                                    SearchItemView(
+                                        title: song.title,
+                                        subtitle: song.artist,
+                                        detail: song.album,
+                                        italicizeDetail: true
+                                    ) {
+                                        audioPlayer.startPlayback(from: artistSongs, startingWith: song)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, artistAlbums.isEmpty ? 20 : 16)
+                        }
+
+                        if artistAlbums.isEmpty && artistSongs.isEmpty {
+                            Text("No content found for this artist")
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.primaryText)
+                                .padding(.top, 40)
+                        }
+                    }
+                }
+                .padding(.bottom, 20)
+            }
+        }
+        .background(Color.white)
+        .sheet(item: $selectedAlbum) { album in
+            AlbumDetailView(album: album, searchResults: searchResults)
+                .environmentObject(audioPlayer)
+        }
+        .onAppear {
+            print("🎵 ArtistDetailView appeared for artist: \(artist.name) with ID: \(artist.id)")
+            loadArtistContent()
+        }
+    }
+
+    private func loadArtistContent() {
+        // Set loading state immediately on main actor
+        isLoading = true
+        loadError = nil
+
+        Task {
+            do {
+                print("🔍 DEBUG: Loading content for artist '\(artist.name)' with ID: \(artist.id)")
+
+                // Add a timeout to catch stuck loads
+                let (albums, songs) = try await withThrowingTaskGroup(of: (albums: [Album], songs: [Song]).self) { group in
+                    // Add the actual load task
+                    group.addTask {
+                        await Task.detached(priority: .userInitiated) {
+                            let albums = LibraryService.shared.getAlbums(forArtist: self.artist.id)
+                            let songs = LibraryService.shared.getSongs(forArtist: self.artist.id)
+                            return (albums: albums, songs: songs)
+                        }.value
+                    }
+
+                    // Add a timeout task (5 seconds)
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 5_000_000_000)
+                        throw ArtistLoadError.timeout
+                    }
+
+                    // Return the first result (either content or timeout)
+                    for try await result in group {
+                        group.cancelAll()
+                        return result
+                    }
+
+                    return (albums: [], songs: [])
+                }
+
+                print("🔍 DEBUG: Found \(albums.count) albums and \(songs.count) songs for artist '\(artist.name)'")
+
+                // Update UI on main thread
+                await MainActor.run {
+                    self.artistAlbums = albums
+                    // Alphabetize songs by title
+                    self.artistSongs = songs.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+                    self.isLoading = false
+                    print("🔍 DEBUG: Artist content loaded: \(self.artistAlbums.count) albums, \(self.artistSongs.count) songs")
+                }
+            } catch ArtistLoadError.timeout {
+                print("⚠️ Artist load timed out for '\(artist.name)'")
+                await MainActor.run {
+                    self.loadError = "Loading took too long. Please try again."
+                    self.isLoading = false
+                }
+            } catch {
+                print("⚠️ Artist load error for '\(artist.name)': \(error)")
+                await MainActor.run {
+                    self.loadError = "Failed to load artist content: \(error.localizedDescription)"
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// Header with back button and artist name
+private struct ArtistDetailHeaderView: View {
+    let artistName: String
+    let backAction: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Back button with rounded rectangle and drop shadow
+            ZStack {
+                // Offset shadow layer
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.accentDarkBlue)
+                    .frame(height: 44)
+                    .offset(x: -4, y: 4)
+
+                // Main button container
+                Button(action: backAction) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .bold))
+                        Text("Back")
+                            .font(Theme.bodyFont)
+                    }
+                    .foregroundColor(Theme.primaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .frame(height: 44)
+                .background(Color.white)
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                )
+            }
+            .fixedSize()
+
+            // Artist name box with rounded rectangle and drop shadow
+            ZStack {
+                // Offset shadow layer
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.accentDarkBlue)
+                    .frame(height: 44)
+                    .offset(x: -4, y: 4)
+
+                // Main info box container
+                Text(artistName)
+                    .font(Theme.bodyFont.weight(.bold))
+                    .foregroundColor(Theme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(height: 44)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .background(Color.white)
+                    .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white)
     }
 }

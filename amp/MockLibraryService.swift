@@ -408,6 +408,25 @@ class MockLibraryService {
             }
     }
 
+    func getAlbums(forArtist artistID: MPMediaEntityPersistentID) -> [Album] {
+        let artist = mockArtists.first { $0.id == artistID }
+        guard let artist = artist else { return [] }
+
+        // Get unique albums for this artist
+        let artistSongs = mockSongs.filter { $0.artist == artist.name }
+        var uniqueAlbums: [String: Album] = [:]
+
+        for song in artistSongs {
+            if uniqueAlbums[song.album] == nil {
+                // Find an album ID from mockAlbums if it exists, otherwise use a generated ID
+                let albumID = mockAlbums.first { $0.title == song.album }?.id ?? UInt64(song.album.hashValue)
+                uniqueAlbums[song.album] = Album(id: albumID, title: song.album, artist: song.artist)
+            }
+        }
+
+        return Array(uniqueAlbums.values).sorted { $0.title < $1.title }
+    }
+
     func getAllSongs() -> [Song] {
         return mockSongs
     }

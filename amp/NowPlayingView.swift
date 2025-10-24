@@ -112,17 +112,17 @@ private struct ArtworkImage: View {
 
 private struct PlayerTrackInfoView: View {
     let track: Song?
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Title - fixed height container  
+            // Title - fixed height container
             Text(track?.title ?? "Track")
                 .font(Theme.nowPlayingFont)
                 .foregroundColor(Theme.accentPink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(height: 28, alignment: .leading) // Fixed height for title font
-            
+
             // Artist - fixed height container
             Text(track?.artist ?? "Artist")
                 .font(Theme.bodyFont)
@@ -130,7 +130,7 @@ private struct PlayerTrackInfoView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(height: 20, alignment: .leading) // Fixed height to prevent layout shifts
-            
+
             // Album - in a visual container box with fixed height
 //            Text(track?.album ?? "Album")
 //                .font(Theme.bodyItalicFont)

@@ -1286,6 +1286,42 @@ class LibraryService {
         #endif
     }
 
+    func getAlbums(forArtist artistID: MPMediaEntityPersistentID) -> [Album] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getAlbums(forArtist: artistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(value: artistID, forProperty: MPMediaItemPropertyArtistPersistentID)
+        let query = MPMediaQuery.albums()
+        query.addFilterPredicate(predicate)
+
+        guard let collections = query.collections else { return [] }
+
+        let albums = collections.compactMap { collection -> Album? in
+            guard let representativeItem = collection.representativeItem,
+                  let albumTitle = representativeItem.albumTitle,
+                  let artist = representativeItem.artist,
+                  let albumID = representativeItem.albumPersistentID else {
+                return nil
+            }
+            return Album(id: albumID, title: albumTitle, artist: artist)
+        }
+
+        // Sort albums by release date (oldest first), then by title
+        return albums.sorted { albumA, albumB in
+            // Get representative items for release dates
+            let collectionA = collections.first { $0.representativeItem?.albumPersistentID == albumA.id }
+            let collectionB = collections.first { $0.representativeItem?.albumPersistentID == albumB.id }
+
+            if let dateA = collectionA?.representativeItem?.releaseDate,
+               let dateB = collectionB?.representativeItem?.releaseDate,
+               dateA != dateB {
+                return dateA < dateB
+            }
+            return albumA.title < albumB.title
+        }
+        #endif
+    }
+
     func getAllSongs() -> [Song] {
         #if targetEnvironment(simulator)
         return MockLibraryService.shared.getAllSongs()

@@ -12,6 +12,7 @@ struct PlaylistsView: View {
                     .font(Theme.titleFont)
                     .foregroundColor(Theme.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 28)
                     .padding(.vertical, 20)
                     .padding(.horizontal, 16)
                     .background(Theme.background)
