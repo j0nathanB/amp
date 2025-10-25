@@ -8,11 +8,11 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             PlayerArtworkView()
 
-            Spacer(minLength: 16)
+//            Spacer(minLength: 10)
 
-            VStack(spacing: 12) {
+            VStack(spacing: 18) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
-//                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
 
                 PlayerProgressView()
                     .padding(.horizontal, 16)
@@ -20,11 +20,12 @@ struct NowPlayingView: View {
 
                 PlayerControlsView()
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 22)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
+//        .padding(.horizontal, -8)
         .overlay(
             Rectangle()
                 .stroke(Theme.primaryText, lineWidth: 0)
@@ -203,18 +204,18 @@ private struct PlayerControlsView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 0) {
+        VStack(spacing: 20) {
+            HStack(spacing: 20) {
+                Spacer()
                 // --- CORRECTED ACTION ---
                 PlayerControlButton(action: { audioPlayer.previousTrack() }, icon: "backward.fill")
-                Spacer()
                 PlayerControlButton(action: { audioPlayer.playPause() }, icon: audioPlayer.isPlaying ? "pause.fill" : "play.fill", isLarge: true)
-                Spacer()
                 // --- CORRECTED ACTION ---
                 PlayerControlButton(action: { audioPlayer.nextTrack() }, icon: "forward.fill")
+                Spacer()
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 24) {
                 // Speaker/AirPlay button in rounded box with shadow
                 ZStack {
                     // Shadow layer

@@ -6,6 +6,7 @@ struct Theme {
     static let accentPink = Color(red: 0.918, green: 0.459, blue: 0.529)      //91.8, 45.9, 52.9
     static let accentBlue = Color(red: 0.06667, green: 0.25882, blue: 1.00000)
     static let accentLightBlue = Color(red: 0.86667, green: 0.96863, blue: 1.00000)
+    static let accentSkyBlue = Color(red: 0.34118, green: 0.84314, blue: 1.00000)
     static let accentDarkBlue = Color(red:0.00000, green:  0.30196, blue:  0.43922)
     static let accentYellow = Color(red: 0.98824, green: 0.86275, blue:  0.24314)
     static let accentDarkGreen = Color(red: 0.32549, green: 0.87059, blue:  0.47843)

@@ -185,6 +185,22 @@ struct QueueView: View {
                         }
                     }
                 }
+
+                Spacer()
+
+                // Bottom bars section
+                VStack(spacing: 0) {
+                    // Light blue bar (16px)
+                    Rectangle()
+                        .fill(Theme.accentSkyBlue)
+                        .frame(height: 16)
+
+                    // 2px separator bar with 10px bottom padding
+                    Rectangle()
+                        .fill(Theme.primaryText)
+                        .frame(height: 2)
+                        .padding(.bottom, 10)
+                }
             }
             .navigationBarHidden(true)
         }
