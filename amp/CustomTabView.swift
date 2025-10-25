@@ -25,7 +25,7 @@ struct CustomTabView: View {
         .frame(height: 82)
         .frame(maxWidth: .infinity)
         .background(.white)
-        .overlay(Divider(), alignment: .top)
+//        .overlay(Divider(), alignment: .top)
         .edgesIgnoringSafeArea(.bottom)
     }
 }

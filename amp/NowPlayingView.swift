@@ -25,7 +25,7 @@ struct NowPlayingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
-//        .padding(.horizontal, -8)
+        .padding(.horizontal, -8)
         .overlay(
             Rectangle()
                 .stroke(Theme.primaryText, lineWidth: 0)
