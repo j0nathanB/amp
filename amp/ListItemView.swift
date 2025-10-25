@@ -100,15 +100,26 @@ struct ListItemView: View {
                 playPauseAction?()
             }) {
                 ZStack {
-                    // The background color changes based on the player's state
+                    // Layer 1: The hard shadow (offset background)
+                    Rectangle()
+                        .fill(Theme.accentDarkBlue)
+                        .frame(width: 60, height: 60)
+                        .offset(x: -4, y: 4)
+
+                    // Layer 2: The main button background
                     Rectangle()
                         .fill(audioPlayer.isPlaying ? Theme.accentPink : Theme.accentGreen)
                         .frame(width: 60, height: 60)
-                    
-                    // The icon changes based on the player's state
+
+                    // Layer 3: The icon
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                         .foregroundColor(.white)
                 }
+                .overlay(
+                    Rectangle()
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                        .frame(width: 60, height: 60)
+                )
             }
             .buttonStyle(PlainButtonStyle())
         }

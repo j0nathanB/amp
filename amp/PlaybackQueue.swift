@@ -83,14 +83,22 @@ struct PlaybackQueue {
     }
     
     mutating func unshuffle() {
-        trackIDs = originalOrder
-        isShuffled = false
-        
-        // Try to maintain current track position
+        // CRITICAL: Capture currently playing track ID BEFORE restoring original order
+        let currentlyPlayingTrackID: MPMediaEntityPersistentID?
         if let currentIdx = currentIndex,
            currentIdx < trackIDs.count {
-            let currentTrackID = trackIDs[currentIdx]
-            currentIndex = originalOrder.firstIndex(of: currentTrackID)
+            currentlyPlayingTrackID = trackIDs[currentIdx]
+        } else {
+            currentlyPlayingTrackID = nil
+        }
+
+        // Restore original order
+        trackIDs = originalOrder
+        isShuffled = false
+
+        // Find the currently playing track's position in the original order
+        if let trackID = currentlyPlayingTrackID {
+            currentIndex = originalOrder.firstIndex(of: trackID)
         }
     }
     

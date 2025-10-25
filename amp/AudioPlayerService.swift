@@ -88,6 +88,8 @@ class AudioPlayerService: ObservableObject {
     // MARK: - Public API (same as before)
     
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
+        print("🎵 [AudioPlayerService] startPlayback called with \(songs.count) songs, starting with: \(startSong.title)")
+
         // Set flag to prevent delegate from also starting playback
         isManuallyStarting = true
 
@@ -96,7 +98,10 @@ class AudioPlayerService: ObservableObject {
 
         // Get the track directly from queueManager to avoid Combine binding race condition
         if let track = queueManager.currentTrack {
+            print("✅ [AudioPlayerService] Current track set, calling playbackEngine.play() for: \(track.title)")
             playbackEngine.play(song: track, isManualSelection: true)
+        } else {
+            print("❌ [AudioPlayerService] ERROR: Current track is nil after startPlayback!")
         }
 
         // Clear flag after a brief delay to allow delegate to complete

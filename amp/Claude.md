@@ -433,7 +433,20 @@ The app now has:
 
 ## Recent Improvements
 
-### Queue Stability & Ghost Queue Fix (Latest)
+### Persisted Queue Playback Initialization Fix (Latest)
+- **Problem**: When the app loaded a persisted queue from a previous session, pressing the play button would do nothing. The queue and current track were restored, but no audio would play.
+- **Root Cause**: The `QueueManagerService.loadQueue()` method would set `currentTrack` when restoring a persisted queue, but never notified the `AudioPlayerService` delegate. This meant the `PlaybackEngineService` was never initialized with the track, so it had no audio loaded when the user pressed play.
+- **Solution**: Added delegate notification when restoring the current track from persisted queue:
+  - `QueueManagerService.swift:467`: Added `delegate?.currentTrackDidChange(songs[index])` call when restoring current track
+  - `AudioPlayerService.currentTrackDidChange()`: Already had proper logic to call `playbackEngine.loadWithoutPlaying()` when not playing
+  - `PlaybackEngineService.playPause()`: Added warning message when called with no audio loaded
+- **Impact**: Persisted queues now properly initialize the audio player on app launch. Users can immediately press play and resume playback from their previous session.
+- **Files**:
+  - `QueueManagerService.swift:462-469` (delegate notification on queue restore)
+  - `AudioPlayerService.swift:91-105` (diagnostic logging added)
+  - `PlaybackEngineService.swift:103-157` (warning for no-audio-loaded case)
+
+### Previous: Queue Stability & Ghost Queue Fix
 - **Problem**: Queue would become corrupted during playback, showing wrong album art and tracks from previous sessions. Specifically, album art would change to songs from the same position in a previously-loaded queue, and going back to "previous" would play the ghost track instead of the actual track.
 - **Root Cause**: Multiple interconnected race conditions:
   1. **State Capture Race in `saveQueue()`**: Queue state was captured inside async `Task` block, allowing state to change between capture and persistence
@@ -481,4 +494,4 @@ The app now has:
 
 ---
 
-*Updated after queue stability fix - ghost queue issue completely resolved*
+*Updated after persisted queue playback initialization fix - play button now works with restored queues*

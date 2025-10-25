@@ -107,7 +107,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 // CRITICAL FIX: Store current playback position BEFORE pausing
                 pausedAt = player.currentTime
                 print("⏸️ Pausing at position: \(pausedAt)s")
-                
+
                 player.pause()
                 isPlaying = false
                 stopTimer()
@@ -118,11 +118,11 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             } else {
                 // Mark this as a resume, not a new track
                 isResumingFromPause = true
-                
+
                 // CRITICAL FIX: Determine the correct position to resume from
                 let hasManuallySeeeked = abs(playbackTime - pausedAt) > 0.1 // 0.1s tolerance
                 let resumePosition = hasManuallySeeeked ? playbackTime : pausedAt
-                
+
                 if resumePosition > 0 {
                     player.currentTime = resumePosition
                     playbackTime = resumePosition
@@ -134,7 +134,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 } else {
                     print("▶️ Resuming from current position: \(player.currentTime)s")
                 }
-                
+
                 player.play()
                 isPlaying = true
                 startTimer()
@@ -150,6 +150,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isResumingFromPause = true
             resumeFromPause(song: song, at: pausedAt)
             isResumingFromPause = false
+        } else {
+            // No audio loaded at all - cannot play/pause
+            print("⚠️ PlayPause called but no audio is loaded. Use play(song:) to start playback.")
         }
     }
     

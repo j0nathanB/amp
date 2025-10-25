@@ -463,6 +463,9 @@ class QueueManagerService: ObservableObject {
                 if let index = currentIndex,
                    index < songs.count {
                     self.currentTrack = songs[index]
+                    // Notify delegate so audio player can prepare the track
+                    self.delegate?.currentTrackDidChange(songs[index])
+                    print("[QueueManager] ✅ Restored current track from persisted queue: \(songs[index].title)")
                 }
 
                 // Trigger @Published update by reassigning the struct
