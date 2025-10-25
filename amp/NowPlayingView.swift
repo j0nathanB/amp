@@ -7,30 +7,26 @@ struct NowPlayingView: View {
     var body: some View {
         VStack(spacing: 0) {
             PlayerArtworkView()
-                .padding(.horizontal, 8) // Reduced horizontal padding for larger artwork
-                .padding(.top, 8) // Minimal top padding
 
-            Spacer()
+            Spacer(minLength: 16)
 
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
 
                 PlayerProgressView()
                     .padding(.horizontal, 16)
-                    // No horizontal padding - border to border
 
                 PlayerControlsView()
-                    .padding(.horizontal, 12) // Standard padding for controls
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
             }
-//            .padding(.bottom, 16) // Bottom spacing from border
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
         .overlay(
             Rectangle()
-                .stroke(Theme.primaryText, lineWidth: 0) // Consistent white border
+                .stroke(Theme.primaryText, lineWidth: 0)
         )
     }
 }
@@ -244,14 +240,22 @@ private struct PlayerControlButton: View {
     let action: () -> Void
     let icon: String
     var isLarge: Bool = false
-    
+
     var body: some View {
         Button(action: action) {
             ZStack {
+                // Layer 1: The hard shadow (offset background)
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Theme.accentPink)
+                    .frame(width: 100, height: 100)
+                    .offset(x: -6, y: 6)
+
+                // Layer 2: The main button background
                 Rectangle()
                     .fill(Color.white)
                     .frame(width: 100, height: 100)
-                
+
+                // Layer 3: The icon
                 Image(systemName: icon)
                     .font(isLarge ? .system(size: 44) : .largeTitle)
                     .foregroundColor(Theme.primaryText)

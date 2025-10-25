@@ -29,8 +29,9 @@ struct MainTabView: View {
                         .padding(.horizontal, 16)
                 case .nowPlaying:
                     NowPlayingView()
-                        .padding(16)
-                        .padding(.bottom, 60)
+                        .padding(.top, 8)
+                        .padding(.bottom, 80)
+                        .padding(.horizontal, 16)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

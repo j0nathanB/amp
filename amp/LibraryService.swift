@@ -1299,10 +1299,10 @@ class LibraryService {
         let albums = collections.compactMap { collection -> Album? in
             guard let representativeItem = collection.representativeItem,
                   let albumTitle = representativeItem.albumTitle,
-                  let artist = representativeItem.artist,
-                  let albumID = representativeItem.albumPersistentID else {
+                  let artist = representativeItem.artist else {
                 return nil
             }
+            let albumID = representativeItem.albumPersistentID
             return Album(id: albumID, title: albumTitle, artist: artist)
         }
 
