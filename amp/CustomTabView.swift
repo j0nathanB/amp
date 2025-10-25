@@ -22,10 +22,10 @@ struct CustomTabView: View {
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 80)
+        .frame(height: 82)
         .frame(maxWidth: .infinity)
         .background(.white)
-//        .overlay(Divider(), alignment: .bottom)
+        .overlay(Divider(), alignment: .top)
         .edgesIgnoringSafeArea(.bottom)
     }
 }

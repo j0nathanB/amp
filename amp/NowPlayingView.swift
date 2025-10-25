@@ -12,14 +12,15 @@ struct NowPlayingView: View {
 
             VStack(spacing: 12) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
-                    .padding(.horizontal, 16)
+//                    .padding(.horizontal, 16)
 
                 PlayerProgressView()
                     .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
 
                 PlayerControlsView()
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 12)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -110,14 +111,14 @@ private struct PlayerTrackInfoView: View {
     let track: Song?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .center, spacing: 2) {
             // Title - fixed height container
             Text(track?.title ?? "Track")
                 .font(Theme.nowPlayingFont)
-                .foregroundColor(Theme.accentPink)
+                .foregroundColor(Theme.primaryText)
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .frame(height: 28, alignment: .leading) // Fixed height for title font
+                .minimumScaleFactor(0.8)
+                .multilineTextAlignment(.center)
 
             // Artist - fixed height container
             Text(track?.artist ?? "Artist")
@@ -125,29 +126,25 @@ private struct PlayerTrackInfoView: View {
                 .foregroundColor(Theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(height: 20, alignment: .leading) // Fixed height to prevent layout shifts
-
-            // Album - in a visual container box with fixed height
-//            Text(track?.album ?? "Album")
-//                .font(Theme.bodyItalicFont)
-//                .foregroundColor(Theme.primaryText)
-//                .lineLimit(1)
-//                .minimumScaleFactor(0.7)
-//                .frame(height: 24, alignment: .leading) // Fixed height container
+                .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
 private struct PlayerProgressView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
-    
+
     private let thumbWidth: CGFloat = 36  // Wider rectangle
     private let thumbHeight: CGFloat = 32 // Extends beyond the bar
-    private let barHeight: CGFloat = 24   // Original bar height
-    
+    private let barHeight: CGFloat = 1   // Original bar height
+
     var body: some View {
-        VStack {
+        HStack(spacing: 12) {
+            Text("\(formatTime(audioPlayer.playbackTime))")
+                .font(Theme.tabFontSelected)
+                .foregroundColor(Theme.primaryText)
+
             GeometryReader { geometry in
                 let totalWidth = geometry.size.width
                 // The track is now shorter to make room for the thumb on both sides
@@ -155,21 +152,21 @@ private struct PlayerProgressView: View {
                 let progress = audioPlayer.songDuration > 0 ? audioPlayer.playbackTime / audioPlayer.songDuration : 0
                 // The thumb's position along the track
                 let thumbOffset = trackWidth * progress
-                
+
                 ZStack(alignment: .leading) {
                     // Background of the progress bar
                     Rectangle()
                         .fill(Theme.accentGreen)
                         .stroke(Theme.primaryText, lineWidth: 2)
                         .frame(height: barHeight)
-                    
+
                     // The elapsed progress portion
                     Rectangle()
                         .fill(Theme.backgroundColor) // Changed to lime green
                         .stroke(Theme.primaryText, lineWidth: 2)
                     // The width is calculated based on playback progress
                     .frame(width: geometry.size.width * progress, height: barHeight)
-                    
+
                     // The draggable square slider thumb
                     Rectangle()
                         .fill(.white)
@@ -187,20 +184,14 @@ private struct PlayerProgressView: View {
                         }
                 )
             }
-            // Make the progress bar and thumb thicker
             .frame(height: thumbHeight)
 
-            HStack {
-                Spacer()
-                Text("\(formatTime(audioPlayer.playbackTime)) | \(formatTime(audioPlayer.songDuration))")
-            }
-            .font(Theme.tabFont)
-            .foregroundColor(.secondary)
-//            .padding(.horizontal, 16) // Only pad the time text, not the progress bar
+            Text("\(formatTime(audioPlayer.songDuration))")
+                .font(Theme.tabFontSelected)
+                .foregroundColor(Theme.primaryText)
         }
-        // Remove padding to make progress bar span full width
     }
-    
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
@@ -210,9 +201,9 @@ private struct PlayerProgressView: View {
 
 private struct PlayerControlsView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
-    
+
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 12) {
             HStack(spacing: 0) {
                 // --- CORRECTED ACTION ---
                 PlayerControlButton(action: { audioPlayer.previousTrack() }, icon: "backward.fill")
@@ -222,15 +213,89 @@ private struct PlayerControlsView: View {
                 // --- CORRECTED ACTION ---
                 PlayerControlButton(action: { audioPlayer.nextTrack() }, icon: "forward.fill")
             }
-//            .padding(.horizontal)
-            
-            AirPlayButton()
-                .overlay(
-                    Text(audioPlayer.currentOutputName)
-                        .font(Theme.bodyFont.weight(.regular))
-                        .foregroundColor(Theme.secondaryText)
-                        .allowsHitTesting(false)
-                )
+
+            HStack(spacing: 12) {
+                // Speaker/AirPlay button in rounded box with shadow
+                ZStack {
+                    // Shadow layer
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Theme.accentPink)
+                        .frame(width: 132, height: 44)
+                        .offset(x: -4, y: 4)
+
+                    // Main container
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(width: 132, height: 44)
+
+                        AirPlayButton()
+                            .frame(width: 132, height: 44)
+                            .overlay(
+                                Text(audioPlayer.currentOutputName)
+                                    .font(Theme.bodyFont.weight(.regular))
+                                    .foregroundColor(Theme.secondaryText)
+                                    .allowsHitTesting(false)
+                            )
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
+                }
+
+                // Loop button
+                Button(action: {
+                    // TODO: Add loop functionality
+                }) {
+                    ZStack {
+                        // Shadow layer
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.accentPink)
+                            .frame(width: 44, height: 44)
+                            .offset(x: -4, y: 4)
+
+                        // Main button
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: "repeat")
+                            .font(.system(size: 20))
+                            .foregroundColor(Theme.primaryText)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
+                }
+
+                // Lyrics button
+                Button(action: {
+                    // TODO: Add lyrics functionality
+                }) {
+                    ZStack {
+                        // Shadow layer
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.accentPink)
+                            .frame(width: 44, height: 44)
+                            .offset(x: -4, y: 4)
+
+                        // Main button
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 20))
+                            .foregroundColor(Theme.primaryText)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
+                }
+            }
         }
     }
 }
@@ -247,13 +312,13 @@ private struct PlayerControlButton: View {
                 // Layer 1: The hard shadow (offset background)
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Theme.accentPink)
-                    .frame(width: 100, height: 100)
+                    .frame(width: 82, height: 82)
                     .offset(x: -6, y: 6)
 
                 // Layer 2: The main button background
                 Rectangle()
                     .fill(Color.white)
-                    .frame(width: 100, height: 100)
+                    .frame(width: 82, height: 82)
 
                 // Layer 3: The icon
                 Image(systemName: icon)

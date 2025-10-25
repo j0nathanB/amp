@@ -20,7 +20,7 @@ struct Theme {
     // The largest font, for main titles in views like NowPlayingView.
     static let titleFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 32)
     
-    static let nowPlayingFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 24)
+    static let nowPlayingFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 28)
     static let queuePlayingFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
     static let queueSongFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
     
@@ -38,5 +38,5 @@ struct Theme {
     static let bodyItalicFont = Font.custom("AtkinsonHyperlegibleNext-RegularItalic", size: 18)
     
     static let tabFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 18)
-    static let tabFontSelected = Font.custom("AtkinsonHyperlegibleMono-Bold", size: 16)
+    static let tabFontSelected = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 16)
 }
