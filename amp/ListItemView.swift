@@ -21,7 +21,7 @@ struct ListItemView: View {
                 // Centered layout for playlists
                 Text(title)
                     .font(italicizeTitle ? Theme.searchAlbumFont : (isPlaying ? Theme.queuePlayingFont : Theme.queueSongFont))
-                    .foregroundColor(isPressed ? .white : (isPlaying ? Theme.accentPink : Theme.primaryText))
+                    .foregroundColor(isPressed ? .white : Theme.primaryText)
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -31,9 +31,9 @@ struct ListItemView: View {
                     VStack(alignment: .leading) {
                         Text(title)
                             .font(italicizeTitle ? Theme.searchAlbumFont : (isPlaying ? Theme.queuePlayingFont : Theme.queueSongFont))
-                            .foregroundColor(isPressed ? .white : (isPlaying ? Theme.accentPink : Theme.primaryText))
+                            .foregroundColor(isPressed ? .white : Theme.primaryText)
                             .lineLimit(1)
-                        
+
                         // Only show the subtitle if it exists
                         if let subtitle = subtitle {
                             Text(subtitle)
@@ -60,7 +60,7 @@ struct ListItemView: View {
             }
         }
         .padding()
-        .background(isPressed ? Theme.accentPink : .white)
+        .background(isPressed ? Theme.accentPink : (isPlaying ? Theme.accentYellow : .white))
         .overlay(
             // Custom border: vertical lines primary, horizontal lines secondary
             ZStack {

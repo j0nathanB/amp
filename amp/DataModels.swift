@@ -12,20 +12,22 @@ struct Song: Identifiable, Hashable, Codable {
     let album: String
     let releaseDate: Date?
     let albumTrackNumber: Int
+    let discNumber: Int
     let genre: String?
 
     enum CodingKeys: String, CodingKey {
-        case persistentID, title, artist, album, releaseDate, albumTrackNumber, genre
+        case persistentID, title, artist, album, releaseDate, albumTrackNumber, discNumber, genre
     }
 
     // The initializer is now simpler
-    init(persistentID: MPMediaEntityPersistentID, title: String, artist: String, album: String, releaseDate: Date?, albumTrackNumber: Int, genre: String? = nil) {
+    init(persistentID: MPMediaEntityPersistentID, title: String, artist: String, album: String, releaseDate: Date?, albumTrackNumber: Int, discNumber: Int = 1, genre: String? = nil) {
         self.persistentID = persistentID
         self.title = title
         self.artist = artist
         self.album = album
         self.releaseDate = releaseDate
         self.albumTrackNumber = albumTrackNumber
+        self.discNumber = discNumber
         self.genre = genre
     }
 
@@ -100,7 +102,8 @@ extension LibraryService {
             artist: item.artist ?? "Artist",
             album: item.albumTitle ?? "Album",
             releaseDate: item.releaseDate,
-            albumTrackNumber: item.albumTrackNumber
+            albumTrackNumber: item.albumTrackNumber,
+            discNumber: item.discNumber
         )
     }
     

@@ -78,7 +78,7 @@ struct QueueView: View {
                                 ZStack {
                                     // Layer 1: The hard shadow (offset background)
                                     Rectangle()
-                                        .fill(Theme.accentGreen)
+                                        .fill(Theme.accentDarkIndigo)
                                         .offset(x: -6, y: 6)
 
                                     // Layer 2: The main button background
@@ -102,7 +102,7 @@ struct QueueView: View {
                                 ZStack {
                                     // Layer 1: The hard shadow (offset background)
                                     Rectangle()
-                                        .fill(Theme.accentGreen)
+                                        .fill(Theme.accentDarkIndigo)
                                         .offset(x: -6, y: 6)
 
                                     // Layer 2: The main button background
@@ -190,9 +190,15 @@ struct QueueView: View {
 
                 // Bottom bars section
                 VStack(spacing: 0) {
-                    // Light blue bar (16px)
+                    // Light blue gradient bar (16px)
                     Rectangle()
-                        .fill(Theme.accentSkyBlue)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                         .frame(height: 16)
 
                     // 2px separator bar with 10px bottom padding

@@ -23,7 +23,7 @@ struct PlaylistsView: View {
                     .frame(height: 2)
 
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 20) {
                         ForEach(playlists) { playlist in
                             PlaylistItemView(playlist: playlist) {
                                 play(playlist: playlist)
@@ -38,9 +38,15 @@ struct PlaylistsView: View {
 
                 // Bottom bars section
                 VStack(spacing: 0) {
-                    // Light blue bar (16px)
+                    // Light blue gradient bar (16px)
                     Rectangle()
-                        .fill(Theme.accentSkyBlue)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                         .frame(height: 16)
 
                     // 2px separator bar with 10px bottom padding
@@ -92,7 +98,7 @@ private struct PlaylistItemView: View {
         ZStack {
             // Offset shadow layer
             RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.accentGreen)
+                .fill(Theme.accentDarkGreen)
                 .offset(x: -6, y: 6)
 
             // Main content

@@ -51,9 +51,15 @@ struct SearchView: View {
 
                 // Bottom bars section
                 VStack(spacing: 0) {
-                    // Light blue bar (16px)
+                    // Light blue gradient bar (16px)
                     Rectangle()
-                        .fill(Theme.accentSkyBlue)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                         .frame(height: 16)
 
                     // 2px separator bar with 10px bottom padding
@@ -368,18 +374,9 @@ struct AlbumDetailView: View {
                         .padding(.top, 40)
                         .padding(.horizontal, 32)
                     } else if !albumSongs.isEmpty {
-                        SearchSectionView(title: "Tracks") {
-                            ForEach(albumSongs) { song in
-                                SearchItemView(
-                                    title: song.title,
-                                    subtitle: song.artist,
-                                    detail: song.album,
-                                    italicizeDetail: true
-                                ) {
-                                    audioPlayer.startPlayback(from: albumSongs, startingWith: song)
-                                }
-                            }
-                        }
+                        AlbumTracksView(songs: albumSongs, onPlaySong: { song in
+                            audioPlayer.startPlayback(from: albumSongs, startingWith: song)
+                        })
                         .padding(.horizontal, 16)
                     } else {
                         Text("No tracks found for this album")
@@ -646,6 +643,95 @@ private struct AlbumInfoRow: View {
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// Album tracks view with disc grouping and track numbers
+private struct AlbumTracksView: View {
+    let songs: [Song]
+    let onPlaySong: (Song) -> Void
+
+    // Group songs by disc number
+    private var groupedSongs: [(discNumber: Int, songs: [Song])] {
+        let grouped = Dictionary(grouping: songs) { $0.discNumber }
+        return grouped.sorted { $0.key < $1.key }.map { (discNumber: $0.key, songs: $0.value.sorted { $0.albumTrackNumber < $1.albumTrackNumber }) }
+    }
+
+    // Check if this album has multiple discs
+    private var hasMultipleDiscs: Bool {
+        Set(songs.map { $0.discNumber }).count > 1
+    }
+
+    var body: some View {
+        SearchSectionView(title: "Tracks") {
+            VStack(spacing: -1) {
+                ForEach(groupedSongs, id: \.discNumber) { disc in
+                    VStack(spacing: -1) {
+                        // Show disc header only for multi-disc albums
+                        if hasMultipleDiscs {
+                            Text("Disc \(disc.discNumber)")
+                                .font(Theme.bodyFont.weight(.semibold))
+                                .foregroundColor(Theme.primaryText)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 12)
+                                .background(Color.white)
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(Theme.primaryText, lineWidth: 1)
+                                        .frame(height: 1),
+                                    alignment: .bottom
+                                )
+                        }
+
+                        // Track listing
+                        ForEach(disc.songs) { song in
+                            TrackItemView(
+                                trackNumber: song.albumTrackNumber,
+                                title: song.title
+                            ) {
+                                onPlaySong(song)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Track item with track number prefix
+private struct TrackItemView: View {
+    let trackNumber: Int
+    let title: String
+    let action: () -> Void
+    @GestureState private var isPressed = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                // Track number
+                Text("\(trackNumber).")
+                    .font(Theme.bodyFont.weight(.semibold))
+                    .foregroundColor(Theme.primaryText)
+                    .frame(width: 30, alignment: .trailing)
+
+                // Track title
+                Text(title)
+                    .font(Theme.bodyFont)
+                    .foregroundColor(Theme.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(isPressed ? Theme.accentYellow : Color.white)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($isPressed) { _, state, _ in
+                    state = true
+                }
+        )
     }
 }
 

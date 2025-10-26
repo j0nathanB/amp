@@ -91,64 +91,108 @@ extension String {
     }
 }
 
-class HybridSearchIndex {
+class HybridSearchIndex: @unchecked Sendable {
+    // Thread-safe access to indices
+    private let indexQueue = DispatchQueue(label: "com.amp.searchIndex", attributes: .concurrent)
+
     // Word-based index for exact matches (O(1) lookup)
-    private var songWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
-    private var artistWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
-    private var albumWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
-    
+    private var _songWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+    private var _artistWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+    private var _albumWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+
     // Object caches for fast retrieval
-    private var songCache: [MPMediaEntityPersistentID: Song] = [:]
-    private var artistCache: [MPMediaEntityPersistentID: Artist] = [:]
-    private(set) var albumCache: [MPMediaEntityPersistentID: Album] = [:]
-    
+    private var _songCache: [MPMediaEntityPersistentID: Song] = [:]
+    private var _artistCache: [MPMediaEntityPersistentID: Artist] = [:]
+    private var _albumCache: [MPMediaEntityPersistentID: Album] = [:]
+
     // Fallback data for partial matching
     private var allSongs: [MPMediaItem] = []
     private var allArtists: [MPMediaItemCollection] = []
     private var allAlbums: [MPMediaItemCollection] = []
-    
-    var isIndexBuilt = false
+
+    private var _isIndexBuilt = false
+
+    var isIndexBuilt: Bool {
+        indexQueue.sync { _isIndexBuilt }
+    }
+
+    // Thread-safe accessors
+    private var songWordIndex: [String: Set<MPMediaEntityPersistentID>] {
+        indexQueue.sync { _songWordIndex }
+    }
+
+    private var artistWordIndex: [String: Set<MPMediaEntityPersistentID>] {
+        indexQueue.sync { _artistWordIndex }
+    }
+
+    private var albumWordIndex: [String: Set<MPMediaEntityPersistentID>] {
+        indexQueue.sync { _albumWordIndex }
+    }
+
+    private var songCache: [MPMediaEntityPersistentID: Song] {
+        indexQueue.sync { _songCache }
+    }
+
+    private var artistCache: [MPMediaEntityPersistentID: Artist] {
+        indexQueue.sync { _artistCache }
+    }
+
+    var albumCache: [MPMediaEntityPersistentID: Album] {
+        indexQueue.sync { _albumCache }
+    }
     
     func buildIndex() async {
         await Task.detached(priority: .userInitiated) {
+            // Build temporary indices locally (non-thread-safe during build)
+            var tempSongWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+            var tempSongCache: [MPMediaEntityPersistentID: Song] = [:]
+
             // Build song index
             let songsQuery = MPMediaQuery.songs()
             let songs = songsQuery.items ?? []
             self.allSongs = songs
-            
+
             for song in songs {
                 guard let title = song.title else { continue }
-                
+
                 let normalizedTitle = title.searchTargetNormalized
                 let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
-                
+
                 for word in words {
-                    self.songWordIndex[word, default: Set()].insert(song.persistentID)
+                    tempSongWordIndex[word, default: Set()].insert(song.persistentID)
                 }
-                
-                self.songCache[song.persistentID] = LibraryService.shared.song(from: song)
+
+                tempSongCache[song.persistentID] = LibraryService.shared.song(from: song)
+            }
+
+            // Commit song index atomically
+            self.indexQueue.async(flags: .barrier) {
+                self._songWordIndex = tempSongWordIndex
+                self._songCache = tempSongCache
             }
             
             // Build artist index from songs to ensure we capture all artists
             // MPMediaQuery.artists() sometimes misses artists that exist in songs
             var artistsFromSongs: [MPMediaEntityPersistentID: String] = [:]
-            
+            var tempArtistWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+            var tempArtistCache: [MPMediaEntityPersistentID: Artist] = [:]
+
             for song in songs {
                 guard let artistName = song.artist else { continue }
                 let artistID = song.artistPersistentID
                 artistsFromSongs[artistID] = artistName
             }
-            
+
             #if DEBUG
             print("🔍 DEBUG: Found \(artistsFromSongs.count) unique artists from songs")
             #endif
-            
+
             // Also get artists from the traditional query for completeness
             let artistsQuery = MPMediaQuery.artists()
             let artists = artistsQuery.collections ?? []
             self.allArtists = artists
-            
+
             // Index artists from songs (more comprehensive)
             for (artistID, artistName) in artistsFromSongs {
                 #if DEBUG
@@ -156,65 +200,81 @@ class HybridSearchIndex {
                     print("🔍 DEBUG: Found artist from songs '\(artistName)' with ID \(artistID)")
                 }
                 #endif
-                
+
                 let normalizedName = artistName.searchTargetNormalized
                 let words = normalizedName.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
-                
+
                 #if DEBUG
                 if artistName.lowercased().contains("buena vista") {
                     print("🔍 DEBUG: Normalized to '\(normalizedName)', words: \(words)")
                 }
                 #endif
-                
+
                 for word in words {
-                    self.artistWordIndex[word, default: Set()].insert(artistID)
-                    
+                    tempArtistWordIndex[word, default: Set()].insert(artistID)
+
                     #if DEBUG
                     if word.hasPrefix("buena") || word.hasPrefix("vista") {
                         print("🔍 DEBUG: Indexed word '\(word)' for artist '\(artistName)'")
                     }
                     #endif
                 }
-                
-                self.artistCache[artistID] = Artist(
+
+                tempArtistCache[artistID] = Artist(
                     id: artistID,
                     name: artistName
                 )
+            }
+
+            // Commit artist index atomically
+            self.indexQueue.async(flags: .barrier) {
+                self._artistWordIndex = tempArtistWordIndex
+                self._artistCache = tempArtistCache
             }
             
             // Build album index
             let albumsQuery = MPMediaQuery.albums()
             let albums = albumsQuery.collections ?? []
             self.allAlbums = albums
-            
+
+            var tempAlbumWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
+            var tempAlbumCache: [MPMediaEntityPersistentID: Album] = [:]
+
             for album in albums {
                 guard let representativeItem = album.representativeItem,
                       let albumTitle = representativeItem.albumTitle else { continue }
-                
+
                 let normalizedTitle = albumTitle.searchTargetNormalized
                 let words = normalizedTitle.components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
-                
+
                 for word in words {
-                    self.albumWordIndex[word, default: Set()].insert(representativeItem.albumPersistentID)
+                    tempAlbumWordIndex[word, default: Set()].insert(representativeItem.albumPersistentID)
                 }
-                
-                self.albumCache[representativeItem.albumPersistentID] = Album(
+
+                tempAlbumCache[representativeItem.albumPersistentID] = Album(
                     id: representativeItem.albumPersistentID,
                     title: albumTitle,
                     artist: representativeItem.artist ?? ""
                 )
             }
-            
-            self.isIndexBuilt = true
+
+            // Commit album index and mark as complete atomically
+            self.indexQueue.async(flags: .barrier) {
+                self._albumWordIndex = tempAlbumWordIndex
+                self._albumCache = tempAlbumCache
+                self._isIndexBuilt = true
+            }
+
             print("🔍 Search index built: \(songs.count) songs, \(artists.count) artists, \(albums.count) albums")
         }.value
     }
     
     func searchSongs(term: String) -> [Song] {
         guard !term.isEmpty && term.count < 50 else { return [] }
-        
+        guard isIndexBuilt else { return [] }
+
         let normalizedTerm = term.searchQueryNormalized
         guard !normalizedTerm.isEmpty else { return [] }
         
@@ -268,7 +328,8 @@ class HybridSearchIndex {
     
     func searchArtists(term: String) -> [Artist] {
         guard !term.isEmpty && term.count < 50 else { return [] }
-        
+        guard isIndexBuilt else { return [] }
+
         let normalizedTerm = term.searchQueryNormalized
         guard !normalizedTerm.isEmpty else { return [] }
         
@@ -324,7 +385,8 @@ class HybridSearchIndex {
     
     private func getPartialArtistMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
         guard !normalizedTerm.isEmpty && normalizedTerm.count < 50 else { return Set() }
-        
+        guard isIndexBuilt else { return Set() }
+
         // Get artists from words that START WITH the term (word prefix matches)
         let prefixWords = artistWordIndex.keys.filter { word in
             guard !word.isEmpty && word != normalizedTerm else { return false }
@@ -350,7 +412,8 @@ class HybridSearchIndex {
     
     private func getPartialSongMatches(_ normalizedTerm: String) -> Set<MPMediaEntityPersistentID> {
         guard !normalizedTerm.isEmpty && normalizedTerm.count < 50 else { return Set() }
-        
+        guard isIndexBuilt else { return Set() }
+
         // Get songs from words that START WITH the term (word prefix matches)
         let prefixWords = songWordIndex.keys.filter { word in
             guard !word.isEmpty && word != normalizedTerm else { return false }
@@ -384,7 +447,8 @@ class HybridSearchIndex {
     
     func searchAlbums(term: String) -> [Album] {
         guard !term.isEmpty else { return [] }
-        
+        guard isIndexBuilt else { return [] }
+
         let normalizedTerm = term.searchQueryNormalized
         
         // Get ALL matches - both exact word matches and partial matches (same as songs)
@@ -631,6 +695,7 @@ class LibraryService {
             album: item.albumTitle ?? "Album",
             releaseDate: item.releaseDate,
             albumTrackNumber: item.albumTrackNumber,
+            discNumber: item.discNumber,
             genre: item.genre
         )
     }

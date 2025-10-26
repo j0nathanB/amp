@@ -220,7 +220,7 @@ private struct PlayerControlsView: View {
                 ZStack {
                     // Shadow layer
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.accentPink)
+                        .fill(Theme.accentSkyBlue)
                         .frame(width: 132, height: 44)
                         .offset(x: -4, y: 4)
 
@@ -252,7 +252,7 @@ private struct PlayerControlsView: View {
                     ZStack {
                         // Shadow layer
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Theme.accentPink)
+                            .fill(Theme.accentDarkIndigo)
                             .frame(width: 44, height: 44)
                             .offset(x: -4, y: 4)
 
@@ -278,7 +278,7 @@ private struct PlayerControlsView: View {
                     ZStack {
                         // Shadow layer
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Theme.accentPink)
+                            .fill(Theme.accentDarkIndigo)
                             .frame(width: 44, height: 44)
                             .offset(x: -4, y: 4)
 
@@ -312,7 +312,7 @@ private struct PlayerControlButton: View {
             ZStack {
                 // Layer 1: The hard shadow (offset background)
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.accentPink)
+                    .fill(Theme.accentDarkGreen)
                     .frame(width: 82, height: 82)
                     .offset(x: -6, y: 6)
 
