@@ -216,11 +216,9 @@ struct QueueView: View {
 
                                     let currentIndex = audioPlayer.currentIndex
 
-                                    // Always scroll to the currently playing track on appear
+                                    // Scroll to the currently playing track on appear (no animation to prevent jank)
                                     if currentIndex >= 0 {
-                                        DispatchQueue.main.async {
-                                            proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
-                                        }
+                                        proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
                                     }
 
                                     viewState.updateCurrentIndex(currentIndex)

@@ -249,54 +249,52 @@ private struct PlayerControlsView: View {
                 }
 
                 // Loop button (song loop)
-                ZStack {
-                    // Shadow layer
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.accentDarkIndigo)
-                        .frame(width: 63, height: 44)
-                        .offset(x: -4, y: 4)
+                Button(action: {
+                    audioPlayer.toggleSongLoop()
+                }) {
+                    ZStack {
+                        // Shadow layer
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.accentDarkIndigo)
+                            .frame(width: 63, height: 44)
+                            .offset(x: -4, y: 4)
 
-                    // Main button
-                    Button(action: {
-                        audioPlayer.toggleSongLoop()
-                    }) {
+                        // Main container
+                        Rectangle()
+                            .fill(audioPlayer.isLoopingSong ? Theme.accentGreen : Color.white)
+                            .frame(width: 63, height: 44)
+
+                        // Text layer
                         Text("Loop")
                             .font(Theme.bodyFont)
                             .foregroundColor(audioPlayer.isLoopingSong ? .white : Theme.primaryText)
-                            .frame(width: 63, height: 44)
-                            .background(audioPlayer.isLoopingSong ? Theme.accentGreen : Color.white)
-                            .cornerRadius(6)
                     }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Theme.primaryText, lineWidth: 2)
-                    )
                 }
+                .buttonStyle(PlayerButtonStyle())
 
                 // Lyrics button
-                ZStack {
-                    // Shadow layer
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.accentDarkIndigo)
-                        .frame(width: 68, height: 44)
-                        .offset(x: -4, y: 4)
+                Button(action: {
+                    // TODO: Add lyrics functionality
+                }) {
+                    ZStack {
+                        // Shadow layer
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.accentDarkIndigo)
+                            .frame(width: 68, height: 44)
+                            .offset(x: -4, y: 4)
 
-                    // Main button
-                    Button(action: {
-                        // TODO: Add lyrics functionality
-                    }) {
+                        // Main button background
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(width: 68, height: 44)
+
+                        // Text layer
                         Text("Lyrics")
                             .font(Theme.bodyFont)
                             .foregroundColor(Theme.primaryText)
-                            .frame(width: 68, height: 44)
-                            .background(Color.white)
-                            .cornerRadius(6)
                     }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Theme.primaryText, lineWidth: 2)
-                    )
                 }
+                .buttonStyle(PlayerButtonStyle())
             }
         }
     }
