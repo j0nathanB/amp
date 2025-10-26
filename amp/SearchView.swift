@@ -112,15 +112,29 @@ struct SearchBarView: View {
 
             // Main search bar container
             HStack(spacing: 0) {
-                // Text field area
-                TextField("Search Songs, Artists, Albums...", text: $searchText)
-                    .focused($isSearchFieldFocused)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        isSearchFieldFocused = false
+                // Text field area with clear button
+                HStack(spacing: 8) {
+                    TextField("Search Songs, Artists, Albums...", text: $searchText)
+                        .focused($isSearchFieldFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            isSearchFieldFocused = false
+                        }
+                        .font(Theme.bodyFont)
+
+                    // Clear button (only visible when there's text)
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                            isSearchFieldFocused = false
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(Theme.secondaryText)
+                                .font(.system(size: 16))
+                        }
                     }
-                    .padding(.horizontal, 12)
-                    .font(Theme.bodyFont)
+                }
+                .padding(.horizontal, 12)
 
                 // Separator line between text field and button
                 Rectangle()
