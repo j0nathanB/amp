@@ -12,11 +12,15 @@ import Combine
 // ViewModel for the Search View
 @MainActor
 class SearchViewModel: ObservableObject {
+    static let shared = SearchViewModel()
+
     @Published var searchText: String = ""
     @Published var searchResults = SearchResults(artists: [], albums: [], songs: [])
     @Published var isSearching = false
 
     private var searchTask: Task<Void, Never>?
+
+    private init() {}
 
     func performSearch() {
         searchTask?.cancel()

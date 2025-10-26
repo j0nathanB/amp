@@ -2,7 +2,7 @@ import SwiftUI
 import MediaPlayer
 
 struct SearchView: View {
-    @StateObject private var viewModel = SearchViewModel()
+    @StateObject private var viewModel = SearchViewModel.shared
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var circleID = UUID() // Force regeneration each time view loads
     @State private var isScrollable = false
