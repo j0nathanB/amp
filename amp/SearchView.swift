@@ -5,6 +5,10 @@ struct SearchView: View {
     @StateObject private var viewModel = SearchViewModel()
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var circleID = UUID() // Force regeneration each time view loads
+    @State private var isScrollable = false
+    @State private var isAtBottom = false
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -29,44 +33,49 @@ struct SearchView: View {
                     .frame(height: 2)
 
                 // Content area with conditional circle or search results
-                ZStack {
-                    // Show circle when search is empty or no results
-                    if shouldShowCircle {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 300)) // Fixed size to prevent stretching
-                            .foregroundStyle(Theme.accentGreen)
-                            .id(circleID) // Force regeneration with unique ID
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                GeometryReader { geometry in
+                    ZStack {
+                        // Show circle when search is empty or no results
+                        if shouldShowCircle {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 300)) // Fixed size to prevent stretching
+                                .foregroundStyle(Theme.accentGreen)
+                                .id(circleID) // Force regeneration with unique ID
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
 
-                    // Show search results when available
-                    if hasSearchResults {
-                        SearchResultsView(results: viewModel.searchResults)
-                            .environmentObject(audioPlayer)
+                        // Show search results when available
+                        if hasSearchResults {
+                            SearchResultsView(results: viewModel.searchResults, geometry: geometry, isScrollable: $isScrollable, isAtBottom: $isAtBottom, contentHeight: $contentHeight, viewportHeight: $viewportHeight)
+                                .environmentObject(audioPlayer)
+                        }
                     }
                 }
 
                 // The spacer to push content up
                 Spacer(minLength: 0)
 
-                // Bottom bars section
-                VStack(spacing: 0) {
-                    // Light blue gradient bar (16px)
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
-                                startPoint: .top,
-                                endPoint: .bottom
+                // Bottom bars section - only show when content is scrollable AND not at bottom
+                if isScrollable && !isAtBottom {
+                    VStack(spacing: 0) {
+                        // Light blue gradient bar (16px)
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
                             )
-                        )
-                        .frame(height: 16)
+                            .frame(height: 16)
 
-                    // 2px separator bar with 10px bottom padding
-                    Rectangle()
-                        .fill(Theme.primaryText)
-                        .frame(height: 2)
-                        .padding(.bottom, 10)
+                        // 2px separator bar with 10px bottom padding
+                        Rectangle()
+                            .fill(Theme.primaryText)
+                            .frame(height: 2)
+                            .padding(.bottom, 10)
+                    }
+                    .transition(.opacity)
                 }
             }
             .navigationBarHidden(true)
@@ -145,6 +154,11 @@ struct SearchBarView: View {
 
 struct SearchResultsView: View {
     let results: SearchResults
+    let geometry: GeometryProxy
+    @Binding var isScrollable: Bool
+    @Binding var isAtBottom: Bool
+    @Binding var contentHeight: CGFloat
+    @Binding var viewportHeight: CGFloat
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var selectedAlbum: Album?
     @State private var selectedArtist: Artist?
@@ -152,54 +166,96 @@ struct SearchResultsView: View {
     var body: some View {
         // Use a ScrollView for the stacked-card layout
         ScrollView {
-            VStack(spacing: 16) {
-                if !results.artists.isEmpty {
-                    SearchSectionView(title: "Artists") {
-                        ForEach(results.artists) { artist in
-                            SearchItemView(
-                                title: artist.name,
-                                subtitle: nil,
-                                detail: nil
-                            ) {
-                                hideKeyboard()
-                                selectedArtist = artist
+            VStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    if !results.artists.isEmpty {
+                        SearchSectionView(title: "Artists") {
+                            ForEach(results.artists) { artist in
+                                SearchItemView(
+                                    title: artist.name,
+                                    subtitle: nil,
+                                    detail: nil
+                                ) {
+                                    hideKeyboard()
+                                    selectedArtist = artist
+                                }
                             }
                         }
                     }
-                }
 
-                if !results.albums.isEmpty {
-                    SearchSectionView(title: "Albums") {
-                        ForEach(results.albums) { album in
-                            SearchItemView(
-                                title: album.title,
-                                subtitle: album.artist,
-                                detail: nil,
-                                italicizeTitle: true
-                            ) {
-                                selectedAlbum = album
+                    if !results.albums.isEmpty {
+                        SearchSectionView(title: "Albums") {
+                            ForEach(results.albums) { album in
+                                SearchItemView(
+                                    title: album.title,
+                                    subtitle: album.artist,
+                                    detail: nil,
+                                    italicizeTitle: true
+                                ) {
+                                    selectedAlbum = album
+                                }
                             }
                         }
                     }
-                }
 
-                if !results.songs.isEmpty {
-                    SearchSectionView(title: "Songs") {
-                        ForEach(results.songs) { song in
-                            SearchItemView(
-                                title: song.title,
-                                subtitle: song.artist,
-                                detail: song.album,
-                                italicizeDetail: true
-                            ) {
-                                hideKeyboard()
-                                audioPlayer.startPlayback(from: results.songs, startingWith: song)
+                    if !results.songs.isEmpty {
+                        SearchSectionView(title: "Songs") {
+                            ForEach(results.songs) { song in
+                                SearchItemView(
+                                    title: song.title,
+                                    subtitle: song.artist,
+                                    detail: song.album,
+                                    italicizeDetail: true
+                                ) {
+                                    hideKeyboard()
+                                    audioPlayer.startPlayback(from: results.songs, startingWith: song)
+                                }
                             }
                         }
                     }
                 }
+                .padding(.horizontal, 16)
+
+                // Invisible anchor at the bottom to track scroll position
+                Color.clear
+                    .frame(height: 1)
+                    .background(
+                        GeometryReader { bottomGeometry in
+                            Color.clear.preference(
+                                key: ScrollOffsetPreferenceKey.self,
+                                value: bottomGeometry.frame(in: .named("scroll")).minY
+                            )
+                        }
+                    )
             }
-            .padding(.horizontal, 16)
+            .background(
+                GeometryReader { contentGeometry in
+                    Color.clear.preference(
+                        key: ContentHeightPreferenceKey.self,
+                        value: contentGeometry.size.height
+                    )
+                }
+            )
+        }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
+            contentHeight = height
+            viewportHeight = geometry.size.height
+            isScrollable = height > geometry.size.height
+        }
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { bottomOffset in
+            // bottomOffset is the Y position of the bottom anchor in the scroll view
+            // When at top: bottomOffset ≈ contentHeight
+            // When at bottom: bottomOffset ≈ viewportHeight
+            let threshold: CGFloat = 20
+
+            if isScrollable {
+                // We're at the bottom when the bottom anchor is visible near the bottom of viewport
+                isAtBottom = bottomOffset <= (viewportHeight + threshold)
+            } else {
+                // Content fits entirely in viewport
+                isAtBottom = true
+            }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             Color.clear.frame(height: 20)

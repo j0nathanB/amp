@@ -54,7 +54,11 @@ struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @StateObject private var viewState = QueueViewState.shared
     @State private var lastCurrentIndex: Int = -1
-    
+    @State private var isScrollable = false
+    @State private var isAtBottom = false
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -129,58 +133,102 @@ struct QueueView: View {
                     .frame(height: 2)
 
                 // Content area
-                Group {
-                    if audioPlayer.playbackQueue.isEmpty {
-                        VStack {
-                            Spacer()
-                            Text("The queue is empty.")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                        }
-                    } else {
-                        ScrollViewReader { proxy in
-                            ScrollView {
-                                LazyVStack(spacing: 0) {
-                                    ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
-                                        LazyQueueItemView(index: index)
-                                            .id("item-\(index)-\(audioPlayer.queueVersion)")
+                GeometryReader { geometry in
+                    Group {
+                        if audioPlayer.playbackQueue.isEmpty {
+                            VStack {
+                                Spacer()
+                                Text("The queue is empty.")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                        } else {
+                            ScrollViewReader { proxy in
+                                ScrollView {
+                                    VStack(spacing: 0) {
+                                        LazyVStack(spacing: 0) {
+                                            ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
+                                                LazyQueueItemView(index: index)
+                                                    .id("item-\(index)-\(audioPlayer.queueVersion)")
+                                            }
+                                        }
+                                        .id("queue-\(audioPlayer.queueVersion)")
+
+                                        // Invisible anchor at the bottom to track scroll position
+                                        Color.clear
+                                            .frame(height: 1)
+                                            .background(
+                                                GeometryReader { bottomGeometry in
+                                                    Color.clear.preference(
+                                                        key: ScrollOffsetPreferenceKey.self,
+                                                        value: bottomGeometry.frame(in: .named("scroll")).minY
+                                                    )
+                                                }
+                                            )
+                                    }
+                                    .background(
+                                        GeometryReader { contentGeometry in
+                                            Color.clear.preference(
+                                                key: ContentHeightPreferenceKey.self,
+                                                value: contentGeometry.size.height
+                                            )
+                                        }
+                                    )
+                                }
+                                .coordinateSpace(name: "scroll")
+                                .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
+                                    contentHeight = height
+                                    viewportHeight = geometry.size.height
+                                    isScrollable = height > geometry.size.height
+                                }
+                                .onPreferenceChange(ScrollOffsetPreferenceKey.self) { bottomOffset in
+                                    // bottomOffset is the Y position of the bottom anchor in the scroll view
+                                    // When at top: bottomOffset ≈ contentHeight
+                                    // When at bottom: bottomOffset ≈ viewportHeight
+                                    let threshold: CGFloat = 20
+
+                                    if isScrollable {
+                                        // We're at the bottom when the bottom anchor is visible near the bottom of viewport
+                                        isAtBottom = bottomOffset <= (viewportHeight + threshold)
+                                    } else {
+                                        // Content fits entirely in viewport
+                                        isAtBottom = true
                                     }
                                 }
-                                .id("queue-\(audioPlayer.queueVersion)")
-                            }
-                            .onChange(of: audioPlayer.currentIndex) { oldIndex, newIndex in
-                                let wasTracking = viewState.lastKnownCurrentIndex == oldIndex
+                                .onChange(of: audioPlayer.currentIndex) { oldIndex, newIndex in
+                                    let wasTracking = viewState.lastKnownCurrentIndex == oldIndex
 
-                                guard newIndex >= 0 else { return }
+                                    guard newIndex >= 0 else { return }
 
-                                // Only auto-scroll if user is actively viewing AND we were tracking the previous song
-                                if viewState.isActivelyViewing && wasTracking {
-                                    // User is actively viewing and song changed - smooth scroll
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        proxy.scrollTo("item-\(newIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                    // Only auto-scroll if user is actively viewing AND we were tracking the previous song
+                                    if viewState.isActivelyViewing && wasTracking {
+                                        // User is actively viewing and song changed - smooth scroll
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            proxy.scrollTo("item-\(newIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                        }
                                     }
+
+                                    viewState.updateCurrentIndex(newIndex)
+                                    lastCurrentIndex = newIndex
                                 }
+                                .onAppear {
+                                    viewState.setActiveViewing(true)
 
-                                viewState.updateCurrentIndex(newIndex)
-                                lastCurrentIndex = newIndex
-                            }
-                            .onAppear {
-                                viewState.setActiveViewing(true)
+                                    let currentIndex = audioPlayer.currentIndex
 
-                                let currentIndex = audioPlayer.currentIndex
-
-                                // Always scroll to the currently playing track on appear
-                                if currentIndex >= 0 {
-                                    DispatchQueue.main.async {
-                                        proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                    // Always scroll to the currently playing track on appear
+                                    if currentIndex >= 0 {
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
+                                        }
                                     }
-                                }
 
-                                viewState.updateCurrentIndex(currentIndex)
-                                lastCurrentIndex = currentIndex
-                            }
-                            .onDisappear {
-                                viewState.setActiveViewing(false)
+                                    viewState.updateCurrentIndex(currentIndex)
+                                    lastCurrentIndex = currentIndex
+                                }
+                                .onDisappear {
+                                    viewState.setActiveViewing(false)
+                                }
                             }
                         }
                     }
@@ -188,24 +236,27 @@ struct QueueView: View {
 
                 Spacer()
 
-                // Bottom bars section
-                VStack(spacing: 0) {
-                    // Light blue gradient bar (16px)
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
-                                startPoint: .top,
-                                endPoint: .bottom
+                // Bottom bars section - only show when content is scrollable AND not at bottom
+                if isScrollable && !isAtBottom {
+                    VStack(spacing: 0) {
+                        // Light blue gradient bar (16px)
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
                             )
-                        )
-                        .frame(height: 16)
+                            .frame(height: 16)
 
-                    // 2px separator bar with 10px bottom padding
-                    Rectangle()
-                        .fill(Theme.primaryText)
-                        .frame(height: 2)
-                        .padding(.bottom, 10)
+                        // 2px separator bar with 10px bottom padding
+                        Rectangle()
+                            .fill(Theme.primaryText)
+                            .frame(height: 2)
+                            .padding(.bottom, 10)
+                    }
+                    .transition(.opacity)
                 }
             }
             .navigationBarHidden(true)

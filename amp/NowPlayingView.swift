@@ -136,20 +136,22 @@ private struct PlayerTrackInfoView: View {
 private struct PlayerProgressView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
-    private let thumbWidth: CGFloat = 36  // Wider rectangle
-    private let thumbHeight: CGFloat = 32 // Extends beyond the bar
+    private let thumbSize: CGFloat = 32  // Circle diameter
     private let barHeight: CGFloat = 1   // Original bar height
+    private let timeLabelWidth: CGFloat = 50  // Fixed width for time labels
 
     var body: some View {
         HStack(spacing: 12) {
             Text("\(formatTime(audioPlayer.playbackTime))")
                 .font(Theme.tabFontSelected)
                 .foregroundColor(Theme.primaryText)
+                .frame(width: timeLabelWidth, alignment: .trailing)
+                .monospacedDigit()
 
             GeometryReader { geometry in
                 let totalWidth = geometry.size.width
                 // The track is now shorter to make room for the thumb on both sides
-                let trackWidth = totalWidth - thumbWidth
+                let trackWidth = totalWidth - thumbSize
                 let progress = audioPlayer.songDuration > 0 ? audioPlayer.playbackTime / audioPlayer.songDuration : 0
                 // The thumb's position along the track
                 let thumbOffset = trackWidth * progress
@@ -168,11 +170,11 @@ private struct PlayerProgressView: View {
                     // The width is calculated based on playback progress
                     .frame(width: geometry.size.width * progress, height: barHeight)
 
-                    // The draggable square slider thumb
-                    Rectangle()
+                    // The draggable circular slider thumb
+                    Circle()
                         .fill(.white)
                         .stroke(Theme.primaryText, lineWidth: 2)
-                        .frame(width: thumbWidth, height: thumbHeight)
+                        .frame(width: thumbSize, height: thumbSize)
                         .offset(x: thumbOffset) // Position the thumb
 
                 }
@@ -185,11 +187,13 @@ private struct PlayerProgressView: View {
                         }
                 )
             }
-            .frame(height: thumbHeight)
+            .frame(height: thumbSize)
 
             Text("\(formatTime(audioPlayer.songDuration))")
                 .font(Theme.tabFontSelected)
                 .foregroundColor(Theme.primaryText)
+                .frame(width: timeLabelWidth, alignment: .leading)
+                .monospacedDigit()
         }
     }
 

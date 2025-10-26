@@ -3,6 +3,10 @@ import SwiftUI
 struct PlaylistsView: View {
     @State private var playlists: [Playlist] = []
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @State private var isScrollable = false
+    @State private var isAtBottom = false
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -22,38 +26,85 @@ struct PlaylistsView: View {
                     .fill(Theme.primaryText)
                     .frame(height: 2)
 
-                ScrollView {
-                    LazyVStack(spacing: 20) {
-                        ForEach(playlists) { playlist in
-                            PlaylistItemView(playlist: playlist) {
-                                play(playlist: playlist)
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            LazyVStack(spacing: 20) {
+                                ForEach(playlists) { playlist in
+                                    PlaylistItemView(playlist: playlist) {
+                                        play(playlist: playlist)
+                                    }
+                                }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+
+                            // Invisible anchor at the bottom to track scroll position
+                            Color.clear
+                                .frame(height: 1)
+                                .background(
+                                    GeometryReader { bottomGeometry in
+                                        Color.clear.preference(
+                                            key: ScrollOffsetPreferenceKey.self,
+                                            value: bottomGeometry.frame(in: .named("scroll")).minY
+                                        )
+                                    }
+                                )
+                        }
+                        .background(
+                            GeometryReader { contentGeometry in
+                                Color.clear.preference(
+                                    key: ContentHeightPreferenceKey.self,
+                                    value: contentGeometry.size.height
+                                )
+                            }
+                        )
+                    }
+                    .coordinateSpace(name: "scroll")
+                    .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
+                        contentHeight = height
+                        viewportHeight = geometry.size.height
+                        isScrollable = height > geometry.size.height
+                    }
+                    .onPreferenceChange(ScrollOffsetPreferenceKey.self) { bottomOffset in
+                        // bottomOffset is the Y position of the bottom anchor in the scroll view
+                        // When at top: bottomOffset ≈ contentHeight
+                        // When at bottom: bottomOffset ≈ viewportHeight
+                        let threshold: CGFloat = 20
+
+                        if isScrollable {
+                            // We're at the bottom when the bottom anchor is visible near the bottom of viewport
+                            isAtBottom = bottomOffset <= (viewportHeight + threshold)
+                        } else {
+                            // Content fits entirely in viewport
+                            isAtBottom = true
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
                 }
 
                 Spacer()
 
-                // Bottom bars section
-                VStack(spacing: 0) {
-                    // Light blue gradient bar (16px)
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
-                                startPoint: .top,
-                                endPoint: .bottom
+                // Bottom bars section - only show when content is scrollable AND not at bottom
+                if isScrollable && !isAtBottom {
+                    VStack(spacing: 0) {
+                        // Light blue gradient bar (16px)
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
                             )
-                        )
-                        .frame(height: 16)
+                            .frame(height: 16)
 
-                    // 2px separator bar with 10px bottom padding
-                    Rectangle()
-                        .fill(Theme.primaryText)
-                        .frame(height: 2)
-                        .padding(.bottom, 10)
+                        // 2px separator bar with 10px bottom padding
+                        Rectangle()
+                            .fill(Theme.primaryText)
+                            .frame(height: 2)
+                            .padding(.bottom, 10)
+                    }
+                    .transition(.opacity)
                 }
             }
             .navigationBarHidden(true)

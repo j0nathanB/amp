@@ -1,6 +1,7 @@
 import Foundation
 import MediaPlayer // Added to fix the 'MPMediaEntityPersistentID' error
 import UIKit
+import SwiftUI
 
 struct Song: Identifiable, Hashable, Codable {
     // The id now refers back to the persistentID from the library
@@ -134,4 +135,22 @@ struct LightweightSong: Identifiable, Hashable {
     // We use the persistentID as the id for this simple struct
     var id: MPMediaEntityPersistentID { persistentID }
     let persistentID: MPMediaEntityPersistentID
+}
+
+// PreferenceKey for tracking content height in ScrollViews
+struct ContentHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+// PreferenceKey for tracking scroll offset to detect bottom
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
