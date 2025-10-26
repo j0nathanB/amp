@@ -42,6 +42,10 @@ struct SearchView: View {
                                 .foregroundStyle(Theme.accentGreen)
                                 .id(circleID) // Force regeneration with unique ID
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    hideKeyboard()
+                                }
                         }
 
                         // Show search results when available
@@ -90,11 +94,15 @@ struct SearchView: View {
     private var shouldShowCircle: Bool {
         viewModel.searchText.isEmpty || !hasSearchResults
     }
-    
+
     private var hasSearchResults: Bool {
         !viewModel.searchResults.artists.isEmpty ||
         !viewModel.searchResults.albums.isEmpty ||
         !viewModel.searchResults.songs.isEmpty
+    }
+
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
@@ -128,9 +136,9 @@ struct SearchBarView: View {
                             searchText = ""
                             isSearchFieldFocused = false
                         }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(Theme.secondaryText)
-                                .font(.system(size: 16))
+                            Image(systemName: "xmark")
+                                .foregroundColor(.black)
+                                .font(.system(size: 16, weight: .bold))
                         }
                     }
                 }
