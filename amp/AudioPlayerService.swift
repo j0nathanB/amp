@@ -23,6 +23,7 @@ class AudioPlayerService: ObservableObject {
     @Published var currentOutputName: String = ""
     @Published var isShuffled = false
     @Published var isLooped = false
+    @Published var isLoopingSong = false
     @Published var selectedTab: Tab = .queue
     @Published var currentIndex: Int = -1
     @Published var systemVolume: Float = 1.0
@@ -40,12 +41,15 @@ class AudioPlayerService: ObservableObject {
         // Set up delegates
         playbackEngine.delegate = self
         queueManager.delegate = self
-        
+
         // Bind published properties
         setupBindings()
-        
+
         // Set up notifications for remote commands
         setupNotifications()
+
+        // Load song loop state
+        isLoopingSong = UserDefaults.standard.bool(forKey: "songLoopEnabled")
     }
     
     private func setupBindings() {
@@ -172,6 +176,12 @@ class AudioPlayerService: ObservableObject {
     func toggleLoop() {
         queueManager.toggleLoop()
     }
+
+    func toggleSongLoop() {
+        isLoopingSong.toggle()
+        UserDefaults.standard.set(isLoopingSong, forKey: "songLoopEnabled")
+        print("[AudioPlayerService] Song loop toggled to: \(isLoopingSong)")
+    }
     
     // MARK: - Navigation
     
@@ -239,11 +249,17 @@ extension AudioPlayerService {
 extension AudioPlayerService: PlaybackEngineDelegate {
     func playbackDidFinish(successfully: Bool) {
         if successfully {
-            // When a track finishes, automatically advance to the next track
-            // Set flag to indicate we're auto-advancing (should continue playing)
-            isAutoAdvancing = true
-            _ = queueManager.nextTrack()
-            isAutoAdvancing = false
+            // Check if song loop is enabled - if so, replay the current track
+            if isLoopingSong, let track = currentTrack {
+                print("[AudioPlayerService] Song loop enabled - replaying: \(track.title)")
+                playbackEngine.play(song: track, isManualSelection: false)
+            } else {
+                // When a track finishes, automatically advance to the next track
+                // Set flag to indicate we're auto-advancing (should continue playing)
+                isAutoAdvancing = true
+                _ = queueManager.nextTrack()
+                isAutoAdvancing = false
+            }
         }
     }
 

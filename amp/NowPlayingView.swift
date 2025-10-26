@@ -224,22 +224,21 @@ private struct PlayerControlsView: View {
                 ZStack {
                     // Shadow layer
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.accentSkyBlue)
-                        .frame(width: 132, height: 44)
+                        .fill(Theme.accentDarkIndigo)
+                        .frame(width: 126, height: 44)
                         .offset(x: -4, y: 4)
 
                     // Main container
                     ZStack {
                         Rectangle()
-                            .fill(Color.white)
-                            .frame(width: 132, height: 44)
+                            .fill(audioPlayer.isPlaying ? Theme.accentLightBlue : Color.white)
+                            .frame(width: 126, height: 44)
 
                         AirPlayButton()
-                            .frame(width: 132, height: 44)
+                            .frame(width: 126, height: 44)
                             .overlay(
                                 Text(audioPlayer.currentOutputName)
-                                    .font(Theme.bodyFont.weight(.regular))
-                                    .foregroundColor(Theme.secondaryText)
+                                    .font(Theme.bodyFont)
                                     .allowsHitTesting(false)
                             )
                     }
@@ -249,25 +248,24 @@ private struct PlayerControlsView: View {
                     )
                 }
 
-                // Loop button
-                Button(action: {
-                    // TODO: Add loop functionality
-                }) {
-                    ZStack {
-                        // Shadow layer
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Theme.accentDarkIndigo)
-                            .frame(width: 44, height: 44)
-                            .offset(x: -4, y: 4)
+                // Loop button (song loop)
+                ZStack {
+                    // Shadow layer
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Theme.accentDarkIndigo)
+                        .frame(width: 63, height: 44)
+                        .offset(x: -4, y: 4)
 
-                        // Main button
-                        Rectangle()
-                            .fill(Color.white)
-                            .frame(width: 44, height: 44)
-
-                        Image(systemName: "repeat")
-                            .font(.system(size: 20))
-                            .foregroundColor(Theme.primaryText)
+                    // Main button
+                    Button(action: {
+                        audioPlayer.toggleSongLoop()
+                    }) {
+                        Text("Loop")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(audioPlayer.isLoopingSong ? .white : Theme.primaryText)
+                            .frame(width: 63, height: 44)
+                            .background(audioPlayer.isLoopingSong ? Theme.accentGreen : Color.white)
+                            .cornerRadius(6)
                     }
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
@@ -276,24 +274,23 @@ private struct PlayerControlsView: View {
                 }
 
                 // Lyrics button
-                Button(action: {
-                    // TODO: Add lyrics functionality
-                }) {
-                    ZStack {
-                        // Shadow layer
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Theme.accentDarkIndigo)
-                            .frame(width: 44, height: 44)
-                            .offset(x: -4, y: 4)
+                ZStack {
+                    // Shadow layer
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Theme.accentDarkIndigo)
+                        .frame(width: 68, height: 44)
+                        .offset(x: -4, y: 4)
 
-                        // Main button
-                        Rectangle()
-                            .fill(Color.white)
-                            .frame(width: 44, height: 44)
-
-                        Image(systemName: "quote.bubble")
-                            .font(.system(size: 20))
+                    // Main button
+                    Button(action: {
+                        // TODO: Add lyrics functionality
+                    }) {
+                        Text("Lyrics")
+                            .font(Theme.bodyFont)
                             .foregroundColor(Theme.primaryText)
+                            .frame(width: 68, height: 44)
+                            .background(Color.white)
+                            .cornerRadius(6)
                     }
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
