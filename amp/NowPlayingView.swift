@@ -76,15 +76,26 @@ private struct ArtworkImage: View {
     @State private var loadedSongID: UInt64 = 0
 
     var body: some View {
-        Group {
-            if let image = artwork {
-                Image(uiImage: image).resizable()
-            } else {
-                Image(systemName: "circle.fill").resizable().padding(70).foregroundStyle(Theme.accentGreen)
+        GeometryReader { geometry in
+            Group {
+                if let image = artwork {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.width)  // Force exact square dimensions
+                        .clipped()  // Clip any overflow from non-square artwork
+                } else {
+                    Image(systemName: "circle.fill")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .padding(70)
+                        .foregroundStyle(Theme.accentGreen)
+                        .frame(width: geometry.size.width, height: geometry.size.width)
+                }
             }
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
         }
-        .aspectRatio(contentMode: .fit)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
+        .aspectRatio(1, contentMode: .fit)  // Force square container
         .onChange(of: song.persistentID) { oldValue, newValue in
             // Only reload artwork if the song actually changed
             if newValue != loadedSongID {
@@ -115,7 +126,7 @@ private struct PlayerTrackInfoView: View {
         VStack(alignment: .center, spacing: 2) {
             // Title - fixed height container
             Text(track?.title ?? "Track")
-                .font(Theme.nowPlayingFont)
+                .font(Theme.nowPlayingTrackFont)
                 .foregroundColor(Theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -123,7 +134,7 @@ private struct PlayerTrackInfoView: View {
 
             // Artist - fixed height container
             Text(track?.artist ?? "Artist")
-                .font(Theme.bodyFont)
+                .font(Theme.nowPlayingArtistFont)
                 .foregroundColor(Theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -159,7 +170,7 @@ private struct PlayerProgressView: View {
                 ZStack(alignment: .leading) {
                     // Background of the progress bar
                     Rectangle()
-                        .fill(Theme.accentGreen)
+                        .fill(Theme.accentDarkGreen)
                         .stroke(Theme.primaryText, lineWidth: 2)
                         .frame(height: barHeight)
 
@@ -261,13 +272,13 @@ private struct PlayerControlsView: View {
 
                         // Main container
                         Rectangle()
-                            .fill(audioPlayer.isLoopingSong ? Theme.accentGreen : Color.white)
+                            .fill(audioPlayer.isLoopingSong ? Theme.accentDarkGreen : Color.white)
                             .frame(width: 63, height: 44)
 
                         // Text layer
                         Text("Loop")
                             .font(Theme.bodyFont)
-                            .foregroundColor(audioPlayer.isLoopingSong ? .white : Theme.primaryText)
+                            .foregroundColor(Theme.primaryText)
                     }
                 }
                 .buttonStyle(PlayerButtonStyle())
