@@ -1,5 +1,6 @@
 import Foundation
 import MediaPlayer
+import AVFoundation
 
 private enum SearchResultComponent {
     case artists([Artist])
@@ -687,6 +688,10 @@ class LibraryService {
         return (normalized: normalized, words: words)
     }
 
+    // Cache for AVAsset metadata to avoid repeated file reads
+    private var metadataCache: [MPMediaEntityPersistentID: Date?] = [:]
+    private let metadataCacheQueue = DispatchQueue(label: "com.amp.metadataCache")
+
     func song(from item: MPMediaItem) -> Song {
         return Song(
             persistentID: item.persistentID,
@@ -698,6 +703,139 @@ class LibraryService {
             discNumber: item.discNumber,
             genre: item.genre
         )
+    }
+
+    /// Enrich a song with metadata from AVAsset (reads ID3 tags directly from file)
+    /// Call this on-demand for songs where you need complete metadata (e.g., Now Playing view)
+    func enrichSongWithFileMetadata(_ song: Song) async -> Song {
+        // If song already has releaseDate, no need to enrich
+        guard song.releaseDate == nil else { return song }
+
+        // Get the audio file URL
+        guard let assetURL = getAssetURL(for: song) else { return song }
+
+        // Extract metadata from file
+        let releaseDate = await Task.detached(priority: .userInitiated) { [weak self] in
+            self?.extractReleaseDateFromAsset(url: assetURL, persistentID: song.persistentID)
+        }.value
+
+        // Return enriched song
+        return Song(
+            persistentID: song.persistentID,
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            releaseDate: releaseDate,
+            albumTrackNumber: song.albumTrackNumber,
+            discNumber: song.discNumber,
+            genre: song.genre
+        )
+    }
+
+    /// Get asset URL for a song
+    private func getAssetURL(for song: Song) -> URL? {
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: song.persistentID),
+            forProperty: MPMediaItemPropertyPersistentID
+        )
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+
+        return query.items?.first?.assetURL
+    }
+
+    /// Extract release date from AVAsset metadata (reads ID3 tags directly from MP3)
+    private func extractReleaseDateFromAsset(url: URL, persistentID: MPMediaEntityPersistentID) -> Date? {
+        // Check cache first
+        var cachedDate: Date??
+        metadataCacheQueue.sync {
+            cachedDate = metadataCache[persistentID]
+        }
+
+        if let cached = cachedDate {
+            return cached // May be nil, which means we already tried and found nothing
+        }
+
+        let asset = AVAsset(url: url)
+        var extractedDate: Date?
+
+        // Try common metadata first (fastest)
+        for item in asset.commonMetadata {
+            if let key = item.commonKey?.rawValue,
+               (key == AVMetadataKey.commonKeyCreationDate.rawValue ||
+                key == "date"),
+               let value = item.value as? String {
+                extractedDate = parseDateString(value)
+                if extractedDate != nil { break }
+            }
+        }
+
+        // If not found, try format-specific metadata (ID3 tags for MP3)
+        if extractedDate == nil {
+            for format in asset.availableMetadataFormats {
+                let metadata = asset.metadata(forFormat: format)
+
+                for item in metadata {
+                    guard let key = item.key as? String else { continue }
+
+                    // ID3v2.3: TYER (Year), TDAT (Date)
+                    // ID3v2.4: TDRC (Recording time), TDRL (Release time)
+                    if key == "TYER" || key == "TDRC" || key == "TDRL" ||
+                       key == "©day" || // iTunes year tag
+                       key.lowercased().contains("year") ||
+                       key.lowercased().contains("date") {
+
+                        if let value = item.value as? String {
+                            extractedDate = parseDateString(value)
+                            if extractedDate != nil { break }
+                        }
+                    }
+                }
+
+                if extractedDate != nil { break }
+            }
+        }
+
+        // Cache the result (even if nil, to avoid repeated lookups)
+        metadataCacheQueue.sync {
+            metadataCache[persistentID] = extractedDate
+        }
+
+        return extractedDate
+    }
+
+    /// Parse various date string formats from ID3 tags
+    private func parseDateString(_ dateString: String) -> Date? {
+        let trimmed = dateString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Try year-only format first (most common: "2023")
+        if let year = Int(trimmed), year >= 1900 && year <= 2100 {
+            var components = DateComponents()
+            components.year = year
+            components.month = 1
+            components.day = 1
+            return Calendar.current.date(from: components)
+        }
+
+        // Try common date formats
+        let formatters: [(String, String)] = [
+            ("yyyy-MM-dd", "ISO date"),           // 2023-05-15
+            ("yyyy/MM/dd", "Slash date"),         // 2023/05/15
+            ("yyyy", "Year only"),                 // 2023
+            ("dd/MM/yyyy", "European date"),      // 15/05/2023
+            ("MM/dd/yyyy", "US date"),            // 05/15/2023
+            ("yyyy-MM-dd'T'HH:mm:ss", "ISO datetime"), // 2023-05-15T10:30:00
+        ]
+
+        for (format, _) in formatters {
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        return nil
     }
 
     private func titleContainsWord(startingWith term: String, in text: String?) -> Bool {

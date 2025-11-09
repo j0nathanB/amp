@@ -679,9 +679,14 @@ private struct AlbumArtworkImage: View {
 private struct AlbumDetailInfoView: View {
     let album: Album
     let song: Song
+    @State private var enrichedSong: Song?
+
+    private var displaySong: Song {
+        enrichedSong ?? song
+    }
 
     private var yearString: String {
-        if let releaseDate = song.releaseDate {
+        if let releaseDate = displaySong.releaseDate {
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy"
             return formatter.string(from: releaseDate)
@@ -694,12 +699,19 @@ private struct AlbumDetailInfoView: View {
             AlbumInfoRow(label: "Album", value: album.title)
             AlbumInfoRow(label: "Artist", value: album.artist)
             AlbumInfoRow(label: "Year", value: yearString)
-            AlbumInfoRow(label: "Genre", value: song.genre ?? "Unknown")
+            AlbumInfoRow(label: "Genre", value: displaySong.genre ?? "Unknown")
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
+        .task(id: song.id) {
+            // Only enrich if the song doesn't have a release date
+            guard song.releaseDate == nil else { return }
+
+            // Enrich song with metadata from audio file (reads ID3 tags)
+            enrichedSong = await LibraryService.shared.enrichSongWithFileMetadata(song)
+        }
     }
 }
 

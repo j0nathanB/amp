@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 class AudioPlayerService: ObservableObject {
     static let shared = AudioPlayerService()
@@ -15,9 +16,13 @@ class AudioPlayerService: ObservableObject {
     // Track whether we're manually starting playback (to prevent delegate double-play)
     private var isManuallyStarting = false
 
+    // Combine cancellables
+    private var cancellables = Set<AnyCancellable>()
+
     // Public interface - delegate to services
     @Published var isPlaying = false
     @Published var currentTrack: Song?
+    @Published var enrichedCurrentTrack: Song? // Current track with enriched metadata from audio file
     @Published var songDuration: TimeInterval = 0.0
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
@@ -72,7 +77,30 @@ class AudioPlayerService: ObservableObject {
         // Bind queue manager properties
         queueManager.$currentTrack
             .assign(to: &$currentTrack)
-        
+
+        // Enrich current track with metadata from audio file
+        $currentTrack
+            .sink { [weak self] track in
+                guard let self = self else { return }
+
+                // Set enrichedCurrentTrack to the current track immediately (no flash)
+                self.enrichedCurrentTrack = track
+
+                // If track exists and has no release date, enrich it asynchronously
+                if let track = track, track.releaseDate == nil {
+                    Task {
+                        let enriched = await LibraryService.shared.enrichSongWithFileMetadata(track)
+                        await MainActor.run {
+                            // Only update if this is still the current track
+                            if self.currentTrack?.id == enriched.id {
+                                self.enrichedCurrentTrack = enriched
+                            }
+                        }
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
         queueManager.$isShuffled
             .assign(to: &$isShuffled)
         

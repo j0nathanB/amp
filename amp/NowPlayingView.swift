@@ -45,7 +45,8 @@ private struct PlayerArtworkView: View {
         Group {
             if let currentTrack = audioPlayer.currentTrack {
                 if showInfo {
-                    AlbumInfoView(song: currentTrack)
+                    // Use enrichedCurrentTrack for album info (includes metadata from audio file)
+                    AlbumInfoView(song: audioPlayer.enrichedCurrentTrack ?? currentTrack)
                         .onTapGesture {
                             showInfo = false
                         }
@@ -383,8 +384,8 @@ private struct AlbumInfoView: View {
         }
         return "Unknown"
     }
-    
-    
+
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             InfoRow(label: "Song", value: song.title)
