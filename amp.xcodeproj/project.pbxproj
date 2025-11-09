@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AD25F4BC2EBDC89800CA9EF3 /* ID3TagEditor in Frameworks */ = {isa = PBXBuildFile; productRef = AD25F4BB2EBDC89800CA9EF3 /* ID3TagEditor */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		ADAA0D142E25BB9400CBF7EB /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AD25F4BC2EBDC89800CA9EF3 /* ID3TagEditor in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +130,7 @@
 			);
 			name = amp;
 			packageProductDependencies = (
+				AD25F4BB2EBDC89800CA9EF3 /* ID3TagEditor */,
 			);
 			productName = amp;
 			productReference = ADAA0D062E25BB9300CBF7EB /* amp.app */;
@@ -208,6 +214,9 @@
 			);
 			mainGroup = ADAA0CFD2E25BB9300CBF7EB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AD25F4BA2EBDC80300CA9EF3 /* XCRemoteSwiftPackageReference "ID3TagEditor" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = ADAA0D072E25BB9300CBF7EB /* Products */;
 			projectDirPath = "";
@@ -583,6 +592,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AD25F4BA2EBDC80300CA9EF3 /* XCRemoteSwiftPackageReference "ID3TagEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/chicio/ID3TagEditor";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AD25F4BB2EBDC89800CA9EF3 /* ID3TagEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AD25F4BA2EBDC80300CA9EF3 /* XCRemoteSwiftPackageReference "ID3TagEditor" */;
+			productName = ID3TagEditor;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = ADAA0CFE2E25BB9300CBF7EB /* Project object */;
 }

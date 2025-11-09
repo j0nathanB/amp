@@ -272,13 +272,13 @@ private struct PlayerControlsView: View {
 
                         // Main container
                         Rectangle()
-                            .fill(audioPlayer.isLoopingSong ? Theme.accentDarkGreen : Color.white)
+                            .fill(audioPlayer.isLoopingSong ? Theme.accentPink : Color.white)
                             .frame(width: 63, height: 44)
 
                         // Text layer
                         Text("Loop")
                             .font(Theme.bodyFont)
-                            .foregroundColor(Theme.primaryText)
+                            .foregroundColor(audioPlayer.isLoopingSong ? Color.white : Theme.primaryText)
                     }
                 }
                 .buttonStyle(PlayerButtonStyle())
@@ -316,28 +316,41 @@ private struct PlayerControlButton: View {
     let action: () -> Void
     let icon: String
     var isLarge: Bool = false
-
+    
     var body: some View {
         Button(action: action) {
             ZStack {
                 // Layer 1: The hard shadow (offset background)
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.accentDarkGreen)
+                    .fill(Theme.accentDarkIndigo)
                     .frame(width: 82, height: 82)
                     .offset(x: -6, y: 6)
 
                 // Layer 2: The main button background
                 Rectangle()
-                    .fill(Color.white)
+                    .fill(isLarge ? Theme.accentGreen : Color.white)
                     .frame(width: 82, height: 82)
 
                 // Layer 3: The icon
                 Image(systemName: icon)
                     .font(isLarge ? .system(size: 44) : .largeTitle)
-                    .foregroundColor(Theme.primaryText)
+                    .foregroundColor(isLarge ? Color.white : Theme.accentGreen)
+//                    .iconStroke(fillColor: .white, strokeColor: .black, strokeWidth: 1)
             }
         }
         .buttonStyle(PlayerButtonStyle())
+    }
+}
+
+extension View {
+    func iconStroke(fillColor: Color, strokeColor: Color, strokeWidth: CGFloat = 1) -> some View {
+        self
+            .foregroundColor(strokeColor)
+            .shadow(color: strokeColor, radius: 0, x: -strokeWidth, y: -strokeWidth)
+            .shadow(color: strokeColor, radius: 0, x: strokeWidth, y: -strokeWidth)
+            .shadow(color: strokeColor, radius: 0, x: -strokeWidth, y: strokeWidth)
+            .shadow(color: strokeColor, radius: 0, x: strokeWidth, y: strokeWidth)
+            .foregroundColor(fillColor)
     }
 }
 
@@ -365,11 +378,13 @@ private struct AlbumInfoView: View {
         if let releaseDate = song.releaseDate {
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy"
+
             return formatter.string(from: releaseDate)
         }
         return "Unknown"
     }
-
+    
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             InfoRow(label: "Song", value: song.title)

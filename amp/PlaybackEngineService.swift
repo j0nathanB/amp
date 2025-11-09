@@ -442,7 +442,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         
-        print("🎵 Setting up Now Playing info for: \(song.title) by \(song.artist)")
+        print("🎵 Setting up Now Playing info for: \(song.title) by \(song.artist) from \(song.releaseDate)")
         
         var nowPlayingInfo = [String: Any]()
         nowPlayingInfo[MPMediaItemPropertyTitle] = song.title
@@ -630,30 +630,39 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("⚠️ Could not determine interruption type")
             return
         }
-        
+
         switch type {
         case .began:
-            print("📞 Audio session interruption began (phone call, etc.) - pausing playback")
+            print("========================================")
+            print("❌ AUDIO INTERRUPTION DETECTED")
+            print("📞 Audio session interruption began")
+            print("   Possible causes: phone call, alarm, notification, Siri, FaceTime")
+            print("   Current track: \(lastPlayedSong?.title ?? "Unknown")")
+            print("   Playback position: \(player?.currentTime ?? 0)s")
+            print("========================================")
             if isPlaying {
                 player?.pause()
                 isPlaying = false
                 stopTimer()
                 updateNowPlayingInfoTime()
             }
-            
+
         case .ended:
+            print("========================================")
+            print("✅ AUDIO INTERRUPTION ENDED")
             print("📞 Audio session interruption ended")
-            
+
             // Check if we should resume playback
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
                 if options.contains(.shouldResume) {
                     print("🔄 System suggests resuming playback after interruption")
-                    // Note: We don't auto-resume - let user manually resume
-                    // This provides predictable behavior like Bluetooth disconnection
+                    print("   Note: App does NOT auto-resume - user must manually resume")
+                    print("   This provides predictable behavior")
                 }
             }
-            
+            print("========================================")
+
         @unknown default:
             print("❓ Unknown interruption type")
         }
@@ -853,8 +862,20 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     // MARK: - AVAudioPlayerDelegate
-    
+
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        print("========================================")
+        print("🎵 AVAudioPlayer finished playing")
+        print("   Track: \(lastPlayedSong?.title ?? "Unknown")")
+        print("   Successfully: \(flag ? "✅ YES" : "❌ NO")")
+        print("   Duration: \(player.duration)s")
+        print("   Final position: \(player.currentTime)s")
+        if !flag {
+            print("   ⚠️ WARNING: Track did not finish successfully!")
+            print("   This indicates an audio error occurred")
+        }
+        print("========================================")
+
         isPlaying = false
         stopTimer()
         delegate?.playbackDidFinish(successfully: flag)

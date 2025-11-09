@@ -249,6 +249,7 @@ extension AudioPlayerService {
 extension AudioPlayerService: PlaybackEngineDelegate {
     func playbackDidFinish(successfully: Bool) {
         if successfully {
+            print("[AudioPlayerService] ✅ Track finished successfully")
             // Check if song loop is enabled - if so, replay the current track
             if isLoopingSong, let track = currentTrack {
                 print("[AudioPlayerService] Song loop enabled - replaying: \(track.title)")
@@ -259,6 +260,26 @@ extension AudioPlayerService: PlaybackEngineDelegate {
                 isAutoAdvancing = true
                 _ = queueManager.nextTrack()
                 isAutoAdvancing = false
+            }
+        } else {
+            // ⚠️ Track failed to finish - this indicates an error
+            print("❌ [AudioPlayerService] Track failed to finish properly!")
+            print("❌ [AudioPlayerService] This could be due to:")
+            print("   - Audio session interruption (phone call, alarm, notification)")
+            print("   - Audio hardware error")
+            print("   - File read error")
+            print("   - Memory pressure")
+            print("❌ [AudioPlayerService] Current track: \(currentTrack?.title ?? "Unknown")")
+
+            // Attempt recovery by trying to continue to next track
+            // This prevents the player from getting stuck
+            if queueManager.playbackQueue.trackIDs.count > 1 {
+                print("🔄 [AudioPlayerService] Attempting recovery - advancing to next track")
+                isAutoAdvancing = true
+                _ = queueManager.nextTrack()
+                isAutoAdvancing = false
+            } else {
+                print("⚠️ [AudioPlayerService] No more tracks in queue - playback stopped")
             }
         }
     }
