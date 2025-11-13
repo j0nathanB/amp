@@ -23,7 +23,11 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     // Track resume operations to suppress notifications
     private var isResumingFromPause = false
-    
+
+    // Track consecutive load failures to prevent infinite skip loops
+    private var consecutiveLoadFailures = 0
+    private let maxConsecutiveFailures = 5
+
     @Published var isPlaying = false
     @Published var songDuration: TimeInterval = 0.0
     @Published var playbackTime: TimeInterval = 0.0
@@ -238,64 +242,115 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func commonPlay(url: URL) {
         // Ensure audio session is configured before playing
         ensureAudioSessionConfigured()
-        
+
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
             player?.volume = systemVolume // Apply current system volume
-            
+
             songDuration = player?.duration ?? 0.0
             playbackTime = 0.0
-            
+
             player?.play()
             isPlaying = true
             startTimer()
+
+            // Reset failure counter on successful load
+            consecutiveLoadFailures = 0
         } catch {
             print("❌ Failed to play audio: \(error)")
+            print("❌ File may be corrupt or unsupported format")
             isPlaying = false
+
+            // Track consecutive failures
+            consecutiveLoadFailures += 1
+            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
+
+            // Notify delegate to skip to next track (unless we've failed too many times)
+            if consecutiveLoadFailures < maxConsecutiveFailures {
+                print("🔄 Attempting to skip to next track...")
+                delegate?.playbackDidFinish(successfully: false)
+            } else {
+                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
+                consecutiveLoadFailures = 0 // Reset for next attempt
+            }
         }
     }
     
     private func commonLoad(url: URL) {
         // Ensure audio session is configured before loading
         ensureAudioSessionConfigured()
-        
+
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
             player?.volume = systemVolume // Apply current system volume
-            
+
             songDuration = player?.duration ?? 0.0
             playbackTime = 0.0
-            
+
             // Don't play, just load
             isPlaying = false
             stopTimer()
+
+            // Reset failure counter on successful load
+            consecutiveLoadFailures = 0
         } catch {
             print("❌ Failed to load audio: \(error)")
+            print("❌ File may be corrupt or unsupported format")
             isPlaying = false
+
+            // Track consecutive failures
+            consecutiveLoadFailures += 1
+            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
+
+            // Notify delegate to skip to next track (unless we've failed too many times)
+            if consecutiveLoadFailures < maxConsecutiveFailures {
+                print("🔄 Attempting to skip to next track...")
+                delegate?.playbackDidFinish(successfully: false)
+            } else {
+                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
+                consecutiveLoadFailures = 0 // Reset for next attempt
+            }
         }
     }
     
     private func commonLoadForResume(url: URL, resumeTime: TimeInterval) {
         // Special load method for resume that preserves pause position
         ensureAudioSessionConfigured()
-        
+
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
             player?.volume = systemVolume // Apply current system volume
-            
+
             songDuration = player?.duration ?? 0.0
             // Don't reset playbackTime to 0 - preserve the pause position
             playbackTime = resumeTime
-            
+
             // Don't play, just load
             isPlaying = false
             stopTimer()
+
+            // Reset failure counter on successful load
+            consecutiveLoadFailures = 0
         } catch {
             print("❌ Failed to load audio for resume: \(error)")
+            print("❌ File may be corrupt or unsupported format")
             isPlaying = false
+
+            // Track consecutive failures
+            consecutiveLoadFailures += 1
+            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
+
+            // Notify delegate to skip to next track (unless we've failed too many times)
+            if consecutiveLoadFailures < maxConsecutiveFailures {
+                print("🔄 Attempting to skip to next track...")
+                delegate?.playbackDidFinish(successfully: false)
+            } else {
+                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
+                consecutiveLoadFailures = 0 // Reset for next attempt
+            }
         }
     }
     
@@ -873,6 +928,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if !flag {
             print("   ⚠️ WARNING: Track did not finish successfully!")
             print("   This indicates an audio error occurred")
+        } else {
+            // Reset failure counter on successful playback
+            consecutiveLoadFailures = 0
         }
         print("========================================")
 
