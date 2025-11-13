@@ -184,7 +184,7 @@ private struct PlayerProgressView: View {
 
                     // The draggable circular slider thumb
                     Circle()
-                        .fill(.white)
+                        .fill(audioPlayer.isPlaying ? Theme.accentGreen : Theme.accentPink)
                         .stroke(Theme.primaryText, lineWidth: 2)
                         .frame(width: thumbSize, height: thumbSize)
                         .offset(x: thumbOffset) // Position the thumb
@@ -264,49 +264,53 @@ private struct PlayerControlsView: View {
                 Button(action: {
                     audioPlayer.toggleSongLoop()
                 }) {
+                    Text("Loop")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(audioPlayer.isLoopingSong ? Color.white : Theme.primaryText)
+                }
+                .frame(width: 63, height: 44)
+                .background(
                     ZStack {
                         // Shadow layer
                         RoundedRectangle(cornerRadius: 6)
                             .fill(Theme.accentDarkIndigo)
-                            .frame(width: 63, height: 44)
                             .offset(x: -4, y: 4)
 
                         // Main container
                         Rectangle()
                             .fill(audioPlayer.isLoopingSong ? Theme.accentPink : Color.white)
-                            .frame(width: 63, height: 44)
-
-                        // Text layer
-                        Text("Loop")
-                            .font(Theme.bodyFont)
-                            .foregroundColor(audioPlayer.isLoopingSong ? Color.white : Theme.primaryText)
                     }
-                }
-                .buttonStyle(PlayerButtonStyle())
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                )
 
                 // Lyrics button
                 Button(action: {
                     // TODO: Add lyrics functionality
                 }) {
+                    Text("Lyrics")
+                        .font(Theme.bodyFont)
+                        .foregroundColor(Theme.primaryText)
+                }
+                .frame(width: 68, height: 44)
+                .background(
                     ZStack {
                         // Shadow layer
                         RoundedRectangle(cornerRadius: 6)
                             .fill(Theme.accentDarkIndigo)
-                            .frame(width: 68, height: 44)
                             .offset(x: -4, y: 4)
 
                         // Main button background
                         Rectangle()
                             .fill(Color.white)
-                            .frame(width: 68, height: 44)
-
-                        // Text layer
-                        Text("Lyrics")
-                            .font(Theme.bodyFont)
-                            .foregroundColor(Theme.primaryText)
                     }
-                }
-                .buttonStyle(PlayerButtonStyle())
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                )
             }
         }
     }
@@ -317,29 +321,30 @@ private struct PlayerControlButton: View {
     let action: () -> Void
     let icon: String
     var isLarge: Bool = false
-    
+
     var body: some View {
         Button(action: action) {
+            Image(systemName: icon)
+                .font(isLarge ? .system(size: 44) : .largeTitle)
+                .foregroundColor(isLarge ? Color.white : Theme.accentGreen)
+        }
+        .frame(width: 82, height: 82)
+        .background(
             ZStack {
                 // Layer 1: The hard shadow (offset background)
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Theme.accentDarkIndigo)
-                    .frame(width: 82, height: 82)
                     .offset(x: -6, y: 6)
 
                 // Layer 2: The main button background
                 Rectangle()
-                    .fill(isLarge ? Theme.accentGreen : Color.white)
-                    .frame(width: 82, height: 82)
-
-                // Layer 3: The icon
-                Image(systemName: icon)
-                    .font(isLarge ? .system(size: 44) : .largeTitle)
-                    .foregroundColor(isLarge ? Color.white : Theme.accentGreen)
-//                    .iconStroke(fillColor: .white, strokeColor: .black, strokeWidth: 1)
+                    .fill(isLarge ? icon == "pause.fill" ? Theme.accentPink : Theme.accentGreen : Color.white)
             }
-        }
-        .buttonStyle(PlayerButtonStyle())
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Theme.primaryText, lineWidth: 2)
+        )
     }
 }
 
@@ -359,7 +364,7 @@ extension View {
 struct PlayerButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .colorInvert()
+//            .colorInvert()
             .opacity(configuration.isPressed ? 1 : 0)
             .overlay(
                 configuration.label
