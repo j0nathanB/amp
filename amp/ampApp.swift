@@ -91,7 +91,6 @@ extension ampApp {
             queue: .main
         ) { _ in
             print("⚠️ Memory warning received")
-//            AudioPlayerService.shared.handleMemoryPressure()
         }
     }
     

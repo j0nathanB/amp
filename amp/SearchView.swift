@@ -13,15 +13,6 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Custom header with controlled spacing
-//                Text("Search")
-//                    .font(Theme.titleFont)
-//                    .foregroundColor(Theme.primaryText)
-//                    .frame(maxWidth: .infinity, alignment: .leading)
-//                    .padding(.vertical, 20)
-//                    .padding(.horizontal, 16)
-//                    .background(Theme.background)
-
                 SearchBarView(searchText: $viewModel.searchText)
                     .onChange(of: viewModel.searchText) {
                         viewModel.performSearch()

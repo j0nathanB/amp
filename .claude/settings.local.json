@@ -4,7 +4,8 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:chicio.github.io)",
       "WebSearch",
-      "Bash(xcodebuild:*)"
+      "Bash(xcodebuild:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []

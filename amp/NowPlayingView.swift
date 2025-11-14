@@ -8,8 +8,6 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             PlayerArtworkView()
 
-//            Spacer(minLength: 10)
-
             VStack(spacing: 18) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
                     .padding(.top, 12)
@@ -364,7 +362,6 @@ extension View {
 struct PlayerButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-//            .colorInvert()
             .opacity(configuration.isPressed ? 1 : 0)
             .overlay(
                 configuration.label

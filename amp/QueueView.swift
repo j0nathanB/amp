@@ -299,15 +299,6 @@ private struct LazyQueueItemView: View {
                         state = true
                     }
             )
-
-            // Add separator between items (not after the last item)
-//            if index < audioPlayer.playbackQueue.count - 1 {
-//                Rectangle()
-//                    .fill(Theme.primaryText)
-//                    .frame(height: 1)
-//                    .frame(maxWidth: .infinity)
-//                    .padding(.horizontal, UIScreen.main.bounds.width / 8) // Centers and covers 2/3 width
-//            }
         }
         .onAppear {
             loadSongIfNeeded()

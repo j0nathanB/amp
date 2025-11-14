@@ -241,18 +241,14 @@ class NotificationService: NSObject, ObservableObject {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notificationIdentifier])
         
         let content = UNMutableNotificationContent()
-//        content.title = "Now playing"
-//        content.subtitle = song.artist.isEmpty ? "Unknown Artist" : song.artist
         content.body = """
                         \(song.artist.isEmpty ? "Unknown Artist" : song.artist)
                         \(song.title.isEmpty ? "Unknown Song" : song.title)
                         """
         content.sound = nil
         content.categoryIdentifier = "TRACK_CHANGE"
-        
+
         print("🔔 [DEBUG] Notification content:")
-//        print("🔔 [DEBUG] - title: '\(content.title)'")
-//        print("🔔 [DEBUG] - subtitle: '\(content.subtitle)'")
         print("🔔 [DEBUG] - body: '\(content.body)'")
         
         if #available(iOS 15.0, *) {
