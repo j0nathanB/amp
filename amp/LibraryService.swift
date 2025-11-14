@@ -759,18 +759,40 @@ class LibraryService {
         let asset = AVAsset(url: url)
         var extractedDate: Date?
 
-        // Try common metadata first (fastest)
-        for item in asset.commonMetadata {
-            if let key = item.commonKey?.rawValue,
-               (key == AVMetadataKey.commonKeyCreationDate.rawValue ||
-                key == "date"),
-               let value = item.value as? String {
-                extractedDate = parseDateString(value)
+        // Check format-specific metadata (ID3 tags) with proper priority
+        // Priority order matches Apple Music behavior:
+        // 1. TDRL (Release time - ID3v2.4) - official release date
+        // 2. TDOR (Original release time - ID3v2.4) - original release date
+        // 3. ©day (iTunes year tag) - usually release date
+        // 4. TORY (Original release year - ID3v2.3) - original release year
+        // 5. TYER (Year - ID3v2.3) - release year
+        // 6. TDRC (Recording time - ID3v2.4) - fallback (may differ from release)
+        // 7. Common metadata - last resort
+        let priorityTags = ["TDRL", "TDOR", "©day", "TORY", "TYER", "TDRC"]
+
+        // First pass: check priority tags in order
+        for priorityTag in priorityTags {
+            for format in asset.availableMetadataFormats {
+                let metadata = asset.metadata(forFormat: format)
+
+                for item in metadata {
+                    guard let key = item.key as? String else { continue }
+
+                    if key == priorityTag {
+                        if let value = item.value as? String {
+                            extractedDate = parseDateString(value)
+                            if extractedDate != nil { break }
+                        }
+                    }
+                }
+
                 if extractedDate != nil { break }
             }
+
+            if extractedDate != nil { break }
         }
 
-        // If not found, try format-specific metadata (ID3 tags for MP3)
+        // Second pass: fallback to generic date/year tags if no priority tag found
         if extractedDate == nil {
             for format in asset.availableMetadataFormats {
                 let metadata = asset.metadata(forFormat: format)
@@ -778,11 +800,7 @@ class LibraryService {
                 for item in metadata {
                     guard let key = item.key as? String else { continue }
 
-                    // ID3v2.3: TYER (Year), TDAT (Date)
-                    // ID3v2.4: TDRC (Recording time), TDRL (Release time)
-                    if key == "TYER" || key == "TDRC" || key == "TDRL" ||
-                       key == "©day" || // iTunes year tag
-                       key.lowercased().contains("year") ||
+                    if key.lowercased().contains("year") ||
                        key.lowercased().contains("date") {
 
                         if let value = item.value as? String {
@@ -793,6 +811,19 @@ class LibraryService {
                 }
 
                 if extractedDate != nil { break }
+            }
+        }
+
+        // Third pass: check common metadata as last resort
+        if extractedDate == nil {
+            for item in asset.commonMetadata {
+                if let key = item.commonKey?.rawValue,
+                   (key == AVMetadataKey.commonKeyCreationDate.rawValue ||
+                    key == "date"),
+                   let value = item.value as? String {
+                    extractedDate = parseDateString(value)
+                    if extractedDate != nil { break }
+                }
             }
         }
 
