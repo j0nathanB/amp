@@ -5,6 +5,7 @@ struct NowPlayingView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
     var body: some View {
+        // Main content
         VStack(spacing: 0) {
             PlayerArtworkView()
 
@@ -22,7 +23,6 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white)
         .padding(.horizontal, -8)
         .overlay(
             Rectangle()
@@ -216,6 +216,7 @@ private struct PlayerProgressView: View {
 
 private struct PlayerControlsView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         VStack(spacing: 20) {
@@ -284,31 +285,33 @@ private struct PlayerControlsView: View {
                         .stroke(Theme.primaryText, lineWidth: 2)
                 )
 
-                // Lyrics button
-                Button(action: {
-                    // TODO: Add lyrics functionality
-                }) {
-                    Text("Lyrics")
-                        .font(Theme.bodyFont)
-                        .foregroundColor(Theme.primaryText)
-                }
-                .frame(width: 68, height: 44)
-                .background(
-                    ZStack {
-                        // Shadow layer
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Theme.accentDarkIndigo)
-                            .offset(x: -4, y: 4)
-
-                        // Main button background
-                        Rectangle()
-                            .fill(Color.white)
+                // Lyrics button - conditionally shown based on settings
+                if settings.showLyrics {
+                    Button(action: {
+                        // TODO: Add lyrics functionality
+                    }) {
+                        Text("Lyrics")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.primaryText)
                     }
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Theme.primaryText, lineWidth: 2)
-                )
+                    .frame(width: 68, height: 44)
+                    .background(
+                        ZStack {
+                            // Shadow layer
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Theme.accentDarkIndigo)
+                                .offset(x: -4, y: 4)
+
+                            // Main button background
+                            Rectangle()
+                                .fill(Color.white)
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
+                }
             }
         }
     }

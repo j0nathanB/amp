@@ -7,19 +7,31 @@ struct PlaylistsView: View {
     @State private var isAtBottom = false
     @State private var contentHeight: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Custom header with controlled spacing
-                Text("Playlists")
-                    .font(Theme.titleFont)
-                    .foregroundColor(Theme.primaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: 28)
-                    .padding(.vertical, 20)
-                    .padding(.horizontal, 16)
-                    .background(Theme.background)
+                HStack {
+                    Text("Playlists")
+                        .font(Theme.titleFont)
+                        .foregroundColor(Theme.primaryText)
+
+                    Spacer()
+
+                    Button(action: {
+                        showSettings = true
+                    }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(Theme.primaryText)
+                    }
+                }
+                .frame(height: 28)
+                .padding(.vertical, 20)
+                .padding(.horizontal, 16)
+                .background(Theme.background)
 
                 // Separator line below header
                 Rectangle()
@@ -113,6 +125,9 @@ struct PlaylistsView: View {
                 let allSongsPlaylist = Playlist(id: 0, name: "All Songs")
                 userPlaylists.insert(allSongsPlaylist, at: 0)
                 self.playlists = userPlaylists
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
             }
         }
     }
