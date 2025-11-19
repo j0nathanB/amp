@@ -10,59 +10,49 @@ private enum SearchResultComponent {
 
 extension String {
     /// Normalize text for search queries (preserves articles when explicitly typed)
+    /// Optimized single-pass implementation for performance
     var searchQueryNormalized: String {
         // Safety check for empty or very long strings
         guard !self.isEmpty && self.count < 200 else { return "" }
-        
-        var normalized = self
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            
-        // Symbol conversions as per Apple Music spec
-        normalized = normalized
-            .replacingOccurrences(of: "$", with: "s")     // Ke$ha -> kesha
-            .replacingOccurrences(of: "&", with: "and")   // Black & Blue -> black and blue
-            .replacingOccurrences(of: "+", with: "and")   // blink+182 -> blink and 182
-            .replacingOccurrences(of: "@", with: "at")    // Deadmau5 @ Play -> deadmau5 at play
-            .replacingOccurrences(of: "!", with: "i")     // P!nk -> pink (when part of word)
-            
-        // Convert to spaces
-        normalized = normalized
-            .replacingOccurrences(of: "/", with: " ")     // AC/DC -> ac dc
-            .replacingOccurrences(of: "-", with: " ")     // Jay-Z -> jay z
-            
-        // Remove punctuation
-        normalized = normalized
-            .replacingOccurrences(of: ".", with: "")      // R.E.M. -> rem
-            .replacingOccurrences(of: "'", with: "")      // Don't -> dont
-            .replacingOccurrences(of: "'", with: "")      // Curly apostrophe
-            .replacingOccurrences(of: "?", with: "")
-            .replacingOccurrences(of: ":", with: "")
-            .replacingOccurrences(of: ";", with: "")
-            .replacingOccurrences(of: ",", with: "")
-            .replacingOccurrences(of: "\"", with: "")
-            
-        // Handle parentheses - remove them but keep content
-        normalized = normalized
-            .replacingOccurrences(of: "(", with: " ")
-            .replacingOccurrences(of: ")", with: " ")
-            .replacingOccurrences(of: "[", with: " ")
-            .replacingOccurrences(of: "]", with: " ")
-            .replacingOccurrences(of: "{", with: " ")
-            .replacingOccurrences(of: "}", with: " ")
-            
-        // Remove other unicode symbols
-        normalized = normalized
-            .replacingOccurrences(of: "★", with: "")
-            .replacingOccurrences(of: "♫", with: "")
-            .replacingOccurrences(of: "♥", with: "")
-            .replacingOccurrences(of: "→", with: "")
-            
-        // Clean up whitespace but PRESERVE articles in queries
-        let components = normalized
+
+        // First apply diacritic and case folding
+        let folded = self.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+
+        // Single-pass character transformation
+        var result = ""
+        result.reserveCapacity(folded.count)
+
+        for char in folded {
+            switch char {
+            // Symbol conversions (as per Apple Music spec)
+            case "$": result.append("s")      // Ke$ha -> kesha
+            case "&": result.append("and")    // Black & Blue -> black and blue
+            case "+": result.append("and")    // blink+182 -> blink and 182
+            case "@": result.append("at")     // Deadmau5 @ Play -> deadmau5 at play
+            case "!": result.append("i")      // P!nk -> pink
+
+            // Convert to spaces
+            case "/", "-",                    // AC/DC -> ac dc, Jay-Z -> jay z
+                 "(", ")", "[", "]", "{", "}": // Parentheses/brackets
+                result.append(" ")
+
+            // Remove punctuation (skip these characters)
+            case ".", "'", "?", ":", ";", ",", "\"",
+                 "★", "♫", "♥", "→":
+                continue
+
+            // Keep all other characters (including letters, numbers, spaces)
+            default:
+                result.append(char)
+            }
+        }
+
+        // Clean up whitespace and limit words
+        let components = result
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .prefix(20) // Limit number of words to prevent issues
-            
+
         return Array(components).joined(separator: " ")
     }
     
@@ -92,9 +82,79 @@ extension String {
     }
 }
 
+// MARK: - Codable Index Structure for Persistence
+private struct PersistedSearchIndex: Codable {
+    let songWordIndex: [String: Set<MPMediaEntityPersistentID>]
+    let artistWordIndex: [String: Set<MPMediaEntityPersistentID>]
+    let albumWordIndex: [String: Set<MPMediaEntityPersistentID>]
+    let songCache: [MPMediaEntityPersistentID: CodableSong]
+    let artistCache: [MPMediaEntityPersistentID: CodableArtist]
+    let albumCache: [MPMediaEntityPersistentID: CodableAlbum]
+    let libraryLastModified: Date
+    let version: Int // For future compatibility
+
+    static let currentVersion = 1
+}
+
+// Codable versions of data models (lightweight for persistence)
+private struct CodableSong: Codable, Hashable {
+    let persistentID: MPMediaEntityPersistentID
+    let title: String
+    let artist: String
+    let album: String
+
+    init(from song: Song) {
+        self.persistentID = song.persistentID
+        self.title = song.title
+        self.artist = song.artist
+        self.album = song.album
+    }
+
+    func toSong() -> Song {
+        Song(persistentID: persistentID, title: title, artist: artist, album: album,
+             releaseDate: nil, albumTrackNumber: 0, discNumber: 0, genre: nil)
+    }
+}
+
+private struct CodableArtist: Codable, Hashable {
+    let id: MPMediaEntityPersistentID
+    let name: String
+
+    init(from artist: Artist) {
+        self.id = artist.id
+        self.name = artist.name
+    }
+
+    func toArtist() -> Artist {
+        Artist(id: id, name: name)
+    }
+}
+
+private struct CodableAlbum: Codable, Hashable {
+    let id: MPMediaEntityPersistentID
+    let title: String
+    let artist: String
+
+    init(from album: Album) {
+        self.id = album.id
+        self.title = album.title
+        self.artist = album.artist
+    }
+
+    func toAlbum() -> Album {
+        Album(id: id, title: title, artist: artist)
+    }
+}
+
 class HybridSearchIndex: @unchecked Sendable {
     // Thread-safe access to indices
     private let indexQueue = DispatchQueue(label: "com.amp.searchIndex", attributes: .concurrent)
+
+    // Persistence configuration
+    private static let indexCacheURL: URL = {
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return cacheDir.appendingPathComponent("SearchIndex.cache")
+    }()
 
     // Word-based index for exact matches (O(1) lookup)
     private var _songWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
@@ -115,6 +175,38 @@ class HybridSearchIndex: @unchecked Sendable {
 
     var isIndexBuilt: Bool {
         indexQueue.sync { _isIndexBuilt }
+    }
+
+    // MARK: - Initialization
+
+    init() {
+        // Register for library change notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(libraryDidChange),
+            name: .MPMediaLibraryDidChange,
+            object: nil
+        )
+
+        // Begin monitoring library changes
+        MPMediaLibrary.default().beginGeneratingLibraryChangeNotifications()
+    }
+
+    deinit {
+        MPMediaLibrary.default().endGeneratingLibraryChangeNotifications()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func libraryDidChange() {
+        print("🔍 Music library changed - invalidating search index cache")
+
+        // Delete cached index file
+        try? FileManager.default.removeItem(at: Self.indexCacheURL)
+
+        // Rebuild index asynchronously
+        Task.detached(priority: .background) {
+            await self.buildIndex()
+        }
     }
 
     // Thread-safe accessors
@@ -141,8 +233,128 @@ class HybridSearchIndex: @unchecked Sendable {
     var albumCache: [MPMediaEntityPersistentID: Album] {
         indexQueue.sync { _albumCache }
     }
-    
+
+    // MARK: - Index Persistence
+
+    /// Get the last modification date of the music library
+    private func getLibraryLastModified() -> Date {
+        // Check if library has been modified using MPMediaLibrary's lastModifiedDate
+        return MPMediaLibrary.default().lastModifiedDate
+    }
+
+    /// Load cached index from disk if available and still valid
+    private func loadCachedIndex() -> Bool {
+        let fileURL = Self.indexCacheURL
+
+        // Check if cache file exists
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            print("🔍 No cached search index found")
+            return false
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let decoder = JSONDecoder()
+            let cached = try decoder.decode(PersistedSearchIndex.self, from: data)
+
+            // Check version compatibility
+            guard cached.version == PersistedSearchIndex.currentVersion else {
+                print("🔍 Cached index version mismatch (found \(cached.version), expected \(PersistedSearchIndex.currentVersion))")
+                return false
+            }
+
+            // Check if library has been modified since cache was created
+            let currentLibraryDate = getLibraryLastModified()
+            guard cached.libraryLastModified >= currentLibraryDate else {
+                print("🔍 Library modified since cache (cache: \(cached.libraryLastModified), library: \(currentLibraryDate))")
+                return false
+            }
+
+            // Cache is valid - load it
+            print("🔍 Loading cached search index from disk...")
+
+            indexQueue.async(flags: .barrier) { [weak self] in
+                guard let self = self else { return }
+
+                // Load indices
+                self._songWordIndex = cached.songWordIndex
+                self._artistWordIndex = cached.artistWordIndex
+                self._albumWordIndex = cached.albumWordIndex
+
+                // Convert codable models back to full models
+                self._songCache = cached.songCache.mapValues { $0.toSong() }
+                self._artistCache = cached.artistCache.mapValues { $0.toArtist() }
+                self._albumCache = cached.albumCache.mapValues { $0.toAlbum() }
+
+                self._isIndexBuilt = true
+
+                print("🔍 Search index loaded from cache: \(cached.songCache.count) songs, \(cached.artistCache.count) artists, \(cached.albumCache.count) albums")
+            }
+
+            return true
+        } catch {
+            print("🔍 Error loading cached index: \(error)")
+            return false
+        }
+    }
+
+    /// Save current index to disk for future use
+    private func saveCachedIndex() {
+        let fileURL = Self.indexCacheURL
+
+        indexQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            // Capture current state
+            let songWordIndex = self._songWordIndex
+            let artistWordIndex = self._artistWordIndex
+            let albumWordIndex = self._albumWordIndex
+            let songCache = self._songCache
+            let artistCache = self._artistCache
+            let albumCache = self._albumCache
+
+            // Perform encoding and writing off the queue
+            Task.detached(priority: .utility) {
+                do {
+                    // Convert to codable models
+                    let codableSongs = songCache.mapValues { CodableSong(from: $0) }
+                    let codableArtists = artistCache.mapValues { CodableArtist(from: $0) }
+                    let codableAlbums = albumCache.mapValues { CodableAlbum(from: $0) }
+
+                    let persistedIndex = PersistedSearchIndex(
+                        songWordIndex: songWordIndex,
+                        artistWordIndex: artistWordIndex,
+                        albumWordIndex: albumWordIndex,
+                        songCache: codableSongs,
+                        artistCache: codableArtists,
+                        albumCache: codableAlbums,
+                        libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
+                        version: PersistedSearchIndex.currentVersion
+                    )
+
+                    let encoder = JSONEncoder()
+                    let data = try encoder.encode(persistedIndex)
+                    try data.write(to: fileURL, options: .atomic)
+
+                    print("🔍 Search index cached to disk (\(data.count / 1024)KB)")
+                } catch {
+                    print("🔍 Error saving cached index: \(error)")
+                }
+            }
+        }
+    }
+
+    // MARK: - Index Building
+
     func buildIndex() async {
+        // Try loading from cache first
+        if loadCachedIndex() {
+            return // Successfully loaded from cache
+        }
+
+        // Cache not available or invalid - build from scratch
+        print("🔍 Building search index from scratch...")
+
         await Task.detached(priority: .userInitiated) {
             // Build temporary indices locally (non-thread-safe during build)
             var tempSongWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
@@ -269,6 +481,9 @@ class HybridSearchIndex: @unchecked Sendable {
             }
 
             print("🔍 Search index built: \(songs.count) songs, \(artists.count) artists, \(albums.count) albums")
+
+            // Save index to disk for future use
+            self.saveCachedIndex()
         }.value
     }
     
