@@ -140,19 +140,32 @@ class NotificationService: NSObject, ObservableObject {
         print("🔔 [DEBUG] authorizationStatus: \(authorizationStatus)")
         print("🔔 [DEBUG] isManualSelection: \(isManualSelection)")
         print("🔔 [DEBUG] isResumingFromBackground: \(isResumingFromBackground)")
-        
+        print("🔔 [DEBUG] lastNotificationSongID: \(lastNotificationSongID ?? 0), current song ID: \(song.persistentID)")
+
         // CRITICAL: Don't send notification for the same song twice
+        // This prevents duplicate notifications when unlocking from lock screen
         if lastNotificationSongID == song.persistentID {
             print("🔔 Skipping duplicate notification for same song: \(song.title)")
             return
         }
-        
+
+        // CRITICAL: Don't send notification when resuming from background
+        // Check this BEFORE other checks to prevent lock screen unlock notifications
+        if isResumingFromBackground {
+            print("🔔 Skipping notification - resuming from background, updating lastNotificationSongID anyway")
+            // Update tracking even when blocked to prevent notification after resumption window
+            lastNotificationSongID = song.persistentID
+            return
+        }
+
         // Check if notifications should be sent
         guard shouldSendNotification(isManualSelection: isManualSelection) else {
             print("🔔 [DEBUG] shouldSendNotification returned false")
+            // Update tracking even when blocked
+            lastNotificationSongID = song.persistentID
             return
         }
-        
+
         // Update last notification tracking
         lastNotificationSongID = song.persistentID
         

@@ -69,11 +69,10 @@ struct ColorExtractor {
 
     /// Downsamples an image to the specified size
     private static func downsample(image: UIImage, to size: CGSize) -> UIImage? {
-        UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
-        defer { UIGraphicsEndImageContext() }
-
-        image.draw(in: CGRect(origin: .zero, size: size))
-        return UIGraphicsGetImageFromCurrentImageContext()
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 
     /// Boosts the saturation of a color

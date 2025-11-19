@@ -18,6 +18,9 @@ struct BlurredArtworkBackground: View {
     private static var imageCache: [UInt64: UIImage] = [:]
     private static let maxCacheSize = 5 // Keep last 5 processed backgrounds
 
+    // Reusable CIContext for image processing (expensive to create, so we create once and reuse)
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
     // Public method to clear cache (called when feature is disabled)
     static func clearCache() {
         imageCache.removeAll()
@@ -125,8 +128,6 @@ struct BlurredArtworkBackground: View {
         // All processing happens here, once, off the main thread
         guard let ciImage = CIImage(image: image) else { return nil }
 
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-
         // 1. Scale up the image
         let scaleX = targetSize.width / ciImage.extent.width
         let scaleY = targetSize.height / ciImage.extent.height
@@ -167,7 +168,7 @@ struct BlurredArtworkBackground: View {
             height: targetSize.height
         )
 
-        guard let cgImage = context.createCGImage(adjusted, from: cropRect) else { return nil }
+        guard let cgImage = Self.ciContext.createCGImage(adjusted, from: cropRect) else { return nil }
 
         return UIImage(cgImage: cgImage)
     }
