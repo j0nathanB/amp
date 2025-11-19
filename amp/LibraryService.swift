@@ -1644,6 +1644,41 @@ class LibraryService {
         #endif
     }
 
+    /// Batch fetch songs by IDs - optimized for queue loading
+    /// Returns a dictionary mapping [ID: Song] for O(1) lookups
+    func getSongs(by ids: [MPMediaEntityPersistentID]) -> [MPMediaEntityPersistentID: Song] {
+        #if targetEnvironment(simulator)
+        return MockLibraryService.shared.getSongs(by: ids)
+        #else
+        guard !ids.isEmpty else { return [:] }
+
+        // Create a set for O(1) lookup
+        let idSet = Set(ids)
+
+        // Fetch all songs in a single query
+        let query = MPMediaQuery.songs()
+        guard let allItems = query.items else { return [:] }
+
+        // Build dictionary of songs that match our IDs
+        var result: [MPMediaEntityPersistentID: Song] = [:]
+        result.reserveCapacity(ids.count)
+
+        for item in allItems {
+            let itemID = item.persistentID
+            if idSet.contains(itemID) {
+                result[itemID] = self.song(from: item)
+
+                // Early exit if we've found all requested songs
+                if result.count == ids.count {
+                    break
+                }
+            }
+        }
+
+        return result
+        #endif
+    }
+
     func getPlaylists() -> [Playlist] {
         #if targetEnvironment(simulator)
         return MockLibraryService.shared.getPlaylists()

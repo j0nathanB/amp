@@ -410,23 +410,27 @@ class QueueManagerService: ObservableObject {
         }
         
         print("[QueueManager] ✅ Loading queue for app restoration")
-        
+
         // Try loading from file-based storage
         if let persisted = await persistenceService.loadQueue() {
-            // Filter out any tracks that no longer exist in the library
-            let validTrackIDs: [MPMediaEntityPersistentID] = persisted.trackIDs.compactMap { id in
-                LibraryService.shared.getSong(by: id) != nil ? id : nil
+            // OPTIMIZED: Batch fetch all songs in one query instead of N queries
+            let songDictionary = LibraryService.shared.getSongs(by: persisted.trackIDs)
+
+            // Filter to only IDs that exist in the library, maintaining order
+            let validTrackIDs: [MPMediaEntityPersistentID] = persisted.trackIDs.filter { id in
+                songDictionary[id] != nil
             }
-            
+
             guard !validTrackIDs.isEmpty else {
                 print("[QueueManager] No valid tracks found in persisted queue")
                 return
             }
-            
+
+            // Convert IDs to songs using O(1) dictionary lookup
             let songs: [Song] = validTrackIDs.compactMap { id in
-                LibraryService.shared.getSong(by: id)
+                songDictionary[id]
             }
-            
+
             let validOriginalOrder = persisted.originalOrder.filter { validTrackIDs.contains($0) }
             let shuffled = persisted.isShuffled
             let currentIndex = persisted.currentIndex

@@ -355,6 +355,28 @@ class MockLibraryService {
         return mockSongs.first { $0.persistentID == id }
     }
 
+    /// Batch fetch songs by IDs - optimized for queue loading
+    func getSongs(by ids: [MPMediaEntityPersistentID]) -> [MPMediaEntityPersistentID: Song] {
+        guard !ids.isEmpty else { return [:] }
+
+        var result: [MPMediaEntityPersistentID: Song] = [:]
+        result.reserveCapacity(ids.count)
+
+        let idSet = Set(ids)
+        for song in mockSongs {
+            if idSet.contains(song.persistentID) {
+                result[song.persistentID] = song
+
+                // Early exit if we found all requested songs
+                if result.count == ids.count {
+                    break
+                }
+            }
+        }
+
+        return result
+    }
+
     func getPlaylists() -> [Playlist] {
         return mockPlaylists
     }
