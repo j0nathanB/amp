@@ -150,6 +150,11 @@ private struct PlayerProgressView: View {
     private let barHeight: CGFloat = 1   // Original bar height
     private let timeLabelWidth: CGFloat = 50  // Fixed width for time labels
 
+    // Pre-calculate progress outside GeometryReader to minimize work
+    private var progress: Double {
+        audioPlayer.songDuration > 0 ? audioPlayer.playbackTime / audioPlayer.songDuration : 0
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Text("\(formatTime(audioPlayer.playbackTime))")
@@ -158,46 +163,17 @@ private struct PlayerProgressView: View {
                 .frame(width: timeLabelWidth, alignment: .trailing)
                 .monospacedDigit()
 
-            GeometryReader { geometry in
-                let totalWidth = geometry.size.width
-                // The track is now shorter to make room for the thumb on both sides
-                let trackWidth = totalWidth - thumbSize
-                let progress = audioPlayer.songDuration > 0 ? audioPlayer.playbackTime / audioPlayer.songDuration : 0
-                // The thumb's position along the track
-                let thumbOffset = trackWidth * progress
-
-                ZStack(alignment: .leading) {
-                    // Background of the progress bar
-                    Rectangle()
-                        .fill(Theme.accentDarkGreen)
-                        .stroke(Theme.primaryText, lineWidth: 2)
-                        .frame(height: barHeight)
-
-                    // The elapsed progress portion
-                    Rectangle()
-                        .fill(Theme.backgroundColor) // Changed to lime green
-                        .stroke(Theme.primaryText, lineWidth: 2)
-                    // The width is calculated based on playback progress
-                    .frame(width: geometry.size.width * progress, height: barHeight)
-
-                    // The draggable circular slider thumb
-                    Circle()
-                        .fill(audioPlayer.isPlaying ? Theme.accentGreen : Theme.accentPink)
-                        .stroke(Theme.primaryText, lineWidth: 2)
-                        .frame(width: thumbSize, height: thumbSize)
-                        .offset(x: thumbOffset) // Position the thumb
-
+            // Extracted progress bar into separate view to reduce GeometryReader scope
+            ProgressBarTrack(
+                progress: progress,
+                isPlaying: audioPlayer.isPlaying,
+                thumbSize: thumbSize,
+                barHeight: barHeight,
+                onSeek: { percentage in
+                    let newTime = audioPlayer.songDuration * percentage
+                    audioPlayer.seek(to: newTime)
                 }
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let percentage = max(0, min(1, value.location.x / geometry.size.width))
-                            let newTime = audioPlayer.songDuration * percentage
-                            audioPlayer.seek(to: newTime)
-                        }
-                )
-            }
-            .frame(height: thumbSize)
+            )
 
             Text("\(formatTime(audioPlayer.songDuration))")
                 .font(Theme.tabFontSelected)
@@ -211,6 +187,51 @@ private struct PlayerProgressView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// Separate view component to isolate GeometryReader and minimize re-layouts
+private struct ProgressBarTrack: View {
+    let progress: Double
+    let isPlaying: Bool
+    let thumbSize: CGFloat
+    let barHeight: CGFloat
+    let onSeek: (Double) -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            let trackWidth = geometry.size.width - thumbSize
+            let thumbOffset = trackWidth * progress
+
+            ZStack(alignment: .leading) {
+                // Background of the progress bar
+                Rectangle()
+                    .fill(Theme.accentDarkGreen)
+                    .stroke(Theme.primaryText, lineWidth: 2)
+                    .frame(height: barHeight)
+
+                // The elapsed progress portion
+                Rectangle()
+                    .fill(Theme.backgroundColor)
+                    .stroke(Theme.primaryText, lineWidth: 2)
+                    .frame(width: geometry.size.width * progress, height: barHeight)
+
+                // The draggable circular slider thumb
+                Circle()
+                    .fill(isPlaying ? Theme.accentGreen : Theme.accentPink)
+                    .stroke(Theme.primaryText, lineWidth: 2)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .offset(x: thumbOffset)
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let percentage = max(0, min(1, value.location.x / geometry.size.width))
+                        onSeek(percentage)
+                    }
+            )
+        }
+        .frame(height: thumbSize)
     }
 }
 
