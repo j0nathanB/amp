@@ -134,6 +134,9 @@ struct BlurredArtworkBackground: View {
 
         let scaledImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
 
+        // Store the scaled image extent before blur expands it
+        let scaledExtent = scaledImage.extent
+
         // 2. Apply Gaussian blur (radius 60 for dreamy effect)
         guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
         blurFilter.setValue(scaledImage, forKey: kCIInputImageKey)
@@ -155,10 +158,11 @@ struct BlurredArtworkBackground: View {
 
         guard let adjusted = brightnessFilter.outputImage else { return nil }
 
-        // 5. Render to UIImage (crop to target size)
+        // 5. Render to UIImage (crop to target size from center of ORIGINAL scaled image)
+        // Important: Use scaledExtent, not adjusted.extent, because blur expands the extent
         let cropRect = CGRect(
-            x: (adjusted.extent.width - targetSize.width) / 2,
-            y: (adjusted.extent.height - targetSize.height) / 2,
+            x: (scaledExtent.width - targetSize.width) / 2 + scaledExtent.origin.x,
+            y: (scaledExtent.height - targetSize.height) / 2 + scaledExtent.origin.y,
             width: targetSize.width,
             height: targetSize.height
         )
