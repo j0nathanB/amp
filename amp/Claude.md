@@ -49,7 +49,8 @@ The app follows a clean service-oriented architecture with clear separation of c
 - **PlaybackEngineService.swift**: Handles pure audio operations using AVAudioPlayer - play/pause/seek, audio session management, now playing info, and audio completion events.
 - **QueueManagerService.swift**: Manages playback queue state, track navigation (next/previous), queue persistence, and shuffle functionality.
 - **NavigationService.swift**: Controls UI navigation state and tab selection.
-- **LibraryService.swift**: Provides optimized music library search with hybrid dictionary + scan indexing for fast diacritics-insensitive search.
+- **LibraryService.swift**: Provides music library access and metadata enrichment from audio files.
+- **SearchIndexService.swift**: Implements optimized hybrid search indexing (dictionary + scan) for fast diacritics-insensitive search. Extracted from LibraryService for better separation of concerns. Includes disk-based caching with automatic invalidation on library changes.
 
 ### UI Components
 - **NowPlayingView.swift**: Current track display and playback controls
@@ -266,6 +267,14 @@ func doAction() {
 - ✅ Implemented memory management limits to prevent out-of-memory crashes
 - ✅ Added search timeouts and graceful error handling
 - ✅ Enhanced string processing safety with bounds checking and Unicode protection
+
+### ✅ Phase 7: Architectural Erosion Remediation (Completed - Nov 2025)
+**Goal**: Address architectural erosion, eliminate race conditions, and improve code quality
+- ✅ **Separation of Concerns**: Extracted SearchIndexService from LibraryService (~690 line reduction), isolated mock data with #if DEBUG, migrated colors to Asset Catalog
+- ✅ **Concurrency & Stability**: Eliminated all `asyncAfter` race condition hacks, replaced time-based delays with deterministic transition state enum and `defer` blocks
+- ✅ **Performance**: Optimized blurred artwork with NSCache (automatic memory management), replaced character iteration with optimized string replacement APIs
+- ✅ **Security**: Hardened notification permissions with error throwing, added real-time authorization status checks, audited ID3 tag parsing with strict AVMetadataKey constants and input validation
+- ✅ **Documentation**: Updated architecture docs to reflect SearchIndexService extraction and removal of time-based synchronization
 
 ## Search Engine Test-Driven Development Framework
 

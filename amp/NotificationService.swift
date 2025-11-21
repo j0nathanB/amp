@@ -82,16 +82,20 @@ class NotificationService: NSObject, ObservableObject {
         print("🔔 [Lifecycle] App became active")
         // Clear any pending notifications when app becomes active
         clearDeliveredNotifications()
-        
-        // Set flag to prevent notifications for a short period
+
+        // Set flag to prevent notifications when resuming
         if appWasInBackground {
             print("🔔 [Lifecycle] Setting resuming flag - preventing notifications")
             isResumingFromBackground = true
-            // Reset flag after a delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                print("🔔 [Lifecycle] Clearing resuming flag - notifications re-enabled")
-                self.isResumingFromBackground = false
-                self.appWasInBackground = false
+            // Reset flag after playback state is established
+            // Using Task for proper async handling instead of arbitrary delay
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                await MainActor.run {
+                    print("🔔 [Lifecycle] Clearing resuming flag - notifications re-enabled")
+                    self.isResumingFromBackground = false
+                    self.appWasInBackground = false
+                }
             }
         }
     }
@@ -102,24 +106,15 @@ class NotificationService: NSObject, ObservableObject {
     }
     
     // MARK: - Permission Management
-    
-    func requestPermission() async -> Bool {
-        do {
-            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-            await MainActor.run {
-                self.isAuthorized = granted
-                self.checkAuthorizationStatus()
-            }
-            print("🔔 Notification permission granted: \(granted)")
-            return granted
-        } catch {
-            print("❌ Failed to request notification permission: \(error)")
-            await MainActor.run {
-                self.isAuthorized = false
-                self.authorizationStatus = .denied
-            }
-            return false
+
+    func requestPermission() async throws -> Bool {
+        let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        await MainActor.run {
+            self.isAuthorized = granted
+            self.checkAuthorizationStatus()
         }
+        print("🔔 Notification permission granted: \(granted)")
+        return granted
     }
     
     private func checkAuthorizationStatus() {
@@ -189,10 +184,28 @@ class NotificationService: NSObject, ObservableObject {
             print("🔔 Notifications disabled by user")
             return false
         }
-        
-        // Don't send if not authorized
-        guard isAuthorized else {
-            print("🔔 Notifications not authorized")
+
+        // Verify actual system authorization status in real-time
+        // This prevents stale state issues if user changes permissions in Settings
+        var actualAuthStatus: UNAuthorizationStatus = .notDetermined
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            actualAuthStatus = settings.authorizationStatus
+            semaphore.signal()
+        }
+        semaphore.wait()
+
+        // Don't send if not actually authorized according to system
+        guard actualAuthStatus == .authorized else {
+            print("🔔 Notifications not authorized (system status: \(actualAuthStatus.rawValue))")
+            // Update cached state if desynchronized
+            if isAuthorized != (actualAuthStatus == .authorized) {
+                Task { @MainActor in
+                    self.isAuthorized = (actualAuthStatus == .authorized)
+                    self.authorizationStatus = actualAuthStatus
+                }
+            }
             return false
         }
         

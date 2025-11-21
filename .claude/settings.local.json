@@ -5,7 +5,12 @@
       "WebFetch(domain:chicio.github.io)",
       "WebSearch",
       "Bash(xcodebuild:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(cloc:*)",
+      "Bash(git checkout:*)",
+      "Bash(/Users/zen/dev/src/amp/amp/amp/MockDataGenerator.swift)"
     ],
     "deny": [],
     "ask": []

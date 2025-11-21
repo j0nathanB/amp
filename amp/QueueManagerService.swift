@@ -160,27 +160,31 @@ class QueueManagerService: ObservableObject {
     func shuffleCurrentQueue() {
         print("[QueueManager] Starting shuffle operation")
         isPerformingOperation = true
-        
+        // Ensure flag is always cleared, even if operation returns early or throws
+        defer {
+            isPerformingOperation = false
+            print("[QueueManager] Shuffle operation complete")
+        }
+
         playbackQueue.shuffle(keepCurrentFirst: true)
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
         queueDidChange(triggeredBy: "shuffle")
         saveQueue()
-        
-        // Clear flag after operation completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.isPerformingOperation = false
-            print("[QueueManager] Shuffle operation complete")
-        }
     }
     
     func toggleShuffle() {
         print("[QueueManager] Toggling shuffle to: \(!isShuffled)")
         isPerformingOperation = true
-        
+        // Ensure flag is always cleared, even if operation returns early or throws
+        defer {
+            isPerformingOperation = false
+            print("[QueueManager] Toggle shuffle operation complete")
+        }
+
         isShuffled.toggle()
         UserDefaults.standard.set(isShuffled, forKey: "shuffleOnStart")
-        
+
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
             // Trigger @Published update by reassigning the struct
@@ -192,12 +196,6 @@ class QueueManagerService: ObservableObject {
         }
         queueDidChange(triggeredBy: "toggleShuffle")
         saveQueue()
-        
-        // Clear flag after operation completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.isPerformingOperation = false
-            print("[QueueManager] Toggle shuffle operation complete")
-        }
     }
     
     func toggleLoop() {

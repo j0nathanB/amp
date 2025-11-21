@@ -102,10 +102,18 @@ extension ampApp {
         Task {
             // Wait for the app to finish launching
             try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-            
-            // Request notification permission
-            let granted = await NotificationService.shared.requestPermission()
-            print("🔔 Notification permission granted: \(granted)")
+
+            // Request notification permission with proper error handling
+            do {
+                let granted = try await NotificationService.shared.requestPermission()
+                print("🔔 Notification permission granted: \(granted)")
+                if !granted {
+                    print("⚠️ User denied notification permission")
+                }
+            } catch {
+                print("❌ Failed to request notification permission: \(error.localizedDescription)")
+                print("⚠️ Notifications will not be available")
+            }
         }
     }
 }

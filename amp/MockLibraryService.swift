@@ -1,9 +1,9 @@
 import Foundation
 import MediaPlayer
 
-#if targetEnvironment(simulator)
+#if DEBUG
 
-/// Mock library service for simulator testing
+/// Mock library service for testing
 /// Provides realistic fake music data without requiring actual MPMediaLibrary access
 class MockLibraryService {
     static let shared = MockLibraryService()

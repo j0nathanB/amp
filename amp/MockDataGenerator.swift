@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import MediaPlayer
 
@@ -540,3 +541,4 @@ extension MockDataGenerator {
         print("Use MockDataGenerator.shared.generateSearchTestCases() to get test scenarios")
     }
 }
+#endif

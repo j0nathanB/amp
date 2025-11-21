@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>This app needs access to your music library to play your songs.</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>This app uses notifications to let you know when songs change while you're using other apps or screens.</string>
 	<key>UIAppFonts</key>

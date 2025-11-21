@@ -15,15 +15,20 @@ struct BlurredArtworkBackground: View {
     @State private var loadTask: Task<Void, Never>?
 
     // Cache for processed images to avoid reprocessing
-    private static var imageCache: [UInt64: UIImage] = [:]
-    private static let maxCacheSize = 5 // Keep last 5 processed backgrounds
+    // NSCache automatically evicts objects under memory pressure
+    private static let imageCache: NSCache<NSNumber, UIImage> = {
+        let cache = NSCache<NSNumber, UIImage>()
+        cache.countLimit = 10 // Keep up to 10 processed backgrounds
+        cache.totalCostLimit = 50 * 1024 * 1024 // 50MB memory limit
+        return cache
+    }()
 
     // Reusable CIContext for image processing (expensive to create, so we create once and reuse)
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     // Public method to clear cache (called when feature is disabled)
     static func clearCache() {
-        imageCache.removeAll()
+        imageCache.removeAllObjects()
     }
 
     var body: some View {
@@ -67,7 +72,8 @@ struct BlurredArtworkBackground: View {
         loadedSongID = song.persistentID
 
         // Check cache first
-        if let cached = Self.imageCache[song.persistentID] {
+        let cacheKey = NSNumber(value: song.persistentID)
+        if let cached = Self.imageCache.object(forKey: cacheKey) {
             Task { @MainActor in
                 processedImage = cached
             }
@@ -99,17 +105,12 @@ struct BlurredArtworkBackground: View {
                 // Check if cancelled before updating UI
                 if Task.isCancelled { return }
 
-                // Cache the processed image
+                // Cache the processed image with cost estimation
                 await MainActor.run {
-                    Self.imageCache[song.persistentID] = processed
-
-                    // Limit cache size
-                    if Self.imageCache.count > Self.maxCacheSize {
-                        // Remove oldest entry (simple FIFO)
-                        if let firstKey = Self.imageCache.keys.first {
-                            Self.imageCache.removeValue(forKey: firstKey)
-                        }
-                    }
+                    let cacheKey = NSNumber(value: song.persistentID)
+                    // Estimate cost based on image size (width * height * 4 bytes per pixel)
+                    let cost = Int(processed.size.width * processed.size.height * processed.scale * processed.scale * 4)
+                    Self.imageCache.setObject(processed, forKey: cacheKey, cost: cost)
 
                     processedImage = processed
                 }

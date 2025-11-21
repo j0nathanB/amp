@@ -1,21 +1,21 @@
 import SwiftUI
 
 struct Theme {
-    // Colors
-    static let accentGreen = Color(red: 0.749, green: 0.839, blue: 0.188) //     74.9, 83.9, 18.8
-    static let accentPink = Color(red: 0.918, green: 0.459, blue: 0.529)      //91.8, 45.9, 52.9
-    static let accentBlue = Color(red: 0.06667, green: 0.25882, blue: 1.00000)
-    static let accentLightBlue = Color(red: 0.86667, green: 0.96863, blue: 1.00000)
-    static let accentSkyBlue = Color(red: 0.34118, green: 0.84314, blue: 1.00000)
-    static let accentDarkBlue = Color(red:0.00000, green:  0.30196, blue:  0.43922)
-    static let accentDarkIndigo = Color(red: 0.00000, green: 0.30196, blue: 0.43922)
-    static let accentYellow = Color(red: 0.98824, green: 0.86275, blue:  0.24314)
-    static let accentDarkGreen = Color(red: 0.32549, green: 0.87059, blue:  0.47843)
-    static let accentRed = Color(red:0.87843, green: 0.18039, blue: 0.28627)
+    // Colors from Asset Catalog
+    static let accentGreen = Color("AccentGreen")
+    static let accentPink = Color("AccentPink")
+    static let accentBlue = Color("AccentBlue")
+    static let accentLightBlue = Color("AccentLightBlue")
+    static let accentSkyBlue = Color("AccentSkyBlue")
+    static let accentDarkBlue = Color("AccentDarkBlue")
+    static let accentDarkIndigo = Color("AccentDarkIndigo")
+    static let accentYellow = Color("AccentYellow")
+    static let accentDarkGreen = Color("AccentDarkGreen")
+    static let accentRed = Color("AccentRed")
     static let primaryText = Color.black
     static let secondaryText = Color.gray
-    static let backgroundColor = Color(red: 0.9, green: 0.9, blue: 0.9)
-    static let touchDownColor = Color.black.opacity(0.05) // 5% black for touch states
+    static let backgroundColor = Color("BackgroundColor")
+    static let touchDownColor = Color("TouchDownColor")
     static let background = Color.white
     
     // --- Updated Font Hierarchy with Better Weight Differentiation ---

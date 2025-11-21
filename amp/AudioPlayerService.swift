@@ -13,8 +13,12 @@ class AudioPlayerService: ObservableObject {
     // Track whether we're auto-advancing after track completion
     private var isAutoAdvancing = false
 
-    // Track whether we're manually starting playback (to prevent delegate double-play)
-    private var isManuallyStarting = false
+    // Playback transition state to prevent delegate double-play
+    private enum PlaybackTransition {
+        case none
+        case transitioning(to: Song)
+    }
+    private var transitionState: PlaybackTransition = .none
 
     // Combine cancellables
     private var cancellables = Set<AnyCancellable>()
@@ -122,8 +126,8 @@ class AudioPlayerService: ObservableObject {
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
         print("🎵 [AudioPlayerService] startPlayback called with \(songs.count) songs, starting with: \(startSong.title)")
 
-        // Set flag to prevent delegate from also starting playback
-        isManuallyStarting = true
+        // Set transition state to prevent delegate from also starting playback
+        transitionState = .transitioning(to: startSong)
 
         queueManager.startPlayback(from: songs, startingWith: startSong)
         navigation.navigateToNowPlaying()
@@ -136,24 +140,20 @@ class AudioPlayerService: ObservableObject {
             print("❌ [AudioPlayerService] ERROR: Current track is nil after startPlayback!")
         }
 
-        // Clear flag after a brief delay to allow delegate to complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.isManuallyStarting = false
-        }
+        // Clear transition state immediately after manual playback
+        transitionState = .none
     }
     
     func playTrack(at index: Int) {
-        // Set flag to prevent delegate from also starting playback
-        isManuallyStarting = true
-
         if let track = queueManager.playTrack(at: index) {
+            // Set transition state to prevent delegate from also starting playback
+            transitionState = .transitioning(to: track)
+
             playbackEngine.play(song: track, isManualSelection: true)
             navigation.navigateToNowPlaying()
-        }
 
-        // Clear flag after a brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.isManuallyStarting = false
+            // Clear transition state immediately after manual playback
+            transitionState = .none
         }
     }
     
@@ -326,10 +326,10 @@ extension AudioPlayerService: QueueManagerDelegate {
     }
 
     func currentTrackDidChange(_ track: Song?) {
-        // Skip delegate-triggered playback if we're manually starting
-        // This prevents double playback calls
-        guard !isManuallyStarting else {
-            print("[AudioPlayerService] Skipping delegate playback - manual start in progress")
+        // Skip delegate-triggered playback if we're in a manual transition
+        // Check if the incoming track matches the target of our transition
+        if case .transitioning(let targetSong) = transitionState, track?.id == targetSong.id {
+            print("[AudioPlayerService] Skipping delegate playback - manual transition in progress for: \(targetSong.title)")
             return
         }
 
