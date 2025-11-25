@@ -23,10 +23,28 @@ struct PlaylistsView: View {
                     Button(action: {
                         showSettings = true
                     }) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(Theme.primaryText)
+                        Text("Settings")
+                            .font(Theme.bodyFont)
+                            .foregroundColor(showSettings ? Color.white : Theme.primaryText)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        ZStack {
+                            // Shadow layer
+                            Rectangle()
+                                .fill(Theme.accentDarkIndigo)
+                                .offset(x: -6, y: 6)
+
+                            // Main container
+                            Rectangle()
+                                .fill(showSettings ? Theme.accentLightBlue : Color.white)
+                        }
+                    )
+                    .overlay(
+                        Rectangle()
+                            .stroke(Theme.primaryText, lineWidth: 2)
+                    )
                 }
                 .frame(height: 28)
                 .padding(.vertical, 20)
