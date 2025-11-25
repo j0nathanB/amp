@@ -236,7 +236,7 @@ struct SearchResultsView: View {
                         GeometryReader { bottomGeometry in
                             Color.clear.preference(
                                 key: ScrollOffsetPreferenceKey.self,
-                                value: bottomGeometry.frame(in: .named("scroll")).minY
+                                value: bottomGeometry.frame(in: .named("search-scroll")).minY
                             )
                         }
                     )
@@ -250,7 +250,7 @@ struct SearchResultsView: View {
                 }
             )
         }
-        .coordinateSpace(name: "scroll")
+        .coordinateSpace(name: "search-scroll")
         .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
             contentHeight = height
             viewportHeight = geometry.size.height

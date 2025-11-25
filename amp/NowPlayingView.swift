@@ -262,7 +262,7 @@ private struct PlayerControlsView: View {
 
                     // Main container
                     ZStack {
-                        Rectangle()
+                        RoundedRectangle(cornerRadius: 6)
                             .fill(audioPlayer.isPlaying ? Theme.accentLightBlue : Color.white)
                             .frame(width: 126, height: 44)
 
@@ -297,7 +297,7 @@ private struct PlayerControlsView: View {
                             .offset(x: -4, y: 4)
 
                         // Main container
-                        Rectangle()
+                        RoundedRectangle(cornerRadius: 6)
                             .fill(audioPlayer.isLoopingSong ? Theme.accentPink : Color.white)
                     }
                 )
@@ -347,7 +347,7 @@ private struct PlayerControlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(isLarge ? .system(size: 44) : .largeTitle)
+                .font(isLarge ? .system(size: 50) : .largeTitle)
                 .foregroundColor(isLarge ? Color.white : Theme.accentGreen)
         }
         .frame(width: 82, height: 82)
@@ -359,7 +359,7 @@ private struct PlayerControlButton: View {
                     .offset(x: -6, y: 6)
 
                 // Layer 2: The main button background
-                Rectangle()
+                RoundedRectangle(cornerRadius: 6)
                     .fill(isLarge ? icon == "pause.fill" ? Theme.accentPink : Theme.accentGreen : Color.white)
             }
         )

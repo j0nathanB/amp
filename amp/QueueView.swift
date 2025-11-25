@@ -81,17 +81,17 @@ struct QueueView: View {
                             .background(
                                 ZStack {
                                     // Layer 1: The hard shadow (offset background)
-                                    Rectangle()
+                                    RoundedRectangle(cornerRadius: 6)
                                         .fill(Theme.accentDarkIndigo)
                                         .offset(x: -6, y: 6)
 
                                     // Layer 2: The main button background
-                                    Rectangle()
+                                    RoundedRectangle(cornerRadius: 6)
                                         .fill(audioPlayer.isLooped ? Theme.accentPink : .white)
                                 }
                             )
                             .overlay(
-                                Rectangle()
+                                RoundedRectangle(cornerRadius: 6)
                                     .stroke(Theme.primaryText, lineWidth: 2)
                             )
 
@@ -105,17 +105,17 @@ struct QueueView: View {
                             .background(
                                 ZStack {
                                     // Layer 1: The hard shadow (offset background)
-                                    Rectangle()
+                                    RoundedRectangle(cornerRadius: 6)
                                         .fill(Theme.accentDarkIndigo)
                                         .offset(x: -6, y: 6)
 
                                     // Layer 2: The main button background
-                                    Rectangle()
+                                    RoundedRectangle(cornerRadius: 6)
                                         .fill(audioPlayer.isShuffled ? Theme.accentPink : .white)
                                 }
                             )
                             .overlay(
-                                Rectangle()
+                                RoundedRectangle(cornerRadius: 6)
                                     .stroke(Theme.primaryText, lineWidth: 2)
                             )
                         }
@@ -161,7 +161,7 @@ struct QueueView: View {
                                                 GeometryReader { bottomGeometry in
                                                     Color.clear.preference(
                                                         key: ScrollOffsetPreferenceKey.self,
-                                                        value: bottomGeometry.frame(in: .named("scroll")).minY
+                                                        value: bottomGeometry.frame(in: .named("queue-scroll")).minY
                                                     )
                                                 }
                                             )
@@ -175,7 +175,7 @@ struct QueueView: View {
                                         }
                                     )
                                 }
-                                .coordinateSpace(name: "scroll")
+                                .coordinateSpace(name: "queue-scroll")
                                 .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
                                     contentHeight = height
                                     viewportHeight = geometry.size.height

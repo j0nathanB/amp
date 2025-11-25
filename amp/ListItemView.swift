@@ -101,22 +101,23 @@ struct ListItemView: View {
             }) {
                 ZStack {
                     // Layer 1: The hard shadow (offset background)
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(Theme.accentDarkBlue)
                         .frame(width: 60, height: 60)
-                        .offset(x: -4, y: 4)
+                        .offset(x: -6, y: 6)
 
                     // Layer 2: The main button background
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(audioPlayer.isPlaying ? Theme.accentPink : Theme.accentGreen)
                         .frame(width: 60, height: 60)
 
                     // Layer 3: The icon
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 33))
                         .foregroundColor(.white)
                 }
                 .overlay(
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: 6)
                         .stroke(Theme.primaryText, lineWidth: 2)
                         .frame(width: 60, height: 60)
                 )

@@ -32,17 +32,17 @@ struct PlaylistsView: View {
                     .background(
                         ZStack {
                             // Shadow layer
-                            Rectangle()
+                            RoundedRectangle(cornerRadius: 6)
                                 .fill(Theme.accentDarkIndigo)
                                 .offset(x: -6, y: 6)
 
                             // Main container
-                            Rectangle()
+                            RoundedRectangle(cornerRadius: 6)
                                 .fill(showSettings ? Theme.accentLightBlue : Color.white)
                         }
                     )
                     .overlay(
-                        Rectangle()
+                        RoundedRectangle(cornerRadius: 6)
                             .stroke(Theme.primaryText, lineWidth: 2)
                     )
                 }
@@ -76,7 +76,7 @@ struct PlaylistsView: View {
                                     GeometryReader { bottomGeometry in
                                         Color.clear.preference(
                                             key: ScrollOffsetPreferenceKey.self,
-                                            value: bottomGeometry.frame(in: .named("scroll")).minY
+                                            value: bottomGeometry.frame(in: .named("playlists-scroll")).minY
                                         )
                                     }
                                 )
@@ -90,7 +90,7 @@ struct PlaylistsView: View {
                             }
                         )
                     }
-                    .coordinateSpace(name: "scroll")
+                    .coordinateSpace(name: "playlists-scroll")
                     .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
                         contentHeight = height
                         viewportHeight = geometry.size.height
