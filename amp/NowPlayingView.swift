@@ -37,6 +37,8 @@ struct NowPlayingView: View {
 private struct PlayerArtworkView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var showInfo = false
+    @State private var selectedArtist: Artist?
+    @State private var selectedAlbum: Album?
 
     var body: some View {
         // Always maintain the same frame size for consistent layout
@@ -44,10 +46,24 @@ private struct PlayerArtworkView: View {
             if let currentTrack = audioPlayer.currentTrack {
                 if showInfo {
                     // Use enrichedCurrentTrack for album info (includes metadata from audio file)
-                    AlbumInfoView(song: audioPlayer.enrichedCurrentTrack ?? currentTrack)
-                        .onTapGesture {
+                    AlbumInfoView(
+                        song: audioPlayer.enrichedCurrentTrack ?? currentTrack,
+                        onWhitespaceTap: {
                             showInfo = false
+                        },
+                        onArtistTap: { artist in
+                            selectedArtist = artist
+                        },
+                        onAlbumTap: { album in
+                            selectedAlbum = album
+                        },
+                        onYearTap: { year in
+                            navigateToSearch(with: year)
+                        },
+                        onGenreTap: { genre in
+                            navigateToSearch(with: genre)
                         }
+                    )
                 } else {
                     ArtworkImage(song: currentTrack)
                         .onTapGesture {
@@ -66,6 +82,21 @@ private struct PlayerArtworkView: View {
         .aspectRatio(1, contentMode: .fill) // Keep it square and fixed size
         .clipped() // Prevent overflow
         .animation(.none, value: showInfo) // Prevent resize animation when toggling
+        .sheet(item: $selectedArtist) { artist in
+            ArtistDetailView(artist: artist, searchResults: SearchResults(artists: [], albums: [], songs: []))
+                .environmentObject(audioPlayer)
+        }
+        .sheet(item: $selectedAlbum) { album in
+            AlbumDetailView(album: album, searchResults: SearchResults(artists: [], albums: [], songs: []))
+                .environmentObject(audioPlayer)
+        }
+    }
+
+    private func navigateToSearch(with searchTerm: String) {
+        // Navigate to search tab and set search text
+        audioPlayer.selectedTab = .search
+        SearchViewModel.shared.searchText = searchTerm
+        SearchViewModel.shared.performSearch()
     }
 }
 
@@ -491,6 +522,11 @@ struct PlayerButtonStyle: ButtonStyle {
 
 private struct AlbumInfoView: View {
     let song: Song
+    let onWhitespaceTap: () -> Void
+    let onArtistTap: (Artist) -> Void
+    let onAlbumTap: (Album) -> Void
+    let onYearTap: (String) -> Void
+    let onGenreTap: (String) -> Void
 
     private var yearString: String {
         if let releaseDate = song.releaseDate {
@@ -502,25 +538,65 @@ private struct AlbumInfoView: View {
         return "Unknown"
     }
 
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            InfoRow(label: "Song", value: song.title)
-            InfoRow(label: "Artist", value: song.artist)
-            InfoRow(label: "Album", value: song.album)
-            InfoRow(label: "Year", value: yearString)
-            InfoRow(label: "Genre", value: song.genre ?? "Unknown")
+            InfoRow(label: "Song", value: song.title, isClickable: false, onValueTap: {})
+            InfoRow(label: "Artist", value: song.artist, isClickable: true) {
+                if let artist = getArtistFromSong() {
+                    onArtistTap(artist)
+                }
+            }
+            InfoRow(label: "Album", value: song.album, isClickable: true) {
+                if let album = getAlbumFromSong() {
+                    onAlbumTap(album)
+                }
+            }
+            InfoRow(label: "Year", value: yearString, isClickable: true) {
+                onYearTap(yearString)
+            }
+            InfoRow(label: "Genre", value: song.genre ?? "Unknown", isClickable: true) {
+                onGenreTap(song.genre ?? "Unknown")
+            }
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity) // Match artwork dimensions exactly
         .background(Color.white)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
+        .contentShape(Rectangle()) // Make entire view tappable
+        .onTapGesture {
+            // This handles taps on whitespace
+            onWhitespaceTap()
+        }
+    }
+
+    private func getArtistFromSong() -> Artist? {
+        // Query the media library to get the artist persistent ID
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: song.persistentID), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+
+        guard let item = query.items?.first else { return nil }
+
+        return Artist(id: item.artistPersistentID, name: song.artist)
+    }
+
+    private func getAlbumFromSong() -> Album? {
+        // Query the media library to get the album persistent ID
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: song.persistentID), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+
+        guard let item = query.items?.first else { return nil }
+
+        return Album(id: item.albumPersistentID, title: song.album, artist: song.artist)
     }
 }
 
 private struct InfoRow: View {
     let label: String
     let value: String
+    let isClickable: Bool
+    let onValueTap: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
@@ -528,13 +604,20 @@ private struct InfoRow: View {
                 .font(Theme.bodyFont.weight(.semibold))
                 .foregroundColor(Theme.primaryText)
                 .frame(width: 80, alignment: .leading)
-            
+
             Text(value)
                 .font(Theme.bodyFont)
-                .foregroundColor(Theme.primaryText)
+                .foregroundColor(isClickable ? Theme.accentGreen : Theme.primaryText)
+                .underline(isClickable)
                 .lineLimit(3)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isClickable {
+                        onValueTap()
+                    }
+                }
         }
     }
 }
