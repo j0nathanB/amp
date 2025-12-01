@@ -63,7 +63,8 @@ private struct PlayerArtworkView: View {
             }
         }
         .frame(maxWidth: .infinity) // Let it fill available width
-        .aspectRatio(1, contentMode: .fit) // Keep it square
+        .aspectRatio(1, contentMode: .fill) // Keep it square and fixed size
+        .clipped() // Prevent overflow
         .animation(.none, value: showInfo) // Prevent resize animation when toggling
     }
 }
@@ -94,7 +95,8 @@ private struct ArtworkImage: View {
             }
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
         }
-        .aspectRatio(1, contentMode: .fit)  // Force square container
+        .aspectRatio(1, contentMode: .fill)  // Force square container with fixed size
+        .clipped()  // Prevent overflow from GeometryReader
         .onChange(of: song.persistentID) { oldValue, newValue in
             // Only reload artwork if the song actually changed
             if newValue != loadedSongID {
