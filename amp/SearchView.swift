@@ -577,22 +577,30 @@ private struct AlbumDetailHeaderView: View {
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
-                // Main info box container
-                Text(albumTitle)
-                    .font(Theme.bodyFont.weight(.bold))
-                    .foregroundColor(Theme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                // Main info box container with play button
+                Button(action: playAction) {
+                    HStack(spacing: 12) {
+                        Text(albumTitle)
+                            .font(Theme.sectionHeaderFont)
+                            .foregroundColor(Theme.primaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                    }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .frame(height: 44)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .background(Color.white)
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Theme.primaryText, lineWidth: 2)
-                    )
+                }
+                .frame(height: 44)
+                .background(Theme.accentGreen)
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                )
             }
         }
         .padding(.horizontal, 16)
@@ -838,6 +846,8 @@ struct ArtistDetailView: View {
             // Header
             ArtistDetailHeaderView(artistName: artist.name) {
                 dismiss()
+            } playAction: {
+                playArtist()
             }
 
             // Separator
@@ -983,12 +993,51 @@ struct ArtistDetailView: View {
             }
         }
     }
+
+    private func playArtist() {
+        // Group songs by album
+        let songsGroupedByAlbum = Dictionary(grouping: artistSongs) { $0.album }
+
+        // Create array of (album name, songs, release date) tuples
+        let albumGroups: [(albumName: String, songs: [Song], releaseDate: Date?)] = songsGroupedByAlbum.map { albumName, songs in
+            // Sort songs within each album by track number
+            let sortedSongs = songs.sorted { $0.albumTrackNumber < $1.albumTrackNumber }
+            // Get release date from first song in album
+            let releaseDate = sortedSongs.first?.releaseDate
+            return (albumName: albumName, songs: sortedSongs, releaseDate: releaseDate)
+        }
+
+        // Check if all albums have release dates
+        let allHaveReleaseDates = albumGroups.allSatisfy { $0.releaseDate != nil }
+
+        // Sort albums by release date if all have dates, otherwise alphabetically
+        let sortedAlbumGroups: [(albumName: String, songs: [Song], releaseDate: Date?)]
+        if allHaveReleaseDates {
+            sortedAlbumGroups = albumGroups.sorted { (lhs, rhs) in
+                guard let lhsDate = lhs.releaseDate, let rhsDate = rhs.releaseDate else {
+                    return false
+                }
+                return lhsDate < rhsDate
+            }
+        } else {
+            sortedAlbumGroups = albumGroups.sorted { $0.albumName.localizedCaseInsensitiveCompare($1.albumName) == .orderedAscending }
+        }
+
+        // Flatten all songs in the sorted order
+        let sortedSongs = sortedAlbumGroups.flatMap { $0.songs }
+
+        // Play from the first song
+        if let firstSong = sortedSongs.first {
+            audioPlayer.startPlayback(from: sortedSongs, startingWith: firstSong)
+        }
+    }
 }
 
 // Header with back button and artist name
 private struct ArtistDetailHeaderView: View {
     let artistName: String
     let backAction: () -> Void
+    let playAction: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1030,22 +1079,30 @@ private struct ArtistDetailHeaderView: View {
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
-                // Main info box container
-                Text(artistName)
-                    .font(Theme.bodyFont.weight(.bold))
-                    .foregroundColor(Theme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                // Main info box container with play button
+                Button(action: playAction) {
+                    HStack(spacing: 12) {
+                        Text(artistName)
+                            .font(Theme.sectionHeaderFont)
+                            .foregroundColor(Theme.primaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                    }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .frame(height: 44)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .background(Color.white)
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Theme.primaryText, lineWidth: 2)
-                    )
+                }
+                .frame(height: 44)
+                .background(Theme.accentGreen)
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                )
             }
         }
         .padding(.horizontal, 16)
