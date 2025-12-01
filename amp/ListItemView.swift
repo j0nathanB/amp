@@ -12,6 +12,7 @@ struct ListItemView: View {
     var showTopBorder: Bool = true
     var showBottomBorder: Bool = true
     var textAlignment: HorizontalAlignment = .leading
+    var backgroundColor: Color = .white
 
     @EnvironmentObject var audioPlayer: AudioPlayerService
     
@@ -60,7 +61,7 @@ struct ListItemView: View {
             }
         }
         .padding()
-        .background(isPressed ? Theme.accentPink : (isPlaying ? Theme.accentYellow : .white))
+        .background(isPressed ? Theme.accentPink : (isPlaying ? Theme.accentYellow : backgroundColor))
         .overlay(
             // Custom border: vertical lines primary, horizontal lines secondary
             ZStack {

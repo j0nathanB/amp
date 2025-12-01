@@ -182,7 +182,7 @@ private struct PlaylistItemView: View {
         ZStack {
             // Offset shadow layer
             RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.accentDarkGreen)
+                .fill(Theme.accentDarkIndigo)
                 .offset(x: -6, y: 6)
 
             // Main content
@@ -191,7 +191,8 @@ private struct PlaylistItemView: View {
                 subtitle: "",
                 detail: nil,
                 isPressed: isPressed,
-                textAlignment: .center
+                textAlignment: .center,
+                backgroundColor: Theme.accentGreen
             )
             .cornerRadius(4)
             .overlay(

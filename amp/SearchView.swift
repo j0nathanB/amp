@@ -328,7 +328,7 @@ private struct SearchSectionView<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Theme.accentGreen)
+                .background(Theme.accentDarkGreen)
 
             // Content with negative spacing for border overlap
             VStack(spacing: -1) {
