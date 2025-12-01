@@ -125,23 +125,112 @@ private struct PlayerTrackInfoView: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: 2) {
-            // Title - fixed height container
-            Text(track?.title ?? "Track")
-                .font(Theme.nowPlayingTrackFont)
-                .foregroundColor(Theme.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .multilineTextAlignment(.center)
+            // Title - scrolling marquee for long titles
+            ScrollingText(
+                text: track?.title ?? "Track",
+                font: Theme.nowPlayingTrackFont,
+                color: Theme.primaryText
+            )
 
-            // Artist - fixed height container
-            Text(track?.artist ?? "Artist")
-                .font(Theme.nowPlayingArtistFont)
-                .foregroundColor(Theme.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .multilineTextAlignment(.center)
+            // Artist - scrolling marquee for long artist names
+            ScrollingText(
+                text: track?.artist ?? "Artist",
+                font: Theme.nowPlayingArtistFont,
+                color: Theme.primaryText
+            )
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+private struct ScrollingText: View {
+    let text: String
+    let font: Font
+    let color: Color
+
+    @State private var textWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+    @State private var animating = false
+
+    private let padding: CGFloat = 20
+
+    var body: some View {
+        GeometryReader { geometry in
+            Text(text)
+                .font(font)
+                .foregroundColor(color)
+                .fixedSize(horizontal: true, vertical: false)
+                .background(
+                    GeometryReader { textGeometry in
+                        Color.clear
+                            .onAppear {
+                                textWidth = textGeometry.size.width
+                                containerWidth = geometry.size.width
+                                startScrollingIfNeeded()
+                            }
+                            .onChange(of: text) { _, _ in
+                                textWidth = textGeometry.size.width
+                                containerWidth = geometry.size.width
+                                offset = 0
+                                animating = false
+                                startScrollingIfNeeded()
+                            }
+                    }
+                )
+                .offset(x: needsScrolling ? offset : (geometry.size.width - textWidth) / 2)
+                .frame(width: geometry.size.width, alignment: .leading)
+                .clipped()
+        }
+        .frame(height: 30)
+    }
+
+    private var needsScrolling: Bool {
+        textWidth > containerWidth
+    }
+
+    private func startScrollingIfNeeded() {
+        guard needsScrolling && !animating else {
+            return
+        }
+
+        animating = true
+
+        // Start centered, then scroll
+        offset = (containerWidth - textWidth) / 2
+
+        // Delay before starting scroll
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            scrollToEnd()
+        }
+    }
+
+    private func scrollToEnd() {
+        let scrollDistance = textWidth - containerWidth + padding
+
+        withAnimation(.linear(duration: Double(scrollDistance) / 30)) {
+            offset = -scrollDistance
+        }
+
+        // Delay at end, then scroll back
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(scrollDistance) / 30 + 1.5) {
+            scrollToStart()
+        }
+    }
+
+    private func scrollToStart() {
+        let scrollDistance = textWidth - containerWidth + padding
+
+        withAnimation(.linear(duration: Double(scrollDistance) / 30)) {
+            offset = (containerWidth - textWidth) / 2
+        }
+
+        // Delay at start, then repeat
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(scrollDistance) / 30 + 1.5) {
+            if animating {
+                scrollToEnd()
+            }
+        }
     }
 }
 
