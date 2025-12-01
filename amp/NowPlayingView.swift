@@ -182,7 +182,7 @@ private struct ScrollingText: View {
                 .frame(width: geometry.size.width, alignment: .leading)
                 .clipped()
         }
-        .frame(height: 30)
+        .frame(height: 36)
     }
 
     private var needsScrolling: Bool {
