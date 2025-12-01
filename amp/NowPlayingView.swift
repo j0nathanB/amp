@@ -607,7 +607,7 @@ private struct InfoRow: View {
 
             Text(value)
                 .font(Theme.bodyFont)
-                .foregroundColor(isClickable ? Theme.accentDarkGreen : Theme.primaryText)
+                .foregroundColor(isClickable ? Color.accentDarkSpruce : Theme.primaryText)
                 .underline(isClickable)
                 .lineLimit(3)
                 .minimumScaleFactor(0.8)

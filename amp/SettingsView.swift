@@ -11,9 +11,9 @@ class SettingsService: ObservableObject {
     @AppStorage("showLyrics") var showLyrics: Bool = true
     @AppStorage("albumBackground") var albumBackground: Bool = false {
         didSet {
-            // Clear the cache when disabling the blurred background
+            // Clear the cache when disabling the dominant color background
             if !albumBackground {
-                BlurredArtworkBackground.clearCache()
+                DominantColorBackground.clearCache()
             }
         }
     }
@@ -76,7 +76,7 @@ struct SettingsView: View {
                             // Album Background Toggle
                             SettingRow(
                                 title: "Album Background",
-                                description: "Blurred album art background effect",
+                                description: "Moody gradient from album colors",
                                 isOn: $settings.albumBackground
                             )
                         }

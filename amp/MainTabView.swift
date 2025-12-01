@@ -10,9 +10,9 @@ struct MainTabView: View {
 
     var body: some View {
         ZStack {
-            // Blurred artwork background (when enabled and on Now Playing tab)
+            // Dominant color gradient background (when enabled and on Now Playing tab)
             if settings.albumBackground, selectedTab == .nowPlaying, let currentTrack = audioPlayer.currentTrack {
-                BlurredArtworkBackground(song: currentTrack)
+                DominantColorBackground(song: currentTrack)
 
                 // Vignette overlay for depth and text legibility
                 GeometryReader { geometry in
