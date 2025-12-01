@@ -47,22 +47,22 @@ struct MainTabView: View {
                 case .playlists:
                     PlaylistsView()
                         .padding(.top, 8)
-                        .padding(.bottom, 80)
+                        .padding(.bottom, 85)
                         .padding(.horizontal, 16)
                 case .queue:
                     QueueView()
                         .padding(.top, 8)
-                        .padding(.bottom, 80)
+                        .padding(.bottom, 85)
                         .padding(.horizontal, 16)
                 case .search:
                     SearchView()
                         .padding(.top, 8)
-                        .padding(.bottom, 80)
+                        .padding(.bottom, 85)
                         .padding(.horizontal, 16)
                 case .nowPlaying:
                     NowPlayingView()
                         .padding(.top, 8)
-                        .padding(.bottom, 80)
+                        .padding(.bottom, 85)
                         .padding(.horizontal, 16)
                 }
             }

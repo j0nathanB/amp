@@ -9,17 +9,18 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             PlayerArtworkView()
 
-            VStack(spacing: 18) {
+            VStack(spacing: 8) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
                     .padding(.top, 12)
 
                 PlayerProgressView()
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+//                    .padding(.top, 6)
+                    .padding(.bottom, 4)
 
                 PlayerControlsView()
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 22)
+                    .padding(.bottom, 12)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
