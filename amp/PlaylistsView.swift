@@ -34,7 +34,7 @@ struct PlaylistsView: View {
                         ZStack {
                             // Shadow layer
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(Theme.accentDarkIndigo)
+                                .fill(Theme.buttonShadow)
                                 .offset(x: -6, y: 6)
 
                             // Main container
@@ -183,7 +183,7 @@ private struct PlaylistItemView: View {
         ZStack {
             // Offset shadow layer
             RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.accentDarkIndigo)
+                .fill(Theme.buttonShadow)
                 .offset(x: -6, y: 6)
 
             // Main content

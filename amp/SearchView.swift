@@ -105,7 +105,7 @@ struct SearchBarView: View {
         ZStack {
             // Offset shadow layer
             RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.accentIndigo)
+                .fill(Theme.buttonShadow)
                 .frame(height: 44) // Match main container height
                 .offset(x: -6, y: 6)
 
@@ -545,7 +545,7 @@ private struct AlbumDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentIndigo)
+                    .fill(Theme.buttonShadow)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -575,7 +575,7 @@ private struct AlbumDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentIndigo)
+                    .fill(Theme.buttonShadow)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -1047,7 +1047,7 @@ private struct ArtistDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentIndigo)
+                    .fill(Theme.buttonShadow)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -1077,7 +1077,7 @@ private struct ArtistDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentIndigo)
+                    .fill(Theme.buttonShadow)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 

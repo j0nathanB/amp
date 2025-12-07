@@ -41,7 +41,7 @@ struct Theme {
     }
 
     static var buttonShadow: Color {
-        isDarkMode ? Color("AccentGreen") : Color("AccentDarkIndigo")
+        isDarkMode ? accentYellow : Color("AccentDarkIndigo")
     }
 
     static var playButtonIcon: Color {

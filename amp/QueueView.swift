@@ -82,7 +82,7 @@ struct QueueView: View {
                                 ZStack {
                                     // Layer 1: The hard shadow (offset background)
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(Theme.accentDarkIndigo)
+                                        .fill(Theme.buttonShadow)
                                         .offset(x: -6, y: 6)
 
                                     // Layer 2: The main button background
@@ -106,7 +106,7 @@ struct QueueView: View {
                                 ZStack {
                                     // Layer 1: The hard shadow (offset background)
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(Theme.accentDarkIndigo)
+                                        .fill(Theme.buttonShadow)
                                         .offset(x: -6, y: 6)
 
                                     // Layer 2: The main button background
