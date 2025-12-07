@@ -332,13 +332,14 @@ struct SearchResultsView: View {
 private struct SearchSectionView<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         VStack(spacing: 0) {
             // Green header
             Text(title)
                 .font(Theme.sectionHeaderFont)
-                .foregroundColor(Theme.primaryText)
+                .foregroundColor(settings.darkMode ? .black : Theme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -601,14 +602,14 @@ private struct AlbumDetailHeaderView: View {
                     HStack(spacing: 12) {
                         Text(albumTitle)
                             .font(Theme.sectionHeaderFont)
-                            .foregroundColor(Theme.primaryText)
+                            .foregroundColor(settings.darkMode ? .black : Theme.primaryText)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         Image(systemName: "play.fill")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(settings.darkMode ? .black : .white)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -1108,14 +1109,14 @@ private struct ArtistDetailHeaderView: View {
                     HStack(spacing: 12) {
                         Text(artistName)
                             .font(Theme.sectionHeaderFont)
-                            .foregroundColor(Theme.primaryText)
+                            .foregroundColor(settings.darkMode ? .black : Theme.primaryText)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         Image(systemName: "play.fill")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(settings.darkMode ? .black : .white)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)

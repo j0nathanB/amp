@@ -396,6 +396,7 @@ private struct PlayerControlsView: View {
                             .overlay(
                                 Text(audioPlayer.currentOutputName)
                                     .font(Theme.bodyFont)
+                                    .foregroundColor(settings.darkMode && audioPlayer.isPlaying ? Theme.background : Theme.primaryText)
                                     .allowsHitTesting(false)
                             )
                     }
