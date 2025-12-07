@@ -3,6 +3,7 @@ import SwiftUI
 struct PlaylistsView: View {
     @State private var playlists: [Playlist] = []
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @ObservedObject private var settings = SettingsService.shared
     @State private var isScrollable = false
     @State private var isAtBottom = false
     @State private var contentHeight: CGFloat = 0

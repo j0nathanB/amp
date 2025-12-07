@@ -4,8 +4,6 @@ struct Theme {
     // Colors from Asset Catalog (static, non-dark-mode-aware)
     static let accentLightGreen = Color("AccentLightGreen")
     static let accentPink = Color("AccentPink")
-    static let accentDarkBlue = Color("AccentDarkBlue")
-    static let accentLightBlue = Color("AccentLightBlue")
     static let accentSkyBlue = Color("AccentSkyBlue")
     static let accentYellow = Color("AccentYellow")
     static let accentRed = Color("AccentRed")
@@ -32,6 +30,26 @@ struct Theme {
 
     static var accentDarkIndigo: Color {
         isDarkMode ? Color(red: 0.45, green: 0.45, blue: 0.5) : Color("AccentDarkIndigo")
+    }
+
+    static var accentLightBlue: Color {
+        isDarkMode ? Color(red: 0.4, green: 0.6, blue: 0.8) : Color("AccentLightBlue")
+    }
+
+    static var accentDarkBlue: Color {
+        isDarkMode ? Color(red: 0.3, green: 0.5, blue: 0.7) : Color("AccentDarkBlue")
+    }
+
+    static var buttonShadow: Color {
+        isDarkMode ? Color("AccentGreen") : Color("AccentDarkIndigo")
+    }
+
+    static var playButtonIcon: Color {
+        isDarkMode ? Color.black : Color.white
+    }
+
+    static var mainButtonStroke: Color {
+        isDarkMode ? Color(white: 0.65) : primaryText
     }
 
     // Helper to check dark mode state

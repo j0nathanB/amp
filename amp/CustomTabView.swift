@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CustomTabView: View {
     @Binding var selectedTab: Tab
+    @ObservedObject private var settings = SettingsService.shared
 
     var body: some View {
         HStack(spacing: 8) {

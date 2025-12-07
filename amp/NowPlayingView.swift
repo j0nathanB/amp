@@ -466,29 +466,75 @@ private struct PlayerControlButton: View {
     let action: () -> Void
     let icon: String
     var isLarge: Bool = false
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(isLarge ? .system(size: 50) : .largeTitle)
-                .foregroundColor(isLarge ? Color.white : Theme.accentLightGreen)
+                .foregroundColor(isLarge ? Theme.playButtonIcon : Theme.accentLightGreen)
         }
         .frame(width: 82, height: 82)
         .background(
             ZStack {
+                // Layer 0: White border background for back/fwd buttons in dark mode
+                if settings.darkMode && !isLarge {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.white)
+                        .frame(width: 84, height: 84) // 2px larger on right and top only
+                        .offset(x: 1, y: -1) // Offset to show white border on top and right edges only
+                }
+
                 // Layer 1: The hard shadow (offset background)
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.accentDarkIndigo)
+                    .fill(Theme.buttonShadow)
+                    .frame(width: 82, height: 82)
                     .offset(x: -6, y: 6)
 
                 // Layer 2: The main button background
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isLarge ? icon == "pause.fill" ? Theme.accentPink : Theme.accentLightGreen : Theme.background)
+                    .frame(width: 82, height: 82)
             }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Theme.primaryText, lineWidth: 2)
+            Group {
+                if settings.darkMode {
+                    // Only show outline for large (play/pause) button in dark mode
+                    if isLarge {
+                        ZStack {
+                            // Top edge
+                            Rectangle()
+                                .fill(Theme.accentLightGreen)
+                                .frame(height: 2)
+                                .frame(maxHeight: .infinity, alignment: .top)
+
+                            // Right edge
+                            Rectangle()
+                                .fill(Theme.accentLightGreen)
+                                .frame(width: 2)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                            // Bottom edge
+                            Rectangle()
+                                .fill(Color.black)
+                                .frame(height: 2)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+
+                            // Left edge
+                            Rectangle()
+                                .fill(Color.black)
+                                .frame(width: 2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                } else {
+                    // Uniform stroke for light mode
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Theme.primaryText, lineWidth: 2)
+                }
+            }
         )
     }
 }
