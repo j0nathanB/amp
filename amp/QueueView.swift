@@ -53,6 +53,7 @@ class QueueViewState: ObservableObject {
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @StateObject private var viewState = QueueViewState.shared
+    @StateObject private var settings = SettingsService.shared
     @State private var lastCurrentIndex: Int = -1
     @State private var isScrollable = false
     @State private var isAtBottom = false
@@ -80,10 +81,12 @@ struct QueueView: View {
                             .padding(.vertical, 8)
                             .background(
                                 ZStack {
-                                    // Layer 1: The hard shadow (offset background)
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Theme.buttonShadow)
-                                        .offset(x: -6, y: 6)
+                                    // Layer 1: The hard shadow (offset background) - only show in light mode
+                                    if !settings.darkMode {
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Theme.buttonShadow)
+                                            .offset(x: -6, y: 6)
+                                    }
 
                                     // Layer 2: The main button background
                                     RoundedRectangle(cornerRadius: 6)
@@ -104,10 +107,12 @@ struct QueueView: View {
                             .padding(.vertical, 8)
                             .background(
                                 ZStack {
-                                    // Layer 1: The hard shadow (offset background)
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Theme.buttonShadow)
-                                        .offset(x: -6, y: 6)
+                                    // Layer 1: The hard shadow (offset background) - only show in light mode
+                                    if !settings.darkMode {
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Theme.buttonShadow)
+                                            .offset(x: -6, y: 6)
+                                    }
 
                                     // Layer 2: The main button background
                                     RoundedRectangle(cornerRadius: 6)

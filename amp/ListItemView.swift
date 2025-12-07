@@ -15,6 +15,7 @@ struct ListItemView: View {
     var backgroundColor: Color = Theme.background
 
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @StateObject private var settings = SettingsService.shared
     
     var body: some View {
         Group {
@@ -101,11 +102,13 @@ struct ListItemView: View {
                 playPauseAction?()
             }) {
                 ZStack {
-                    // Layer 1: The hard shadow (offset background)
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.accentIndigo)
-                        .frame(width: 60, height: 60)
-                        .offset(x: -6, y: 6)
+                    // Layer 1: The hard shadow (offset background) - only show in light mode
+                    if !settings.darkMode {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.accentIndigo)
+                            .frame(width: 60, height: 60)
+                            .offset(x: -6, y: 6)
+                    }
 
                     // Layer 2: The main button background
                     RoundedRectangle(cornerRadius: 6)

@@ -36,14 +36,17 @@ private struct TabButton: View {
     // The unused 'icon' property has been removed
     let isSelected: Bool
     let action: () -> Void
-    
+    @StateObject private var settings = SettingsService.shared
+
     var body: some View {
         // Using a ZStack gives us more control over rendering and animation
         ZStack {
-            // Layer 1: The hard shadow (offset background)
-            Capsule()
-                .fill(Theme.accentDarkBlue)
-                .offset(x: -6, y: 6)
+            // Layer 1: The hard shadow (offset background) - only show in light mode
+            if !settings.darkMode {
+                Capsule()
+                    .fill(Theme.accentDarkBlue)
+                    .offset(x: -6, y: 6)
+            }
 
             // Layer 2: The main button background
             Capsule()

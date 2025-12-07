@@ -32,10 +32,12 @@ struct PlaylistsView: View {
                     .padding(.vertical, 8)
                     .background(
                         ZStack {
-                            // Shadow layer
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Theme.buttonShadow)
-                                .offset(x: -6, y: 6)
+                            // Shadow layer - only show in light mode
+                            if !settings.darkMode {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(Theme.buttonShadow)
+                                    .offset(x: -6, y: 6)
+                            }
 
                             // Main container
                             RoundedRectangle(cornerRadius: 6)
@@ -178,13 +180,16 @@ private struct PlaylistItemView: View {
     let playlist: Playlist
     let action: () -> Void
     @GestureState private var isPressed = false
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         ZStack {
-            // Offset shadow layer
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.buttonShadow)
-                .offset(x: -6, y: 6)
+            // Offset shadow layer - only show in light mode
+            if !settings.darkMode {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.buttonShadow)
+                    .offset(x: -6, y: 6)
+            }
 
             // Main content
             ListItemView(

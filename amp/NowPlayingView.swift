@@ -377,11 +377,13 @@ private struct PlayerControlsView: View {
             HStack(spacing: 24) {
                 // Speaker/AirPlay button in rounded box with shadow
                 ZStack {
-                    // Shadow layer
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.buttonShadow)
-                        .frame(width: 126, height: 44)
-                        .offset(x: -4, y: 4)
+                    // Shadow layer - only show in light mode
+                    if !settings.darkMode {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.buttonShadow)
+                            .frame(width: 126, height: 44)
+                            .offset(x: -4, y: 4)
+                    }
 
                     // Main container
                     ZStack {
@@ -414,10 +416,12 @@ private struct PlayerControlsView: View {
                 .frame(width: 63, height: 44)
                 .background(
                     ZStack {
-                        // Shadow layer
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Theme.buttonShadow)
-                            .offset(x: -4, y: 4)
+                        // Shadow layer - only show in light mode
+                        if !settings.darkMode {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Theme.buttonShadow)
+                                .offset(x: -4, y: 4)
+                        }
 
                         // Main container
                         RoundedRectangle(cornerRadius: 6)
@@ -441,10 +445,12 @@ private struct PlayerControlsView: View {
                     .frame(width: 68, height: 44)
                     .background(
                         ZStack {
-                            // Shadow layer
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Theme.buttonShadow)
-                                .offset(x: -4, y: 4)
+                            // Shadow layer - only show in light mode
+                            if !settings.darkMode {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(Theme.buttonShadow)
+                                    .offset(x: -4, y: 4)
+                            }
 
                             // Main button background
                             Rectangle()
@@ -477,11 +483,13 @@ private struct PlayerControlButton: View {
         .frame(width: 82, height: 82)
         .background(
             ZStack {
-                // Layer 1: The hard shadow (offset background)
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.buttonShadow)
-                    .frame(width: 82, height: 82)
-                    .offset(x: -6, y: 6)
+                // Layer 1: The hard shadow (offset background) - only show in light mode
+                if !settings.darkMode {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Theme.buttonShadow)
+                        .frame(width: 82, height: 82)
+                        .offset(x: -6, y: 6)
+                }
 
                 // Layer 2: The main button background
                 RoundedRectangle(cornerRadius: 6)
@@ -507,13 +515,21 @@ private struct PlayerControlButton: View {
 
 extension View {
     func iconStroke(fillColor: Color, strokeColor: Color, strokeWidth: CGFloat = 1) -> some View {
-        self
-            .foregroundColor(strokeColor)
-            .shadow(color: strokeColor, radius: 0, x: -strokeWidth, y: -strokeWidth)
-            .shadow(color: strokeColor, radius: 0, x: strokeWidth, y: -strokeWidth)
-            .shadow(color: strokeColor, radius: 0, x: -strokeWidth, y: strokeWidth)
-            .shadow(color: strokeColor, radius: 0, x: strokeWidth, y: strokeWidth)
-            .foregroundColor(fillColor)
+        if SettingsService.shared.darkMode {
+            // No shadow in dark mode
+            return AnyView(self.foregroundColor(fillColor))
+        } else {
+            // Full shadow effect in light mode
+            return AnyView(
+                self
+                    .foregroundColor(strokeColor)
+                    .shadow(color: strokeColor, radius: 0, x: -strokeWidth, y: -strokeWidth)
+                    .shadow(color: strokeColor, radius: 0, x: strokeWidth, y: -strokeWidth)
+                    .shadow(color: strokeColor, radius: 0, x: -strokeWidth, y: strokeWidth)
+                    .shadow(color: strokeColor, radius: 0, x: strokeWidth, y: strokeWidth)
+                    .foregroundColor(fillColor)
+            )
+        }
     }
 }
 

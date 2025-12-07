@@ -100,28 +100,40 @@ struct SearchView: View {
 struct SearchBarView: View {
     @Binding var searchText: String
     @FocusState private var isSearchFieldFocused: Bool
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         ZStack {
-            // Offset shadow layer
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.buttonShadow)
-                .frame(height: 44) // Match main container height
-                .offset(x: -6, y: 6)
+            // Offset shadow layer - only show in light mode
+            if !settings.darkMode {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.searchShadow)
+                    .frame(height: 44) // Match main container height
+                    .offset(x: -6, y: 6)
+            }
 
             // Main search bar container
             HStack(spacing: 0) {
                 // Text field area with clear button
                 HStack(spacing: 8) {
-                    TextField("Search Songs, Artists, Albums...", text: $searchText)
-                        .focused($isSearchFieldFocused)
-                        .submitLabel(.done)
-                        .onSubmit {
-                            isSearchFieldFocused = false
+                    ZStack(alignment: .leading) {
+                        // Custom placeholder text with lighter color
+                        if searchText.isEmpty {
+                            Text("Search Songs, Artists, Albums...")
+                                .font(Theme.bodyFont)
+                                .foregroundColor(Theme.secondaryText)
                         }
-                        .font(Theme.bodyFont)
-                        .foregroundColor(Theme.primaryText)
-                        .tint(Theme.primaryText)
+
+                        TextField("", text: $searchText)
+                            .focused($isSearchFieldFocused)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                isSearchFieldFocused = false
+                            }
+                            .font(Theme.bodyFont)
+                            .foregroundColor(Theme.primaryText)
+                            .tint(Theme.primaryText)
+                    }
 
                     // Clear button (only visible when there's text)
                     if !searchText.isEmpty {
@@ -148,7 +160,7 @@ struct SearchBarView: View {
                     isSearchFieldFocused = false
                 }) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(Theme.primaryText)
+                        .foregroundColor(.black)
                         .font(.system(size: 20, weight: .bold))
                         .frame(width: 44, height: 44)
                 }
@@ -538,16 +550,19 @@ private struct AlbumDetailHeaderView: View {
     let backAction: () -> Void
     let playAction: () -> Void
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         HStack(spacing: 12) {
             // Back button with rounded rectangle and drop shadow
             ZStack {
-                // Offset shadow layer
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.buttonShadow)
-                    .frame(height: 44)
-                    .offset(x: -4, y: 4)
+                // Offset shadow layer - only show in light mode
+                if !settings.darkMode {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Theme.buttonShadow)
+                        .frame(height: 44)
+                        .offset(x: -4, y: 4)
+                }
 
                 // Main button container
                 Button(action: backAction) {
@@ -573,11 +588,13 @@ private struct AlbumDetailHeaderView: View {
 
             // Album name box with rounded rectangle and drop shadow
             ZStack {
-                // Offset shadow layer
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.buttonShadow)
-                    .frame(height: 44)
-                    .offset(x: -4, y: 4)
+                // Offset shadow layer - only show in light mode
+                if !settings.darkMode {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Theme.buttonShadow)
+                        .frame(height: 44)
+                        .offset(x: -4, y: 4)
+                }
 
                 // Main info box container with play button
                 Button(action: playAction) {
@@ -1040,16 +1057,19 @@ private struct ArtistDetailHeaderView: View {
     let artistName: String
     let backAction: () -> Void
     let playAction: () -> Void
+    @StateObject private var settings = SettingsService.shared
 
     var body: some View {
         HStack(spacing: 12) {
             // Back button with rounded rectangle and drop shadow
             ZStack {
-                // Offset shadow layer
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.buttonShadow)
-                    .frame(height: 44)
-                    .offset(x: -4, y: 4)
+                // Offset shadow layer - only show in light mode
+                if !settings.darkMode {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Theme.buttonShadow)
+                        .frame(height: 44)
+                        .offset(x: -4, y: 4)
+                }
 
                 // Main button container
                 Button(action: backAction) {
@@ -1075,11 +1095,13 @@ private struct ArtistDetailHeaderView: View {
 
             // Artist name box with rounded rectangle and drop shadow
             ZStack {
-                // Offset shadow layer
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.buttonShadow)
-                    .frame(height: 44)
-                    .offset(x: -4, y: 4)
+                // Offset shadow layer - only show in light mode
+                if !settings.darkMode {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Theme.buttonShadow)
+                        .frame(height: 44)
+                        .offset(x: -4, y: 4)
+                }
 
                 // Main info box container with play button
                 Button(action: playAction) {

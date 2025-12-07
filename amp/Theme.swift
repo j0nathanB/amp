@@ -52,6 +52,10 @@ struct Theme {
         isDarkMode ? Color(white: 0.65) : primaryText
     }
 
+    static var searchShadow: Color {
+        isDarkMode ? Color("AccentDarkSpruce") : Color("AccentDarkIndigo")
+    }
+
     // Helper to check dark mode state
     private static var isDarkMode: Bool {
         SettingsService.shared.darkMode
