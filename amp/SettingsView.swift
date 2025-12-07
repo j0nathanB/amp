@@ -9,14 +9,6 @@ class SettingsService: ObservableObject {
     static let shared = SettingsService()
 
     @AppStorage("showLyrics") var showLyrics: Bool = true
-    @AppStorage("albumBackground") var albumBackground: Bool = false {
-        didSet {
-            // Clear the cache when disabling the dominant color background
-            if !albumBackground {
-                DominantColorBackground.clearCache()
-            }
-        }
-    }
     @AppStorage("darkMode") var darkMode: Bool = false
 
     private init() {}
@@ -79,17 +71,6 @@ struct SettingsView: View {
                                 title: "Show Lyrics",
                                 description: "Display lyrics button in Now Playing",
                                 isOn: $settings.showLyrics
-                            )
-
-                            Divider()
-                                .background(Color.black.opacity(0.2))
-                                .padding(.horizontal, 16)
-
-                            // Album Background Toggle
-                            SettingRow(
-                                title: "Album Background",
-                                description: "Moody gradient from album colors",
-                                isOn: $settings.albumBackground
                             )
                         }
                         .padding(.top, 16)
