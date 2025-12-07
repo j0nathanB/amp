@@ -38,7 +38,7 @@ struct PlaylistsView: View {
 
                             // Main container
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(showSettings ? Theme.accentLightBlue : Color.white)
+                                .fill(showSettings ? Theme.accentLightBlue : Theme.background)
                         }
                     )
                     .overlay(
@@ -192,7 +192,7 @@ private struct PlaylistItemView: View {
                 detail: nil,
                 isPressed: isPressed,
                 textAlignment: .center,
-                backgroundColor: Theme.accentGreen
+                backgroundColor: Theme.accentLightGreen
             )
             .cornerRadius(4)
             .overlay(

@@ -17,6 +17,7 @@ class SettingsService: ObservableObject {
             }
         }
     }
+    @AppStorage("darkMode") var darkMode: Bool = false
 
     private init() {}
 }
@@ -62,6 +63,17 @@ struct SettingsView: View {
                     // Settings List
                     ScrollView {
                         VStack(spacing: 0) {
+                            // Dark Mode Toggle
+                            SettingRow(
+                                title: "Dark Mode",
+                                description: "Black background with light accents",
+                                isOn: $settings.darkMode
+                            )
+
+                            Divider()
+                                .background(Color.black.opacity(0.2))
+                                .padding(.horizontal, 16)
+
                             // Show Lyrics Toggle
                             SettingRow(
                                 title: "Show Lyrics",
@@ -109,7 +121,7 @@ struct SettingRow: View {
 
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .tint(Theme.accentGreen)
+                .tint(Theme.accentLightGreen)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

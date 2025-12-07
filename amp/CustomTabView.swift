@@ -41,17 +41,17 @@ private struct TabButton: View {
         ZStack {
             // Layer 1: The hard shadow (offset background)
             Capsule()
-                .fill(Theme.accentBlue)
+                .fill(Theme.accentDarkBlue)
                 .offset(x: -6, y: 6)
 
             // Layer 2: The main button background
             Capsule()
-                .fill(isSelected ? Theme.accentLightBlue : .white)
+                .fill(isSelected ? Theme.accentLightBlue : Theme.background)
 
             // Layer 3: The text content
             Text(title)
                 .font(Theme.tabFont)
-                .foregroundColor(Theme.primaryText)
+                .foregroundColor(isSelected ? .black : Theme.primaryText)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
         }

@@ -30,7 +30,7 @@ struct SearchView: View {
                         if shouldShowCircle {
                             Image(systemName: "circle.fill")
                                 .font(.system(size: 300)) // Fixed size to prevent stretching
-                                .foregroundStyle(Theme.accentGreen)
+                                .foregroundStyle(Theme.accentLightGreen)
                                 .id(circleID) // Force regeneration with unique ID
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .contentShape(Rectangle())
@@ -105,7 +105,7 @@ struct SearchBarView: View {
         ZStack {
             // Offset shadow layer
             RoundedRectangle(cornerRadius: 4)
-                .fill(Theme.accentDarkBlue)
+                .fill(Theme.accentIndigo)
                 .frame(height: 44) // Match main container height
                 .offset(x: -6, y: 6)
 
@@ -120,6 +120,8 @@ struct SearchBarView: View {
                             isSearchFieldFocused = false
                         }
                         .font(Theme.bodyFont)
+                        .foregroundColor(Theme.primaryText)
+                        .tint(Theme.primaryText)
 
                     // Clear button (only visible when there's text)
                     if !searchText.isEmpty {
@@ -153,7 +155,7 @@ struct SearchBarView: View {
                 .background(Theme.accentYellow)
             }
             .frame(height: 44) // Constrain entire HStack height
-            .background(.white)
+            .background(Theme.background)
             .cornerRadius(4)
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
@@ -328,13 +330,13 @@ private struct SearchSectionView<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Theme.accentDarkGreen)
+                .background(Theme.accentGreen)
 
             // Content with negative spacing for border overlap
             VStack(spacing: -1) {
                 content
             }
-            .background(Color.white)
+            .background(Theme.background)
         }
         .cornerRadius(8)
         .overlay(
@@ -457,7 +459,7 @@ struct AlbumDetailView: View {
                 .padding(.bottom, 20)
             }
         }
-        .background(Color.white)
+        .background(Theme.background)
         .onAppear {
             print("🎵 AlbumDetailView appeared for album: \(album.title) with ID: \(album.id)")
             loadAlbumSongs()
@@ -543,7 +545,7 @@ private struct AlbumDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentDarkBlue)
+                    .fill(Theme.accentIndigo)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -560,7 +562,7 @@ private struct AlbumDetailHeaderView: View {
                     .padding(.vertical, 8)
                 }
                 .frame(height: 44)
-                .background(Color.white)
+                .background(Theme.background)
                 .cornerRadius(4)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -573,7 +575,7 @@ private struct AlbumDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentDarkBlue)
+                    .fill(Theme.accentIndigo)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -595,7 +597,7 @@ private struct AlbumDetailHeaderView: View {
                     .padding(.vertical, 8)
                 }
                 .frame(height: 44)
-                .background(Theme.accentGreen)
+                .background(Theme.accentLightGreen)
                 .cornerRadius(4)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -605,7 +607,7 @@ private struct AlbumDetailHeaderView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.white)
+        .background(Theme.background)
     }
 }
 
@@ -653,7 +655,7 @@ private struct AlbumArtworkImage: View {
                 Image(systemName: "circle.fill")
                     .resizable()
                     .padding(70)
-                    .foregroundStyle(Theme.accentGreen)
+                    .foregroundStyle(Theme.accentLightGreen)
             }
         }
         .aspectRatio(contentMode: .fit)
@@ -702,7 +704,7 @@ private struct AlbumDetailInfoView: View {
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white)
+        .background(Theme.background)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
         .task(id: song.id) {
             // Only enrich if the song doesn't have a release date
@@ -763,7 +765,7 @@ private struct AlbumTracksView: View {
                                 .foregroundColor(Theme.primaryText)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 12)
-                                .background(Color.white)
+                                .background(Theme.background)
                                 .overlay(
                                     Rectangle()
                                         .stroke(Theme.primaryText, lineWidth: 1)
@@ -812,7 +814,7 @@ private struct TrackItemView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(isPressed ? Theme.accentYellow : Color.white)
+            .background(isPressed ? Theme.accentYellow : Theme.background)
         }
         .buttonStyle(PlainButtonStyle())
         .simultaneousGesture(
@@ -922,7 +924,7 @@ struct ArtistDetailView: View {
                 .padding(.bottom, 20)
             }
         }
-        .background(Color.white)
+        .background(Theme.background)
         .sheet(item: $selectedAlbum) { album in
             AlbumDetailView(album: album, searchResults: searchResults)
                 .environmentObject(audioPlayer)
@@ -1045,7 +1047,7 @@ private struct ArtistDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentDarkBlue)
+                    .fill(Theme.accentIndigo)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -1062,7 +1064,7 @@ private struct ArtistDetailHeaderView: View {
                     .padding(.vertical, 8)
                 }
                 .frame(height: 44)
-                .background(Color.white)
+                .background(Theme.background)
                 .cornerRadius(4)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -1075,7 +1077,7 @@ private struct ArtistDetailHeaderView: View {
             ZStack {
                 // Offset shadow layer
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accentDarkBlue)
+                    .fill(Theme.accentIndigo)
                     .frame(height: 44)
                     .offset(x: -4, y: 4)
 
@@ -1097,7 +1099,7 @@ private struct ArtistDetailHeaderView: View {
                     .padding(.vertical, 8)
                 }
                 .frame(height: 44)
-                .background(Theme.accentGreen)
+                .background(Theme.accentLightGreen)
                 .cornerRadius(4)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -1107,6 +1109,6 @@ private struct ArtistDetailHeaderView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.white)
+        .background(Theme.background)
     }
 }

@@ -87,7 +87,7 @@ struct QueueView: View {
 
                                     // Layer 2: The main button background
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(audioPlayer.isLooped ? Theme.accentPink : .white)
+                                        .fill(audioPlayer.isLooped ? Theme.accentPink : Theme.background)
                                 }
                             )
                             .overlay(
@@ -111,7 +111,7 @@ struct QueueView: View {
 
                                     // Layer 2: The main button background
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(audioPlayer.isShuffled ? Theme.accentPink : .white)
+                                        .fill(audioPlayer.isShuffled ? Theme.accentPink : Theme.background)
                                 }
                             )
                             .overlay(

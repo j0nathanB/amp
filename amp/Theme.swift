@@ -1,22 +1,43 @@
 import SwiftUI
 
 struct Theme {
-    // Colors from Asset Catalog
-    static let accentGreen = Color("AccentGreen")
+    // Colors from Asset Catalog (static, non-dark-mode-aware)
+    static let accentLightGreen = Color("AccentLightGreen")
     static let accentPink = Color("AccentPink")
-    static let accentBlue = Color("AccentBlue")
+    static let accentDarkBlue = Color("AccentDarkBlue")
     static let accentLightBlue = Color("AccentLightBlue")
     static let accentSkyBlue = Color("AccentSkyBlue")
-    static let accentDarkBlue = Color("AccentDarkBlue")
-    static let accentDarkIndigo = Color("AccentDarkIndigo")
     static let accentYellow = Color("AccentYellow")
-    static let accentDarkGreen = Color("AccentDarkGreen")
     static let accentRed = Color("AccentRed")
-    static let primaryText = Color.black
-    static let secondaryText = Color.gray
+    static let accentGreen = Color("AccentGreen")
     static let backgroundColor = Color("BackgroundColor")
     static let touchDownColor = Color("TouchDownColor")
-    static let background = Color.white
+
+    // Dynamic colors that respond to dark mode
+    static var background: Color {
+        isDarkMode ? Color.black : Color.white
+    }
+
+    static var primaryText: Color {
+        isDarkMode ? Color.white : Color.black
+    }
+
+    static var secondaryText: Color {
+        isDarkMode ? Color.gray : Color.gray
+    }
+
+    static var accentIndigo: Color {
+        isDarkMode ? Color(red: 0.4, green: 0.4, blue: 0.45) : Color("AccentIndigo")
+    }
+
+    static var accentDarkIndigo: Color {
+        isDarkMode ? Color(red: 0.45, green: 0.45, blue: 0.5) : Color("AccentDarkIndigo")
+    }
+
+    // Helper to check dark mode state
+    private static var isDarkMode: Bool {
+        SettingsService.shared.darkMode
+    }
     
     // --- Updated Font Hierarchy with Better Weight Differentiation ---
     // The largest font, for main titles in views like NowPlayingView.

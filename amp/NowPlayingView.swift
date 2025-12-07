@@ -76,7 +76,7 @@ private struct PlayerArtworkView: View {
                 Image(systemName: "circle.fill")
                     .resizable()
                     .padding(70)
-                    .foregroundStyle(Theme.accentGreen)
+                    .foregroundStyle(Theme.accentLightGreen)
             }
         }
         .frame(maxWidth: .infinity) // Let it fill available width
@@ -121,7 +121,7 @@ private struct ArtworkImage: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .padding(70)
-                        .foregroundStyle(Theme.accentGreen)
+                        .foregroundStyle(Theme.accentLightGreen)
                         .frame(width: geometry.size.width, height: geometry.size.width)
                 }
             }
@@ -329,7 +329,7 @@ private struct ProgressBarTrack: View {
             ZStack(alignment: .leading) {
                 // Background of the progress bar
                 Rectangle()
-                    .fill(Theme.accentDarkGreen)
+                    .fill(Theme.accentGreen)
                     .stroke(Theme.primaryText, lineWidth: 2)
                     .frame(height: barHeight)
 
@@ -341,7 +341,7 @@ private struct ProgressBarTrack: View {
 
                 // The draggable circular slider thumb
                 Circle()
-                    .fill(isPlaying ? Theme.accentGreen : Theme.accentPink)
+                    .fill(isPlaying ? Theme.accentLightGreen : Theme.accentPink)
                     .stroke(Theme.primaryText, lineWidth: 2)
                     .frame(width: thumbSize, height: thumbSize)
                     .offset(x: thumbOffset)
@@ -386,7 +386,7 @@ private struct PlayerControlsView: View {
                     // Main container
                     ZStack {
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(audioPlayer.isPlaying ? Theme.accentLightBlue : Color.white)
+                            .fill(audioPlayer.isPlaying ? Theme.accentLightBlue : Theme.background)
                             .frame(width: 126, height: 44)
 
                         AirPlayButton()
@@ -421,7 +421,7 @@ private struct PlayerControlsView: View {
 
                         // Main container
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(audioPlayer.isLoopingSong ? Theme.accentPink : Color.white)
+                            .fill(audioPlayer.isLoopingSong ? Theme.accentPink : Theme.background)
                     }
                 )
                 .overlay(
@@ -448,7 +448,7 @@ private struct PlayerControlsView: View {
 
                             // Main button background
                             Rectangle()
-                                .fill(Color.white)
+                                .fill(Theme.background)
                         }
                     )
                     .overlay(
@@ -471,7 +471,7 @@ private struct PlayerControlButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(isLarge ? .system(size: 50) : .largeTitle)
-                .foregroundColor(isLarge ? Color.white : Theme.accentGreen)
+                .foregroundColor(isLarge ? Color.white : Theme.accentLightGreen)
         }
         .frame(width: 82, height: 82)
         .background(
@@ -483,7 +483,7 @@ private struct PlayerControlButton: View {
 
                 // Layer 2: The main button background
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isLarge ? icon == "pause.fill" ? Theme.accentPink : Theme.accentGreen : Color.white)
+                    .fill(isLarge ? icon == "pause.fill" ? Theme.accentPink : Theme.accentLightGreen : Theme.background)
             }
         )
         .overlay(
@@ -561,7 +561,7 @@ private struct AlbumInfoView: View {
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity) // Match artwork dimensions exactly
-        .background(Color.white)
+        .background(Theme.background)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.primaryText, lineWidth: 2))
         .contentShape(Rectangle()) // Make entire view tappable
         .onTapGesture {

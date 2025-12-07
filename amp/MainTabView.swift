@@ -36,8 +36,8 @@ struct MainTabView: View {
                     .fill(Color.white.opacity(0.1))
                     .ignoresSafeArea()
             } else {
-                // White background (default)
-                Color.white
+                // Default background (white in light mode, black in dark mode)
+                Theme.background
                     .ignoresSafeArea()
             }
 

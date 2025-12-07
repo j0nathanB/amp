@@ -4,20 +4,21 @@ import MediaPlayer
 @main
 struct ampApp: App {
     @StateObject private var audioPlayer = AudioPlayerService.shared
+    @StateObject private var settings = SettingsService.shared
     @Environment(\.scenePhase) var scenePhase
-    
+
     init() {
         // Audio session is now managed by PlaybackEngineService
         setupMemoryWarningObserver()
         setupNotificationService()
     }
-    
+
     var body: some Scene {
             WindowGroup {
                 PermissionCheckerView()
                     .environmentObject(audioPlayer)
-                    .preferredColorScheme(.light)
-                    .accentColor(Theme.accentGreen) // This sets the global accent color including keyboard buttons
+                    .preferredColorScheme(settings.darkMode ? .dark : .light)
+                    .accentColor(Theme.accentLightGreen) // This sets the global accent color including keyboard buttons
                     .ignoresSafeArea(.keyboard, edges: .bottom) // Handle keyboard at the app level
                     .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                         print("[App] Entering foreground")

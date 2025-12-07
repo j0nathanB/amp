@@ -12,7 +12,7 @@ struct ListItemView: View {
     var showTopBorder: Bool = true
     var showBottomBorder: Bool = true
     var textAlignment: HorizontalAlignment = .leading
-    var backgroundColor: Color = .white
+    var backgroundColor: Color = Theme.background
 
     @EnvironmentObject var audioPlayer: AudioPlayerService
     
@@ -22,7 +22,7 @@ struct ListItemView: View {
                 // Centered layout for playlists
                 Text(title)
                     .font(italicizeTitle ? Theme.searchAlbumFont : (isPlaying ? Theme.queuePlayingFont : Theme.queueSongFont))
-                    .foregroundColor(isPressed ? .white : Theme.primaryText)
+                    .foregroundColor(isPressed ? .white : .black)
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -32,22 +32,22 @@ struct ListItemView: View {
                     VStack(alignment: .leading) {
                         Text(title)
                             .font(italicizeTitle ? Theme.searchAlbumFont : (isPlaying ? Theme.queuePlayingFont : Theme.queueSongFont))
-                            .foregroundColor(isPressed ? .white : Theme.primaryText)
+                            .foregroundColor(isPressed ? .white : (isPlaying ? .black : Theme.primaryText))
                             .lineLimit(1)
 
                         // Only show the subtitle if it exists
                         if let subtitle = subtitle {
                             Text(subtitle)
                                 .font(Theme.bodyFont)
-                                .foregroundColor(isPressed ? .white : Theme.primaryText)
+                                .foregroundColor(isPressed ? .white : (isPlaying ? .black : Theme.primaryText))
                                 .tracking(-0.5) // Apply tighter letter spacing here
                                 .lineLimit(1)
                         }
-                        
+
                         if let detail = detail {
                             Text(detail)
                                 .font(Theme.bodyItalicFont)
-                                .foregroundColor(isPressed ? .white : Theme.primaryText)
+                                .foregroundColor(isPressed ? .white : (isPlaying ? .black : Theme.primaryText))
                                 .lineLimit(1)
                         }
                     }
@@ -103,13 +103,13 @@ struct ListItemView: View {
                 ZStack {
                     // Layer 1: The hard shadow (offset background)
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Theme.accentDarkBlue)
+                        .fill(Theme.accentIndigo)
                         .frame(width: 60, height: 60)
                         .offset(x: -6, y: 6)
 
                     // Layer 2: The main button background
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(audioPlayer.isPlaying ? Theme.accentPink : Theme.accentGreen)
+                        .fill(audioPlayer.isPlaying ? Theme.accentPink : Theme.accentLightGreen)
                         .frame(width: 60, height: 60)
 
                     // Layer 3: The icon
@@ -119,7 +119,7 @@ struct ListItemView: View {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Theme.primaryText, lineWidth: 2)
+                        .stroke(Color.black, lineWidth: 2)
                         .frame(width: 60, height: 60)
                 )
             }
