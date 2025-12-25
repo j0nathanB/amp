@@ -238,6 +238,9 @@ private struct ScrollingText: View {
     }
 
     private func scrollToEnd() {
+        // Guard: Don't scroll if no longer needed (e.g., text changed to shorter title)
+        guard needsScrolling && animating else { return }
+
         let scrollDistance = textWidth - containerWidth + padding
 
         withAnimation(.linear(duration: Double(scrollDistance) / 30)) {
@@ -251,6 +254,9 @@ private struct ScrollingText: View {
     }
 
     private func scrollToStart() {
+        // Guard: Don't scroll if no longer needed (e.g., text changed to shorter title)
+        guard needsScrolling && animating else { return }
+
         let scrollDistance = textWidth - containerWidth + padding
 
         withAnimation(.linear(duration: Double(scrollDistance) / 30)) {
