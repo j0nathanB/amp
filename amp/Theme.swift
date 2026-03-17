@@ -66,7 +66,7 @@ struct Theme {
     static let titleFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 32)
     
     static let nowPlayingTrackFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 30)
-    static let nowPlayingArtistFont = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 22)
+    static let nowPlayingArtistFont = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 24)
     static let queuePlayingFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
     static let queueSongFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
     
