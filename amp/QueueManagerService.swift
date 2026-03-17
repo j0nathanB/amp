@@ -36,6 +36,10 @@ class QueueManagerService: ObservableObject {
     // Flags to prevent recursive loading
     private var isPerformingOperation = false
     private var hasLoadedInitialQueue = false
+
+    // Playback position tracking for persistence
+    var currentPlaybackPosition: TimeInterval = 0
+    var restoredPlaybackPosition: TimeInterval?
     
     // Session state management
     enum SessionState {
@@ -308,7 +312,8 @@ class QueueManagerService: ObservableObject {
             isShuffled: isShuffled,
             isLooped: isLooped,
             originalOrder: playbackQueue.originalOrder,
-            checksum: generateChecksum()
+            checksum: generateChecksum(),
+            playbackPosition: currentPlaybackPosition
         )
 
         // Now persist asynchronously with the already-captured state
@@ -465,9 +470,11 @@ class QueueManagerService: ObservableObject {
                 if let index = currentIndex,
                    index < songs.count {
                     self.currentTrack = songs[index]
+                    // Restore playback position for resume
+                    self.restoredPlaybackPosition = persisted.playbackPosition
                     // Notify delegate so audio player can prepare the track
                     self.delegate?.currentTrackDidChange(songs[index])
-                    print("[QueueManager] ✅ Restored current track from persisted queue: \(songs[index].title)")
+                    print("[QueueManager] ✅ Restored current track from persisted queue: \(songs[index].title) at position \(persisted.playbackPosition ?? 0)s")
                 }
 
                 // Trigger @Published update by reassigning the struct

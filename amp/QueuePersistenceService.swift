@@ -374,8 +374,9 @@ struct PersistedQueue: Codable {
     let isLooped: Bool
     let originalOrder: [MPMediaEntityPersistentID]
     let checksum: String
-    
-    init(savedAt: Date, trackIDs: [MPMediaEntityPersistentID], currentIndex: Int?, isShuffled: Bool, isLooped: Bool, originalOrder: [MPMediaEntityPersistentID], checksum: String) {
+    let playbackPosition: TimeInterval?  // Persisted playback position for resume after app termination
+
+    init(savedAt: Date, trackIDs: [MPMediaEntityPersistentID], currentIndex: Int?, isShuffled: Bool, isLooped: Bool, originalOrder: [MPMediaEntityPersistentID], checksum: String, playbackPosition: TimeInterval? = nil) {
         self.savedAt = savedAt
         self.trackIDs = trackIDs
         self.currentIndex = currentIndex
@@ -383,6 +384,7 @@ struct PersistedQueue: Codable {
         self.isLooped = isLooped
         self.originalOrder = originalOrder
         self.checksum = checksum
+        self.playbackPosition = playbackPosition
     }
 }
 

@@ -26,6 +26,8 @@ struct ampApp: App {
                     }
                     .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                         print("[App] Entering background")
+                        // Sync playback position before saving so it persists across app termination
+                        audioPlayer.queueManager.currentPlaybackPosition = audioPlayer.playbackTime
                         audioPlayer.queueManager.enterBackground()
                     }
                     .onChange(of: scenePhase) { oldPhase, newPhase in

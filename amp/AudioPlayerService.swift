@@ -159,6 +159,8 @@ class AudioPlayerService: ObservableObject {
     
     func playPause() {
         playbackEngine.playPause()
+        // Sync position for persistence before updating session state
+        queueManager.currentPlaybackPosition = playbackTime
         // Update session state based on play/pause
         if playbackEngine.isPlaying {
             queueManager.resumeSession()
@@ -313,7 +315,8 @@ extension AudioPlayerService: PlaybackEngineDelegate {
     }
 
     func playbackTimeDidUpdate(_ time: TimeInterval) {
-        // Already bound via Combine, but could add additional logic here
+        // Keep queue manager's position in sync for persistence
+        queueManager.currentPlaybackPosition = time
     }
 }
 
@@ -343,6 +346,12 @@ extension AudioPlayerService: QueueManagerDelegate {
                 playbackEngine.play(song: track, isManualSelection: false)
             } else {
                 playbackEngine.loadWithoutPlaying(song: track)
+                // Restore persisted playback position if available (e.g., after app restart)
+                if let position = queueManager.restoredPlaybackPosition, position > 0 {
+                    playbackEngine.seek(to: position)
+                    print("[AudioPlayerService] ✅ Restored playback position: \(position)s")
+                    queueManager.restoredPlaybackPosition = nil
+                }
             }
         }
     }

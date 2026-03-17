@@ -11,6 +11,7 @@ struct NowPlayingView: View {
 
             VStack(spacing: 8) {
                 PlayerTrackInfoView(track: audioPlayer.currentTrack)
+                    .id(audioPlayer.currentTrack?.persistentID)  // Force fresh state on song change (fixes scroll carryover)
                     .padding(.top, 12)
 
                 PlayerProgressView()
@@ -67,6 +68,7 @@ private struct PlayerArtworkView: View {
                     )
                 } else {
                     ArtworkImage(song: currentTrack)
+                        .id(currentTrack.persistentID)  // Force fresh state on song change (fixes art carryover)
                         .onTapGesture {
                             showInfo = true
                         }
@@ -83,6 +85,9 @@ private struct PlayerArtworkView: View {
         .aspectRatio(1, contentMode: .fill) // Keep it square and fixed size
         .clipped() // Prevent overflow
         .animation(.none, value: showInfo) // Prevent resize animation when toggling
+        .onChange(of: audioPlayer.currentTrack?.persistentID) { _, _ in
+            showInfo = false  // Reset to artwork view on song change
+        }
         .sheet(item: $selectedArtist) { artist in
             ArtistDetailView(artist: artist, searchResults: SearchResults(artists: [], albums: [], songs: []))
                 .environmentObject(audioPlayer)
@@ -144,6 +149,7 @@ private struct ArtworkImage: View {
     }
 
     private func loadArtwork() {
+        artwork = nil  // Clear stale artwork immediately to prevent previous song's art from showing
         loadedSongID = song.persistentID
         let predicate = MPMediaPropertyPredicate(value: NSNumber(value: song.persistentID), forProperty: MPMediaItemPropertyPersistentID)
         let query = MPMediaQuery.songs()
