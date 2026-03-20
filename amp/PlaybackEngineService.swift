@@ -852,7 +852,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
             // Check if we should restart current track or go to previous
-            if let currentTime = self.player?.currentTime, currentTime > 3.0 {
+            if let currentTime = self.player?.currentTime, currentTime > 4.0 {
                 // If more than 3 seconds in, restart current track
                 self.seek(to: 0)
             } else {

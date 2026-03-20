@@ -181,11 +181,16 @@ class AudioPlayerService: ObservableObject {
     }
     
     func previousTrack() {
+        // If more than 4 seconds into the track, restart current track
+        if playbackTime > 4.0 {
+            playbackEngine.seek(to: 0)
+            return
+        }
+        // Otherwise, go to previous track
         if let track = queueManager.previousTrack() {
             if isPlaying {
                 playbackEngine.play(song: track, isManualSelection: true)
             } else {
-                // If paused, just load the track without playing
                 playbackEngine.loadWithoutPlaying(song: track)
             }
         }

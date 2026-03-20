@@ -379,10 +379,10 @@ private struct PlayerControlsView: View {
             HStack(spacing: 20) {
                 Spacer()
                 // --- CORRECTED ACTION ---
-                PlayerControlButton(action: { audioPlayer.previousTrack() }, icon: "backward.fill")
+                PlayerControlButton(action: { audioPlayer.previousTrack() }, icon: "backward.end.fill")
                 PlayerControlButton(action: { audioPlayer.playPause() }, icon: audioPlayer.isPlaying ? "pause.fill" : "play.fill", isLarge: true)
                 // --- CORRECTED ACTION ---
-                PlayerControlButton(action: { audioPlayer.nextTrack() }, icon: "forward.fill")
+                PlayerControlButton(action: { audioPlayer.nextTrack() }, icon: "forward.end.fill")
                 Spacer()
             }
 
