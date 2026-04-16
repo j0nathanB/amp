@@ -176,7 +176,10 @@ class AudioPlayerService: ObservableObject {
             transitionState = .transitioning(to: track)
 
             playbackEngine.play(song: track, isManualSelection: true)
-            navigation.navigateToNowPlaying()
+            // No navigateToNowPlaying() here — Queue taps keep the user on
+            // Queue so they can play/pause and jump around without losing
+            // context. "Start playback from Library / Search" still routes
+            // to Now Playing via the startPlayback(...) variants.
 
             // Clear transition state immediately after manual playback
             transitionState = .none

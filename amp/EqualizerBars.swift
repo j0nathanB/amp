@@ -9,24 +9,41 @@ struct EqualizerBars: View {
     var barWidth: CGFloat = 4
     var gap: CGFloat = 3
     var maxHeight: CGFloat = 28
+    var isAnimating: Bool = true
+
+    // Static height used when not animating — "three little lines"
+    // equal-height stubs signalling "this is the current track but paused".
+    private let pausedHeight: CGFloat = 8
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: gap) {
-                bar(height: wave(t, phase: 0.00))
-                bar(height: wave(t, phase: 0.33))
-                bar(height: wave(t, phase: 0.66))
+        Group {
+            if isAnimating {
+                TimelineView(.animation) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    barStack(
+                        heights: [
+                            wave(t, phase: 0.00),
+                            wave(t, phase: 0.33),
+                            wave(t, phase: 0.66)
+                        ]
+                    )
+                }
+            } else {
+                barStack(heights: [pausedHeight, pausedHeight, pausedHeight])
             }
-            .frame(width: barWidth * 3 + gap * 2, height: maxHeight)
         }
+        .frame(width: barWidth * 3 + gap * 2, height: maxHeight)
         .accessibilityHidden(true)
     }
 
-    private func bar(height: CGFloat) -> some View {
-        Rectangle()
-            .fill(color)
-            .frame(width: barWidth, height: height)
+    private func barStack(heights: [CGFloat]) -> some View {
+        HStack(alignment: .center, spacing: gap) {
+            ForEach(Array(heights.enumerated()), id: \.offset) { _, h in
+                Rectangle()
+                    .fill(color)
+                    .frame(width: barWidth, height: h)
+            }
+        }
     }
 
     private func wave(_ t: TimeInterval, phase: Double) -> CGFloat {

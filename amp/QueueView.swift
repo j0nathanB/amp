@@ -1,25 +1,26 @@
 import SwiftUI
 import MediaPlayer
 
-// Spec §7.3: Queue tab root. Yellow QUEUE title block with track count,
-// Loop + Shuffle toggles below (spec amendment from the Now Playing
-// transport migration), then a list of TrackRows with position numbers.
-// Current track renders as the navy-inverted variant with equalizer bars.
+// Spec §7.3 + Queue amendments: Queue tab root. Chrome row holds the yellow
+// QUEUE title block (with trailing "N tracks") plus Loop + Shuffle toggles
+// inline — same pattern as Library's chrome. Loop here is QUEUE loop;
+// Now Playing's Loop is SONG loop (two distinct toggles).
 //
-// Phase G ships the layout + interactions. Spec §8.4's bi-directional
-// sticky current-row pinning and blue overflow bars are a follow-up pass;
-// they need careful scroll-offset tracking and are orthogonal to the main
-// rebuild.
+// Track rows show title + artist (multi-album queues need the artist line).
+// Tapping the current row toggles play/pause; tapping any other row jumps
+// playback to that track. Neither switches tabs — Queue is its own context
+// for browsing and bouncing around playback.
+//
+// Spec §8.4's bi-directional sticky pinning + blue overflow bars are a
+// follow-up pass.
 
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
-    @ObservedObject private var nav = NavigationService.shared
 
     var body: some View {
         VStack(spacing: 0) {
             chrome
             trackList
-            footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
@@ -29,21 +30,16 @@ struct QueueView: View {
     // MARK: - Chrome
 
     private var chrome: some View {
-        VStack(spacing: 16) {
+        HStack(spacing: 12) {
             ViewTitleBlock("QUEUE", trailing: trackCountLabel)
-                .padding(.horizontal, 24)
-
-            HStack(spacing: 12) {
-                TransportButton(kind: .loop, isActive: audioPlayer.isLooped) {
-                    audioPlayer.toggleLoop()
-                }
-                TransportButton(kind: .shuffle, isActive: audioPlayer.isShuffled) {
-                    audioPlayer.toggleShuffle()
-                }
-                Spacer(minLength: 0)
+            TransportButton(kind: .loop, isActive: audioPlayer.isLooped) {
+                audioPlayer.toggleLoop()
             }
-            .padding(.horizontal, 24)
+            TransportButton(kind: .shuffle, isActive: audioPlayer.isShuffled) {
+                audioPlayer.toggleShuffle()
+            }
         }
+        .padding(.horizontal, 24)
         .padding(.top, 16)
         .padding(.bottom, 20)
     }
@@ -75,9 +71,10 @@ struct QueueView: View {
                             QueueRow(
                                 index: index,
                                 trackID: trackID,
-                                isCurrent: index == audioPlayer.currentIndex
+                                isCurrent: index == audioPlayer.currentIndex,
+                                isPlaying: audioPlayer.isPlaying
                             ) {
-                                audioPlayer.playTrack(at: index)
+                                handleTap(at: index)
                             }
                             .id(index)
                         }
@@ -91,49 +88,33 @@ struct QueueView: View {
         }
     }
 
+    private func handleTap(at index: Int) {
+        if index == audioPlayer.currentIndex {
+            audioPlayer.playPause()
+        } else {
+            audioPlayer.playTrack(at: index)
+        }
+    }
+
     private func scrollToCurrent(proxy: ScrollViewProxy, animated: Bool) {
         guard let index = audioPlayer.playbackQueue.currentIndex else { return }
         if animated {
             withAnimation(.easeInOut(duration: 0.25)) {
-                proxy.scrollTo(index, anchor: .center)
+                proxy.scrollTo(index, anchor: .top)
             }
         } else {
-            proxy.scrollTo(index, anchor: .center)
+            proxy.scrollTo(index, anchor: .top)
         }
-    }
-
-    // MARK: - Footer
-
-    @ViewBuilder
-    private var footer: some View {
-        if let context = playingFromText {
-            Text(context)
-                .font(.metadata)
-                .foregroundStyle(Color.ampMutedText)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(Color.ampWhite)
-        }
-    }
-
-    // Phase G approximates queue context from the current track's album.
-    // This is right when the queue was started from an album and wrong when
-    // it's a cross-album mix — can be upgraded once we track queue provenance
-    // in QueueManagerService.
-    private var playingFromText: String? {
-        guard let album = audioPlayer.currentTrack?.album, !album.isEmpty else { return nil }
-        return "PLAYING FROM \(album.uppercased())"
     }
 }
 
-// MARK: - QueueRow (wraps TrackRow with async song hydration)
+// MARK: - QueueRow (wraps TrackRow with async song + duration hydration)
 
 private struct QueueRow: View {
     let index: Int
     let trackID: MPMediaEntityPersistentID
     let isCurrent: Bool
+    let isPlaying: Bool
     let onTap: () -> Void
 
     @State private var song: Song?
@@ -143,8 +124,10 @@ private struct QueueRow: View {
         TrackRow(
             position: "\(index + 1)",
             title: song?.title ?? "…",
+            artist: song?.artist,
             duration: formatDuration(duration),
             isCurrent: isCurrent,
+            isPlaying: isPlaying,
             onTap: onTap
         )
         .task(id: trackID) {
