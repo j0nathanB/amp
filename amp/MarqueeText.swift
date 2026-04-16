@@ -1,81 +1,129 @@
 import SwiftUI
 
+// Marquee text that scrolls horizontally when content overflows its
+// container. Scroll pattern: pause → scroll to end → pause → scroll back
+// → pause → repeat.
+//
+// Implementation uses a single Task scoped to the view's identity.
+// Every state transition (text change, container resize, view disappear)
+// cancels the Task and starts a fresh one. Every await checks
+// Task.isCancelled so no stale animation fires after cancellation —
+// which is what caused the bugs in the legacy asyncAfter-chain version.
+
 struct MarqueeText: View {
     let text: String
     let font: Font
     let color: Color
-    
-    @State private var animate = false
-    @State private var textSize: CGSize = .zero
+
+    // Speed and pauses are tunable; defaults feel iTunes-ish.
+    var pixelsPerSecond: CGFloat = 30
+    var pauseSeconds: Double = 1.5
+    var edgePadding: CGFloat = 20
+
+    @State private var textWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
-    
-    private var shouldScroll: Bool {
-        textSize.width > containerWidth
-    }
-    
+    @State private var offset: CGFloat = 0
+    @State private var scrollTask: Task<Void, Never>?
+
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { geo in
             ZStack(alignment: .leading) {
-                // Hidden text to measure size
                 Text(text)
                     .font(font)
-                    .fixedSize()
-                    .background(GeometryReader { textGeometry in
-                        Color.clear.preference(key: SizePreferenceKey.self,
-                                             value: textGeometry.size)
-                    })
-                    .hidden()
-                
-                // Visible scrolling text
-                HStack(spacing: 50) {
-                    Text(text)
-                        .font(font)
-                        .foregroundColor(color)
-                        .fixedSize()
-                    
-                    if shouldScroll {
-                        Text(text)
-                            .font(font)
-                            .foregroundColor(color)
-                            .fixedSize()
-                    }
-                }
-                .offset(x: animate && shouldScroll ? -(textSize.width + 50) : 0)
-                .animation(animate && shouldScroll ?
-                    Animation.linear(duration: Double(textSize.width + 50) / 30)
-                        .repeatForever(autoreverses: false) : nil,
-                    value: animate)
+                    .foregroundStyle(color)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .background(
+                        GeometryReader { textGeo in
+                            Color.clear.preference(
+                                key: MarqueeTextWidthKey.self,
+                                value: textGeo.size.width
+                            )
+                        }
+                    )
+                    .offset(x: displayOffset(containerWidth: geo.size.width))
             }
-            .frame(width: geometry.size.width, alignment: .leading)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
             .clipped()
-            .onPreferenceChange(SizePreferenceKey.self) { size in
-                textSize = size
-                containerWidth = geometry.size.width
-                if shouldScroll && !animate {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        animate = true
-                    }
+            .onPreferenceChange(MarqueeTextWidthKey.self) { newWidth in
+                if textWidth != newWidth {
+                    textWidth = newWidth
+                    restart()
                 }
+            }
+            .onChange(of: geo.size.width) { _, newWidth in
+                if containerWidth != newWidth {
+                    containerWidth = newWidth
+                    restart()
+                }
+            }
+            .onAppear {
+                containerWidth = geo.size.width
+                restart()
+            }
+            .onChange(of: text) { _, _ in
+                restart()
+            }
+            .onDisappear {
+                cancel()
             }
         }
-        .frame(height: 30) // Fixed height
+    }
+
+    private var overflow: CGFloat {
+        max(0, textWidth - containerWidth)
+    }
+
+    // When text fits, center it. When overflowing, apply the animated offset.
+    private func displayOffset(containerWidth: CGFloat) -> CGFloat {
+        if overflow > 0 {
+            return offset
+        }
+        return max(0, (containerWidth - textWidth) / 2)
+    }
+
+    private func cancel() {
+        scrollTask?.cancel()
+        scrollTask = nil
+    }
+
+    private func restart() {
+        cancel()
+        offset = 0
+
+        guard overflow > 0, containerWidth > 0 else { return }
+
+        let distance = overflow + edgePadding
+        let duration = Double(distance / pixelsPerSecond)
+
+        scrollTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(pauseSeconds))
+            guard !Task.isCancelled else { return }
+
+            while !Task.isCancelled {
+                withAnimation(.linear(duration: duration)) {
+                    offset = -distance
+                }
+                try? await Task.sleep(for: .seconds(duration))
+                guard !Task.isCancelled else { return }
+
+                try? await Task.sleep(for: .seconds(pauseSeconds))
+                guard !Task.isCancelled else { return }
+
+                withAnimation(.linear(duration: duration)) {
+                    offset = 0
+                }
+                try? await Task.sleep(for: .seconds(duration))
+                guard !Task.isCancelled else { return }
+
+                try? await Task.sleep(for: .seconds(pauseSeconds))
+            }
+        }
     }
 }
 
-struct SizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+private struct MarqueeTextWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-// Helper view for use in VStacks where we want consistent height
-struct MarqueeTextFixed: View {
-    let text: String
-    let font: Font
-    let color: Color
-    
-    var body: some View {
-        MarqueeText(text: text, font: font, color: color)
     }
 }

@@ -49,21 +49,24 @@ struct NowPlayingView: View {
 
     private var infoStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(audioPlayer.currentTrack?.title ?? "—")
-                .font(.nowPlayingTitle)
-                .foregroundStyle(Color.ampBlack)
-                .lineLimit(1)
+            MarqueeText(
+                text: audioPlayer.currentTrack?.title ?? "—",
+                font: .nowPlayingTitle,
+                color: Color.ampBlack
+            )
+            .frame(height: 32)
 
-            Text(audioPlayer.currentTrack?.artist ?? "—")
-                .font(.listTitle)
-                .foregroundStyle(Color.ampBlack)
-                .underline(audioPlayer.currentTrack != nil)
-                .lineLimit(1)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard let id = audioPlayer.currentTrack?.persistentID else { return }
-                    nav.navigateToArtist(forTrack: id)
-                }
+            MarqueeText(
+                text: audioPlayer.currentTrack?.artist ?? "—",
+                font: .listTitle,
+                color: Color.ampBlack
+            )
+            .frame(height: 22)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard let id = audioPlayer.currentTrack?.persistentID else { return }
+                nav.navigateToArtist(forTrack: id)
+            }
 
             metaLineView
         }
