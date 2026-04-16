@@ -1082,10 +1082,17 @@ class LibraryService {
         let query = MPMediaQuery()
         query.groupingType = .albumArtist
         guard let collections = query.collections else { return [] }
+        // MPMediaQuery occasionally returns multiple collections that resolve
+        // to the same persistent ID (e.g. tracks with no albumArtist set all
+        // land in separate collections but fall back to the same
+        // artistPersistentID). Dedupe by resolved ID after building rows.
+        var seen: Set<MPMediaEntityPersistentID> = []
         let rows: [(Artist, Int)] = collections.compactMap { collection in
             guard let rep = collection.representativeItem else { return nil }
             guard let name = rep.albumArtist ?? rep.artist, !name.isEmpty else { return nil }
             let id = rep.albumArtistPersistentID != 0 ? rep.albumArtistPersistentID : rep.artistPersistentID
+            guard id != 0 else { return nil }
+            guard seen.insert(id).inserted else { return nil }
             let artist = Artist(id: id, name: name)
             let albumCount = Set(collection.items.map { $0.albumPersistentID }).count
             return (artist, albumCount)
