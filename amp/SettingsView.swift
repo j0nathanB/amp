@@ -1,16 +1,14 @@
 import SwiftUI
 import UIKit
 
-// Settings service persists user preferences to UserDefaults. Kept narrow —
-// the brutalist redesign is light-only so the legacy `darkMode` field is
-// orphaned and no longer surfaced in the UI. Can be removed outright once
-// nothing in the app reads Theme.isDarkMode.
+// Settings service persists user preferences to UserDefaults. Narrow by
+// design — the brutalist redesign has no dark mode, so the legacy
+// `darkMode` field is gone.
 
 final class SettingsService: ObservableObject {
     static let shared = SettingsService()
 
     @AppStorage("showLyrics") var showLyrics: Bool = true
-    @AppStorage("darkMode") var darkMode: Bool = false
 
     private init() {}
 }
