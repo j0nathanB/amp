@@ -90,7 +90,13 @@ struct AlbumDetailView: View {
             Text(album?.artist ?? "")
                 .font(.custom("AtkinsonHyperlegibleNext-Regular", size: 18))
                 .foregroundStyle(Color.ampBlack)
+                .underline(album?.artist.isEmpty == false)
                 .lineLimit(1)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard let firstID = songs.first?.persistentID else { return }
+                    NavigationService.shared.navigateToArtist(forTrack: firstID)
+                }
             Text(metaLine)
                 .font(.metadata)
                 .foregroundStyle(Color.ampMutedText)

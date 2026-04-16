@@ -1,45 +1,49 @@
 import SwiftUI
 import MediaPlayer
 
-// Spec §8.1: single tap on the album art flips it on the Y axis, ~400ms
-// ease-in-out. Front is the artwork; back is ampNavy with a 2-column
-// metadata block (label / value). No pause/play on tap — the art gesture
-// is reserved for the flip. Used by Now Playing (§7.6) and Album Detail
-// (§7.4, landing in Phase E/later).
+// Spec §8.1 + navigation amendment: front shows the artwork, back shows
+// ampNavy metadata in a 2-column layout. Front tap flips to the back;
+// back rows are individually tappable — artist → ArtistDetail, album →
+// AlbumDetail, genre → GenreDetail. Tap on the back-face whitespace
+// flips back to the front. Navigation pushes via NavigationService.push,
+// which targets whichever tab is currently selected.
 //
-// Pattern for the flip: both faces live in a ZStack. The back face is
-// pre-rotated 180° so that when the outer container hits 180° (fully
-// flipped), the back face is right-side-up. Opacity cross-fades the two
-// during rotation so text on the back never appears mirrored.
+// The back face is pre-rotated 180° so it reads right-side-up at the
+// flip endpoint. Opacity cross-fades the two during rotation so text is
+// never mirrored. hit-testing is gated by isFlipped so only the visible
+// face receives taps.
 
 struct AlbumArtView: View {
     let song: Song?
 
+    @ObservedObject private var nav = NavigationService.shared
     @State private var isFlipped = false
     @State private var artwork: UIImage?
+    @State private var trackTotal: Int?
 
     var body: some View {
         ZStack {
             frontFace
                 .opacity(isFlipped ? 0 : 1)
+                .allowsHitTesting(!isFlipped)
             backFace
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
                 .opacity(isFlipped ? 1 : 0)
+                .allowsHitTesting(isFlipped)
         }
         .aspectRatio(1, contentMode: .fit)
         .rotation3DEffect(.degrees(isFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0))
         .animation(.easeInOut(duration: 0.4), value: isFlipped)
-        .contentShape(Rectangle())
-        .onTapGesture { isFlipped.toggle() }
         .onChange(of: song?.persistentID) { _, _ in
             isFlipped = false
         }
         .task(id: song?.persistentID) {
             await loadArtwork()
+            await loadTrackTotal()
         }
         .accessibilityElement()
         .accessibilityLabel(isFlipped ? "Album details" : "Album artwork")
-        .accessibilityHint("Double tap to flip")
+        .accessibilityHint(isFlipped ? "Double tap a row to navigate" : "Double tap to flip")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -47,24 +51,27 @@ struct AlbumArtView: View {
 
     @ViewBuilder
     private var frontFace: some View {
-        if let artwork {
-            Image(uiImage: artwork)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .brutalistStroke()
-        } else {
-            ZStack {
-                Rectangle().fill(Color.ampNavy)
-                if let initial {
-                    Text(initial)
-                        .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 96))
-                        .foregroundStyle(Color.ampWhite)
+        Group {
+            if let artwork {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+            } else {
+                ZStack {
+                    Rectangle().fill(Color.ampNavy)
+                    if let initial {
+                        Text(initial)
+                            .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 96))
+                            .foregroundStyle(Color.ampWhite)
+                    }
                 }
             }
-            .brutalistStroke()
         }
+        .brutalistStroke()
+        .contentShape(Rectangle())
+        .onTapGesture { isFlipped = true }
     }
 
     private var initial: String? {
@@ -76,53 +83,94 @@ struct AlbumArtView: View {
 
     private var backFace: some View {
         ZStack {
-            Rectangle().fill(Color.ampNavy)
+            // Tapping the navy background flips back to the artwork.
+            Rectangle()
+                .fill(Color.ampNavy)
+                .contentShape(Rectangle())
+                .onTapGesture { isFlipped = false }
+
             VStack(alignment: .leading, spacing: 22) {
                 ForEach(metadataRows, id: \.label) { row in
-                    HStack(alignment: .firstTextBaseline, spacing: 16) {
-                        Text(row.label)
-                            .font(.inversionLabel)
-                            .foregroundStyle(Color.ampInversionLabel)
-                            .frame(width: 72, alignment: .leading)
-                        Text(row.value)
-                            .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 13))
-                            .foregroundStyle(Color.ampWhite)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    MetadataRow(row: row) {
+                        handleTap(row)
                     }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .brutalistStroke()
     }
 
-    private var metadataRows: [(label: String, value: String)] {
-        guard let song else { return [] }
-        let rows: [(String, String)] = [
-            ("ALBUM", song.album.isEmpty ? "—" : song.album),
-            ("YEAR", yearString),
-            ("GENRE", (song.genre?.isEmpty == false ? song.genre : nil) ?? "—"),
-            ("TRACK", trackString)
-        ]
-        return rows
+    // MARK: - Metadata model
+
+    fileprivate struct Row: Equatable {
+        enum Kind: Equatable { case album, year, genre, track }
+        let label: String
+        let value: String
+        let kind: Kind
+        var isTappable: Bool {
+            switch kind {
+            case .album, .genre: true
+            case .year, .track: false
+            }
+        }
     }
+
+    private var metadataRows: [Row] {
+        guard let song else { return [] }
+        return [
+            Row(label: "ALBUM", value: song.album.isEmpty ? "—" : song.album, kind: .album),
+            Row(label: "YEAR", value: yearString, kind: .year),
+            Row(label: "GENRE", value: (song.genre?.isEmpty == false ? song.genre : nil) ?? "—", kind: .genre),
+            Row(label: "TRACK", value: trackString, kind: .track)
+        ]
+    }
+
+    // Note: the artist is shown on the info strip *outside* the art (in
+    // NowPlayingView and AlbumDetailView), so we don't duplicate an ARTIST
+    // row here. Tapping the artist line below the art handles artist nav.
 
     private var yearString: String {
         guard let date = song?.releaseDate else { return "—" }
         return String(Calendar.current.component(.year, from: date))
     }
 
-    // Spec §8.1 asks for "{n} of {m}"; {m} requires an album-side lookup we
-    // defer to polish. Showing just the track number here.
     private var trackString: String {
         guard let song, song.albumTrackNumber > 0 else { return "—" }
+        if let total = trackTotal, total > 0 {
+            return "\(song.albumTrackNumber) of \(total)"
+        }
         return String(song.albumTrackNumber)
     }
 
-    // MARK: - Artwork loading
+    // MARK: - Taps
+
+    private func handleTap(_ row: Row) {
+        switch row.kind {
+        case .album:
+            navigateToAlbum()
+        case .genre:
+            navigateToGenre(row.value)
+        case .year, .track:
+            // Not navigable — flip back instead
+            isFlipped = false
+        }
+    }
+
+    private func navigateToAlbum() {
+        guard let song else { return }
+        isFlipped = false
+        nav.navigateToAlbum(forTrack: song.persistentID)
+    }
+
+    private func navigateToGenre(_ genre: String) {
+        isFlipped = false
+        nav.navigateToGenre(genre)
+    }
+
+    // MARK: - Loading
 
     private func loadArtwork() async {
         guard let song else {
@@ -140,6 +188,53 @@ struct AlbumArtView: View {
             return query.items?.first?.artwork?.image(at: CGSize(width: 800, height: 800))
         }.value
         self.artwork = image
+    }
+
+    private func loadTrackTotal() async {
+        guard let song else {
+            trackTotal = nil
+            return
+        }
+        let id = song.persistentID
+        let total = await Task.detached(priority: .userInitiated) { () -> Int? in
+            let predicate = MPMediaPropertyPredicate(
+                value: NSNumber(value: id),
+                forProperty: MPMediaItemPropertyPersistentID
+            )
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(predicate)
+            guard let item = query.items?.first else { return nil }
+            let albumID = item.albumPersistentID
+            return LibraryService.shared.getSongs(forAlbum: albumID).count
+        }.value
+        self.trackTotal = total
+    }
+}
+
+// MARK: - MetadataRow
+
+private struct MetadataRow: View {
+    let row: AlbumArtView.Row
+    let onTap: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(row.label)
+                .font(.inversionLabel)
+                .foregroundStyle(Color.ampInversionLabel)
+                .frame(width: 72, alignment: .leading)
+            Text(row.value)
+                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 13))
+                .foregroundStyle(Color.ampWhite)
+                .underline(row.isTappable, color: Color.ampInversionLabel)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(row.isTappable ? .isButton : [])
     }
 }
 

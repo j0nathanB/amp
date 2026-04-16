@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MediaPlayer
 
 // Spec §6 + §8.2: each tab owns its own navigation stack; cross-tab switching
 // preserves per-tab path state. Tap-same-tab-on-root scrolls to top,
@@ -104,4 +105,54 @@ final class NavigationService: ObservableObject {
 
 extension Notification.Name {
     static let ampScrollToTop = Notification.Name("ampScrollToTop")
+}
+
+// MARK: - Track-scoped navigation helpers
+//
+// Info-strip taps (artist name, "From {Album}", genre) need to resolve a
+// track's albumArtistPersistentID / albumPersistentID before pushing.
+// Centralizing here keeps the MPMediaQuery boilerplate out of views.
+
+extension NavigationService {
+    func navigateToArtist(forTrack trackID: MPMediaEntityPersistentID) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let predicate = MPMediaPropertyPredicate(
+                value: NSNumber(value: trackID),
+                forProperty: MPMediaItemPropertyPersistentID
+            )
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(predicate)
+            guard let item = query.items?.first else { return }
+            let id = item.albumArtistPersistentID != 0
+                ? item.albumArtistPersistentID
+                : item.artistPersistentID
+            guard id != 0 else { return }
+            await MainActor.run {
+                self?.push(.artistDetail(id))
+            }
+        }
+    }
+
+    func navigateToAlbum(forTrack trackID: MPMediaEntityPersistentID) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let predicate = MPMediaPropertyPredicate(
+                value: NSNumber(value: trackID),
+                forProperty: MPMediaItemPropertyPersistentID
+            )
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(predicate)
+            guard let item = query.items?.first else { return }
+            let id = item.albumPersistentID
+            guard id != 0 else { return }
+            await MainActor.run {
+                self?.push(.albumDetail(id))
+            }
+        }
+    }
+
+    func navigateToGenre(_ genre: String) {
+        let trimmed = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "—" else { return }
+        push(.genreDetail(trimmed))
+    }
 }

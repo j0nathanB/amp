@@ -8,6 +8,7 @@ enum AmpRoute: Hashable {
     case albumDetail(MPMediaEntityPersistentID)
     case artistDetail(MPMediaEntityPersistentID)
     case playlistDetail(MPMediaEntityPersistentID)
+    case genreDetail(String)
     case settings
     case lyrics
 }
@@ -25,10 +26,48 @@ struct AmpRouteDestination: View {
             ArtistDetailView(artistID: id)
         case .playlistDetail(let id):
             PlaylistDetailView(playlistID: id)
+        case .genreDetail(let name):
+            GenreDetailView(genre: name)
         case .settings:
             SettingsView()
         case .lyrics:
             LyricsView()
         }
+    }
+}
+
+// Placeholder. Real GenreDetail will list songs/albums in the genre —
+// wire up once we decide whether to lean on LibraryService.searchByGenre
+// or add a dedicated getGenres/getSongs(forGenre:) helper.
+struct GenreDetailView: View {
+    let genre: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 20) {
+            HStack {
+                BackButton { dismiss() }
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+
+            ViewTitleBlock("Genre")
+                .padding(.horizontal, 24)
+
+            Text(genre)
+                .font(.nowPlayingTitle)
+                .foregroundStyle(Color.ampBlack)
+                .padding(.top, 12)
+
+            Text("Genre detail — coming soon.")
+                .font(.metadata)
+                .foregroundStyle(Color.ampMutedText)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ampWhite)
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
