@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import MediaPlayer
 
 class AudioPlayerService: ObservableObject {
     static let shared = AudioPlayerService()
@@ -141,6 +142,36 @@ class AudioPlayerService: ObservableObject {
         }
 
         // Clear transition state immediately after manual playback
+        transitionState = .none
+    }
+
+    func startPlayback(fromTrackIDs trackIDs: [MPMediaEntityPersistentID],
+                       startingAt index: Int = 0) {
+        guard !trackIDs.isEmpty, index >= 0, index < trackIDs.count else {
+            print("❌ [AudioPlayerService] Invalid IDs startPlayback: count=\(trackIDs.count) index=\(index)")
+            return
+        }
+
+        // Pre-hydrate the starting track so transitionState can be set before
+        // queueManager.startPlayback fires currentTrackDidChange through the delegate.
+        guard let startSong = LibraryService.shared.getSong(by: trackIDs[index]) else {
+            print("❌ [AudioPlayerService] Could not hydrate starting track \(trackIDs[index])")
+            return
+        }
+
+        print("🎵 [AudioPlayerService] startPlayback (IDs) \(trackIDs.count) tracks, starting with: \(startSong.title)")
+
+        transitionState = .transitioning(to: startSong)
+
+        queueManager.startPlayback(fromTrackIDs: trackIDs, startingAt: index)
+        navigation.navigateToNowPlaying()
+
+        if let track = queueManager.currentTrack {
+            playbackEngine.play(song: track, isManualSelection: true)
+        } else {
+            print("❌ [AudioPlayerService] ERROR: Current track is nil after IDs startPlayback!")
+        }
+
         transitionState = .none
     }
     

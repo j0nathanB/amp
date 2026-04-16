@@ -1,4 +1,5 @@
 import SwiftUI
+import MediaPlayer
 
 struct PlaylistsView: View {
     @State private var playlists: [Playlist] = []
@@ -153,23 +154,20 @@ struct PlaylistsView: View {
         }
     }
     
-    // This is the corrected playback function
     private func play(playlist: Playlist) {
         Task {
-            let songs: [Song]
-            
+            let trackIDs: [MPMediaEntityPersistentID]
+
             if playlist.id == 0 {
-                // Get all songs directly from the library service
-                songs = LibraryService.shared.getAllSongs()
+                trackIDs = LibraryService.shared.getAllSongIDs()
             } else {
-                songs = LibraryService.shared.getSongs(forPlaylist: playlist.id)
+                trackIDs = await LibraryService.shared.getSongIDs(forPlaylist: playlist.id)
             }
-            
-            // Now, start playback with the full list of songs
-            if let firstSong = songs.first {
-                await MainActor.run {
-                    audioPlayer.startPlayback(from: songs, startingWith: firstSong)
-                }
+
+            guard !trackIDs.isEmpty else { return }
+
+            await MainActor.run {
+                audioPlayer.startPlayback(fromTrackIDs: trackIDs, startingAt: 0)
             }
         }
     }

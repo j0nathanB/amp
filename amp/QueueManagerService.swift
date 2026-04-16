@@ -82,7 +82,7 @@ class QueueManagerService: ObservableObject {
         sessionStartTime = Date()
         lastUserInteraction = Date()
         print("[QueueManager] 🟢 Session started - blocking queue loads")
-        
+
         playbackQueue.setTracks(songs, startingWith: startSong)
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
@@ -91,7 +91,29 @@ class QueueManagerService: ObservableObject {
         playbackQueue = playbackQueue
         queueDidChange(triggeredBy: "startPlayback")
         saveQueue()
-        
+
+        if let track = playbackQueue.getCurrentTrack() {
+            self.currentTrack = track
+            delegate?.currentTrackDidChange(track)
+        }
+    }
+
+    func startPlayback(fromTrackIDs trackIDs: [MPMediaEntityPersistentID],
+                       startingAt index: Int) {
+        sessionState = .active
+        hasActiveSession = true
+        sessionStartTime = Date()
+        lastUserInteraction = Date()
+        print("[QueueManager] 🟢 Session started (IDs path, \(trackIDs.count) tracks)")
+
+        playbackQueue.setTrackIDs(trackIDs, startingIndex: index)
+        if isShuffled {
+            playbackQueue.shuffle(keepCurrentFirst: true)
+        }
+        playbackQueue = playbackQueue
+        queueDidChange(triggeredBy: "startPlayback-ids")
+        saveQueue()
+
         if let track = playbackQueue.getCurrentTrack() {
             self.currentTrack = track
             delegate?.currentTrackDidChange(track)
