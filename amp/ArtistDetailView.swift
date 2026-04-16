@@ -86,7 +86,7 @@ struct ArtistDetailView: View {
 
     private var songsList: some View {
         VStack(spacing: 0) {
-            ForEach(Array(songs.enumerated()), id: \.element.persistentID) { index, song in
+            ForEach(Array(songs.enumerated()), id: \.offset) { index, song in
                 SongResultRow(
                     title: song.title,
                     artist: song.artist,

@@ -117,7 +117,7 @@ struct AlbumDetailView: View {
 
     private var trackList: some View {
         VStack(spacing: 0) {
-            ForEach(Array(songs.enumerated()), id: \.element.persistentID) { index, song in
+            ForEach(Array(songs.enumerated()), id: \.offset) { index, song in
                 TrackRow(
                     position: "\(song.albumTrackNumber > 0 ? song.albumTrackNumber : index + 1)",
                     title: song.title,
