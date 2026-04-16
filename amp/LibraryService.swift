@@ -1065,16 +1065,32 @@ class LibraryService {
     }
 
     func getAllArtists() -> [Artist] {
+        return getAllArtistsWithAlbumCounts().map { $0.artist }
+    }
+
+    // Deduplicated artist list with precomputed per-artist album counts.
+    // Grouping is by MPMediaItemPropertyAlbumArtistPersistentID so "Radiohead"
+    // doesn't appear twice when some tracks carry a featured-artist string in
+    // their .artist field — album-artist is the canonical identity.
+    func getAllArtistsWithAlbumCounts() -> [(artist: Artist, albumCount: Int)] {
         #if DEBUG
-        return MockLibraryService.shared.getAllArtists()
-        #else
-        guard let collections = MPMediaQuery.artists().collections else { return [] }
-        let artists = collections.compactMap { collection -> Artist? in
-            guard let rep = collection.representativeItem,
-                  let name = rep.albumArtist ?? rep.artist else { return nil }
-            return Artist(id: rep.artistPersistentID, name: name)
+        let artists = MockLibraryService.shared.getAllArtists()
+        return artists.map {
+            ($0, MockLibraryService.shared.getAlbums(forArtist: $0.id).count)
         }
-        return artists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        #else
+        let query = MPMediaQuery()
+        query.groupingType = .albumArtist
+        guard let collections = query.collections else { return [] }
+        let rows: [(Artist, Int)] = collections.compactMap { collection in
+            guard let rep = collection.representativeItem else { return nil }
+            guard let name = rep.albumArtist ?? rep.artist, !name.isEmpty else { return nil }
+            let id = rep.albumArtistPersistentID != 0 ? rep.albumArtistPersistentID : rep.artistPersistentID
+            let artist = Artist(id: id, name: name)
+            let albumCount = Set(collection.items.map { $0.albumPersistentID }).count
+            return (artist, albumCount)
+        }
+        return rows.sorted { $0.0.name.localizedCaseInsensitiveCompare($1.0.name) == .orderedAscending }
         #endif
     }
 

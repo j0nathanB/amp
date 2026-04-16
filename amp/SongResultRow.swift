@@ -2,6 +2,9 @@ import SwiftUI
 
 // Spec §5.5: 60 tall. Title at x=24, subtitle {Artist} · <italic>{Album}</italic>,
 // duration right-aligned. 1px divider at bottom.
+//
+// Uses .onTapGesture + .contentShape instead of Button so the outer frame
+// stays authoritative for LazyVStack sizing (see ArtistRow for background).
 
 struct SongResultRow: View {
     let title: String
@@ -28,38 +31,39 @@ struct SongResultRow: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.listTitle)
-                        .foregroundStyle(Color.ampBlack)
-                        .lineLimit(1)
-                    subtitle
-                }
-                .padding(.leading, 24)
-                Spacer(minLength: 12)
-                Text(duration)
-                    .font(.timestamp)
-                    .foregroundStyle(Color.ampMutedText)
-                    .padding(.trailing, 24)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.listTitle)
+                    .foregroundStyle(Color.ampBlack)
+                    .lineLimit(1)
+                subtitle
             }
-            .frame(height: 60)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.ampDivider)
-                    .frame(height: 1)
-                    .padding(.horizontal, 24)
-            }
+            .padding(.leading, 24)
+            Spacer(minLength: 12)
+            Text(duration)
+                .font(.timestamp)
+                .foregroundStyle(Color.ampMutedText)
+                .padding(.trailing, 24)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .frame(height: 60)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.ampDivider)
+                .frame(height: 1)
+                .padding(.horizontal, 24)
+        }
+        .onTapGesture(perform: onTap)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                 onLongPress?()
             }
         )
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title) by \(artist) from \(album), \(duration)")
+        .accessibilityAddTraits(.isButton)
     }
 
     private var subtitle: some View {

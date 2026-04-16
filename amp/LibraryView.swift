@@ -148,18 +148,13 @@ struct LibraryView: View {
     private func loadData() async {
         let loaded = await Task.detached(priority: .userInitiated) {
             let albums = LibraryService.shared.getAllAlbums()
-            let artists = LibraryService.shared.getAllArtists()
+            let artistRows = LibraryService.shared.getAllArtistsWithAlbumCounts()
             let playlists = LibraryService.shared.getPlaylists()
 
-            // Single-pass album counts per artist, keyed by artist name.
-            let allSongs = LibraryService.shared.getAllSongs()
-            var albumsByArtistName: [String: Set<String>] = [:]
-            for song in allSongs {
-                albumsByArtistName[song.artist, default: []].insert(song.album)
-            }
+            let artists = artistRows.map { $0.artist }
             var counts: [MPMediaEntityPersistentID: Int] = [:]
-            for artist in artists {
-                counts[artist.id] = albumsByArtistName[artist.name]?.count ?? 0
+            for row in artistRows {
+                counts[row.artist.id] = row.albumCount
             }
             return (albums, artists, playlists, counts)
         }.value
@@ -257,26 +252,26 @@ private struct PlaylistListRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 0) {
-                Text(name)
-                    .font(.listTitle)
-                    .foregroundStyle(Color.ampBlack)
-                    .lineLimit(1)
-                    .padding(.leading, 24)
-                Spacer(minLength: 12)
-            }
-            .frame(height: 48)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.ampDivider)
-                    .frame(height: 1)
-                    .padding(.horizontal, 24)
-            }
+        HStack(spacing: 0) {
+            Text(name)
+                .font(.listTitle)
+                .foregroundStyle(Color.ampBlack)
+                .lineLimit(1)
+                .padding(.leading, 24)
+            Spacer(minLength: 12)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .frame(height: 48)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.ampDivider)
+                .frame(height: 1)
+                .padding(.horizontal, 24)
+        }
+        .onTapGesture(perform: onTap)
         .accessibilityLabel(name)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

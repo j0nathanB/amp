@@ -3,6 +3,9 @@ import SwiftUI
 // Spec §5.6: 80 tall. 64×64 thumbnail at x=24, 4px navy shadow, 2px stroke.
 // Fallback: solid ampNavy block with first letter in white sans bold.
 // Title + meta (year · track count tracks) to the right of the thumbnail.
+//
+// Uses .onTapGesture + .contentShape instead of Button so the outer frame
+// stays authoritative for LazyVStack sizing (see ArtistRow for background).
 
 struct AlbumRow: View {
     let artwork: UIImage?
@@ -12,33 +15,34 @@ struct AlbumRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 0) {
-                thumbnail
-                    .padding(.leading, 24)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.listTitle)
-                        .foregroundStyle(Color.ampBlack)
-                        .lineLimit(1)
-                    Text(metaLine)
-                        .font(.metadata)
-                        .foregroundStyle(Color.ampMutedText)
-                }
-                .padding(.leading, 16)
-                Spacer(minLength: 12)
+        HStack(spacing: 0) {
+            thumbnail
+                .padding(.leading, 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.listTitle)
+                    .foregroundStyle(Color.ampBlack)
+                    .lineLimit(1)
+                Text(metaLine)
+                    .font(.metadata)
+                    .foregroundStyle(Color.ampMutedText)
             }
-            .frame(height: 80)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color.ampDivider)
-                    .frame(height: 1)
-                    .padding(.horizontal, 24)
-            }
+            .padding(.leading, 16)
+            Spacer(minLength: 12)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .frame(height: 80)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.ampDivider)
+                .frame(height: 1)
+                .padding(.horizontal, 24)
+        }
+        .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(metaLine)")
+        .accessibilityAddTraits(.isButton)
     }
 
     private var metaLine: String {

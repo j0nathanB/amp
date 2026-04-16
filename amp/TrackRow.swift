@@ -3,6 +3,9 @@ import SwiftUI
 // Spec §5.4: two variants.
 // Regular: 48 tall, track# right-aligned at x≈36, title at x=56, duration right-aligned.
 // Navy-inverted: 64 tall, full-bleed ampNavy, equalizer bars replacing track#, white text.
+//
+// Uses .onTapGesture + .contentShape instead of Button so the outer frame
+// stays authoritative for LazyVStack sizing (see ArtistRow for background).
 
 struct TrackRow: View {
     let position: String
@@ -29,21 +32,23 @@ struct TrackRow: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
+        Group {
             if isCurrent {
                 navyInverted
             } else {
                 regular
             }
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                 onLongPress?()
             }
         )
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
-        .accessibilityAddTraits(isCurrent ? .isSelected : [])
+        .accessibilityAddTraits([.isButton, isCurrent ? .isSelected : []])
     }
 
     private var regular: some View {
@@ -63,6 +68,7 @@ struct TrackRow: View {
                 .foregroundStyle(Color.ampMutedText)
                 .padding(.trailing, 24)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: 48)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -88,8 +94,8 @@ struct TrackRow: View {
                 .foregroundStyle(Color.ampWhite)
                 .padding(.trailing, 24)
         }
-        .frame(height: 64)
         .frame(maxWidth: .infinity)
+        .frame(height: 64)
         .background(Color.ampNavy)
     }
 
