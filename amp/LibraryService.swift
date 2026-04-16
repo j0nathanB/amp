@@ -1101,6 +1101,20 @@ class LibraryService {
         #endif
     }
 
+    // Reads the MPMediaItem.lyrics property, which maps to the ID3 USLT
+    // frame on the file. Returns nil when the track has no embedded lyrics.
+    // Phase F is unsynced-only; synced (LRC) parsing lives in a later polish.
+    func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {
+        #if DEBUG
+        return nil
+        #else
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        return query.items?.first?.lyrics
+        #endif
+    }
+
     func getArtworkImage(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
         #if DEBUG
         return nil

@@ -22,10 +22,10 @@ struct AmpRouteDestination: View {
     var body: some View {
         switch route {
         case .settings:
-            // Legacy SettingsView keeps working (dark mode toggle etc.) until
-            // Phase F rebuilds it in the brutalist style.
             SettingsView()
-        case .albumDetail, .artistDetail, .playlistDetail, .lyrics:
+        case .lyrics:
+            LyricsView()
+        case .albumDetail, .artistDetail, .playlistDetail:
             placeholder
         }
     }

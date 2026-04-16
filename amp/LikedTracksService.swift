@@ -49,4 +49,54 @@ final class LikedTracksService: ObservableObject {
         let array = likedIDs.map { NSNumber(value: $0) }
         UserDefaults.standard.set(array, forKey: Self.storageKey)
     }
+
+    // MARK: - .m3u export (§7.9, §9.1)
+    //
+    // Writes a temp .m3u file the user can share via the system sheet. The
+    // format is "extended M3U" — #EXTM3U header + one #EXTINF per track
+    // followed by a pseudo filename derived from "{artist} - {title}.mp3".
+    // Since MPMediaLibrary track URLs are `ipod-library://` and not usable
+    // from other apps, the pseudo filename lets importers (iTunes / Apple
+    // Music / etc.) match by metadata rather than path. Duration is -1
+    // (unknown) because Song doesn't currently carry a duration field;
+    // loading it for every track would add an MPMediaQuery per line.
+
+    enum ExportError: Error {
+        case noLikedTracks
+        case writeFailed(underlying: Error)
+    }
+
+    func generateM3UFile() throws -> URL {
+        guard !likedIDs.isEmpty else { throw ExportError.noLikedTracks }
+
+        var content = "#EXTM3U\n"
+        for id in likedIDs.sorted() {
+            guard let song = LibraryService.shared.getSong(by: id) else { continue }
+            let displayName = "\(song.artist) - \(song.title)"
+            let sanitized = displayName
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "\n", with: " ")
+            content += "#EXTINF:-1,\(displayName)\n"
+            content += "\(sanitized).mp3\n"
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let stamp = DateFormatter.m3uStamp.string(from: Date())
+        let url = tempDir.appendingPathComponent("amp-liked-\(stamp).m3u")
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            throw ExportError.writeFailed(underlying: error)
+        }
+    }
+}
+
+private extension DateFormatter {
+    static let m3uStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 }
