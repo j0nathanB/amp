@@ -12,8 +12,7 @@ struct PlaylistsView: View {
     @State private var showSettings = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 // Custom header with controlled spacing
                 HStack {
                     Text("Playlists")
@@ -151,9 +150,8 @@ struct PlaylistsView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
-        }
     }
-    
+
     private func play(playlist: Playlist) {
         Task {
             let trackIDs: [MPMediaEntityPersistentID]

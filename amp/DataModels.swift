@@ -66,8 +66,12 @@ struct Playlist: Identifiable {
     let name: String
 }
 
-enum Tab {
-    case playlists, queue, search, nowPlaying
+// Brutalist tab enum (spec §6). Raw value is the UPPERCASE label shown in the tab bar.
+enum AmpTab: String, CaseIterable, Hashable {
+    case library = "LIBRARY"
+    case search = "SEARCH"
+    case queue = "QUEUE"
+    case active = "ACTIVE"
 }
 
 // Optimized Song struct that doesn't create UUID for every instance

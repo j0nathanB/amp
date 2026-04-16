@@ -2,13 +2,7 @@ import SwiftUI
 
 // Spec §5.9 + §6: 72×56 tab, 4px shadow when unselected; selected = navy inversion, no shadow.
 // Icon in upper ~32px, .tabLabel at baseline ~y=48.
-
-enum AmpTab: String, CaseIterable, Hashable {
-    case library = "LIBRARY"
-    case search = "SEARCH"
-    case queue = "QUEUE"
-    case active = "ACTIVE"
-}
+// AmpTab itself lives in DataModels.swift since it's used across services.
 
 struct TabBarTab: View {
     let tab: AmpTab

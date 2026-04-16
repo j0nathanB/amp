@@ -1,64 +1,80 @@
 import SwiftUI
 
+// Spec §6: four tabs (LIBRARY / SEARCH / QUEUE / ACTIVE), each owning its own
+// NavigationStack. Tab bar lives at the bottom on a cream strip; content fills
+// the space above it. Pushed views (Album/Artist/Playlist Detail, Settings,
+// Lyrics) live inside the owning tab's stack.
+//
+// Phase C wires this up against the *existing* tab root views (PlaylistsView,
+// SearchView, QueueView, NowPlayingView). Their internals get redesigned in
+// Phase D/E.
+
 struct MainTabView: View {
-    @State private var selectedTab: Tab = .queue // Default tab is now Queue
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @ObservedObject private var nav = NavigationService.shared
 
     @State private var isKeyboardVisible = false
 
-
     var body: some View {
-        ZStack {
-            // Default background (white in light mode, black in dark mode)
-            Theme.background
-                .ignoresSafeArea()
-
-            // Full screen content area
-            Group {
-                switch selectedTab {
-                case .playlists:
-                    PlaylistsView()
-                        .padding(.top, 8)
-                        .padding(.bottom, 85)
-                        .padding(.horizontal, 16)
-                case .queue:
-                    QueueView()
-                        .padding(.top, 8)
-                        .padding(.bottom, 85)
-                        .padding(.horizontal, 16)
-                case .search:
-                    SearchView()
-                        .padding(.top, 8)
-                        .padding(.bottom, 85)
-                        .padding(.horizontal, 16)
-                case .nowPlaying:
-                    NowPlayingView()
-                        .padding(.top, 8)
-                        .padding(.bottom, 85)
-                        .padding(.horizontal, 16)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-
-            // Fixed tab bar overlay at bottom - always visible
-            VStack {
-                Spacer()
-                CustomTabView(selectedTab: $selectedTab)
-                    .opacity(isKeyboardVisible ? 0 : 1)
-                    .animation(.linear(duration: 0.1), value: isKeyboardVisible)
+        VStack(spacing: 0) {
+            contentArea
+            if !isKeyboardVisible {
+                tabBar
+                    .transition(.opacity)
             }
         }
+        .animation(.linear(duration: 0.1), value: isKeyboardVisible)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            self.isKeyboardVisible = true
+            isKeyboardVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            self.isKeyboardVisible = false
+            isKeyboardVisible = false
         }
-        .onReceive(audioPlayer.$selectedTab) { newTab in
-            withAnimation(.linear(duration: 0.1)) {
-                selectedTab = newTab
+    }
+
+    // Each tab owns a NavigationStack bound to its path in NavigationService.
+    // ZStack + opacity keeps all four tabs alive so per-tab UI state (scroll
+    // position, in-flight async work, etc.) survives tab switches — matching
+    // the spec's "tap a tab while on a pushed view → pop to root" contract,
+    // which relies on the path binding being live across tab changes.
+    private var contentArea: some View {
+        ZStack {
+            ForEach(AmpTab.allCases, id: \.self) { tab in
+                NavigationStack(path: nav.pathBinding(for: tab)) {
+                    tabRoot(tab)
+                        .navigationDestination(for: AmpRoute.self) { route in
+                            AmpRouteDestination(route: route)
+                        }
+                }
+                .opacity(nav.selectedTab == tab ? 1 : 0)
+                .allowsHitTesting(nav.selectedTab == tab)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func tabRoot(_ tab: AmpTab) -> some View {
+        switch tab {
+        case .library: PlaylistsView()
+        case .search: SearchView()
+        case .queue: QueueView()
+        case .active: NowPlayingView()
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 8) {
+            ForEach(AmpTab.allCases, id: \.self) { tab in
+                TabBarTab(tab: tab, isSelected: nav.selectedTab == tab) {
+                    nav.handleTabTap(tab)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(Color.ampCream)
     }
 }

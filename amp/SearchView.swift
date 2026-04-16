@@ -11,9 +11,8 @@ struct SearchView: View {
     @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                SearchBarView(searchText: $viewModel.searchText)
+        VStack(spacing: 0) {
+            SearchBarView(searchText: $viewModel.searchText)
                     .onChange(of: viewModel.searchText) {
                         viewModel.performSearch()
                     }
@@ -73,11 +72,10 @@ struct SearchView: View {
                     .transition(.opacity)
                 }
             }
-            .navigationBarHidden(true)
-            .onAppear {
-                // Regenerate circle ID each time view appears
-                circleID = UUID()
-            }
+        .navigationBarHidden(true)
+        .onAppear {
+            // Regenerate circle ID each time view appears
+            circleID = UUID()
         }
     }
     

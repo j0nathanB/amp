@@ -100,7 +100,7 @@ private struct PlayerArtworkView: View {
 
     private func navigateToSearch(with searchTerm: String) {
         // Navigate to search tab and set search text
-        audioPlayer.selectedTab = .search
+        NavigationService.shared.selectedTab = .search
         SearchViewModel.shared.searchText = searchTerm
         SearchViewModel.shared.performSearch()
     }

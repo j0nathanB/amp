@@ -9,7 +9,7 @@ class AudioPlayerService: ObservableObject {
     // Services
     private let playbackEngine = PlaybackEngineService()
     let queueManager = QueueManagerService()  // Made internal for app lifecycle access
-    private let navigation = NavigationService()
+    private let navigation = NavigationService.shared
 
     // Track whether we're auto-advancing after track completion
     private var isAutoAdvancing = false
@@ -34,7 +34,6 @@ class AudioPlayerService: ObservableObject {
     @Published var isShuffled = false
     @Published var isLooped = false
     @Published var isLoopingSong = false
-    @Published var selectedTab: Tab = .queue
     @Published var currentIndex: Int = -1
     @Published var systemVolume: Float = 1.0
     
@@ -111,10 +110,6 @@ class AudioPlayerService: ObservableObject {
         
         queueManager.$isLooped
             .assign(to: &$isLooped)
-        
-        // Bind navigation properties
-        navigation.$selectedTab
-            .assign(to: &$selectedTab)
         
         // Bind currentIndex from playbackQueue changes
         queueManager.$playbackQueue

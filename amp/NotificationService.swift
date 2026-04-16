@@ -223,27 +223,27 @@ class NotificationService: NSObject, ObservableObject {
         
         // Check app state and current view - ensure UI API calls are on main thread
         var appState: UIApplication.State = .active
-        var selectedTab: Tab = .nowPlaying
-        
+        var selectedTab: AmpTab = .active
+
         if Thread.isMainThread {
             appState = UIApplication.shared.applicationState
-            selectedTab = AudioPlayerService.shared.selectedTab
+            selectedTab = NavigationService.shared.selectedTab
         } else {
             // Use MainActor to safely access UI APIs
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor in
                 appState = UIApplication.shared.applicationState
-                selectedTab = AudioPlayerService.shared.selectedTab
+                selectedTab = NavigationService.shared.selectedTab
                 semaphore.signal()
             }
             semaphore.wait()
         }
-        
+
         // Send notification if app is backgrounded OR user is not on Now Playing view
         if appState == .background {
             print("🔔 Will send notification - app is backgrounded")
             return true
-        } else if appState == .active && selectedTab != .nowPlaying {
+        } else if appState == .active && selectedTab != .active {
             print("🔔 Will send notification - app active but not on Now Playing view (current: \(selectedTab))")
             return true
         } else {

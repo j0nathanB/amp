@@ -61,9 +61,8 @@ struct QueueView: View {
     @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Custom header with controlled spacing
+        VStack(spacing: 0) {
+            // Custom header with controlled spacing
                 ZStack(alignment: .leading) {
                     Text("Queue")
                         .font(Theme.titleFont)
@@ -262,8 +261,7 @@ struct QueueView: View {
                     .transition(.opacity)
                 }
             }
-            .navigationBarHidden(true)
-        }
+        .navigationBarHidden(true)
     }
 }
 
