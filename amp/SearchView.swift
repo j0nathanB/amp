@@ -111,7 +111,7 @@ struct SearchView: View {
                             ForEach(results.artists) { artist in
                                 SearchArtistRow(name: artist.name) {
                                     recordRecent()
-                                    nav.searchPath.append(AmpRoute.artistDetail(artist.id))
+                                    nav.push(.artistDetail(artist.id))
                                 }
                             }
                         }
@@ -124,7 +124,7 @@ struct SearchView: View {
                             ForEach(results.albums) { album in
                                 SearchAlbumRow(title: album.title, artist: album.artist) {
                                     recordRecent()
-                                    nav.searchPath.append(AmpRoute.albumDetail(album.id))
+                                    nav.push(.albumDetail(album.id))
                                 }
                             }
                         }

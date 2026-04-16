@@ -33,6 +33,19 @@ final class NavigationService: ObservableObject {
         }
     }
 
+    // Push a route onto whichever tab is currently selected. Views that
+    // live inside a pushed stack (e.g. ArtistDetail pushing AlbumDetail)
+    // don't know which tab they're in; `push` picks the right path
+    // without each caller having to branch on selectedTab.
+    func push(_ route: AmpRoute) {
+        switch selectedTab {
+        case .library: libraryPath.append(route)
+        case .search: searchPath.append(route)
+        case .queue: queuePath.append(route)
+        case .active: activePath.append(route)
+        }
+    }
+
     func popToRoot(_ tab: AmpTab) {
         switch tab {
         case .library: libraryPath = NavigationPath()

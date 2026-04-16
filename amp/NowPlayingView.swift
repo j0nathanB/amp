@@ -127,7 +127,7 @@ struct NowPlayingView: View {
             Spacer()
             if settings.showLyrics {
                 LyricsButton {
-                    nav.activePath.append(AmpRoute.lyrics)
+                    nav.push(.lyrics)
                 }
             }
             if let track = audioPlayer.currentTrack {

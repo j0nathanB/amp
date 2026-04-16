@@ -43,7 +43,7 @@ struct LibraryView: View {
         HStack(spacing: 12) {
             ViewTitleBlock("LIBRARY")
             ChromeButton(icon: "gear", a11y: "Settings") {
-                nav.libraryPath.append(AmpRoute.settings)
+                nav.push(.settings)
             }
             ChromeButton(icon: "magnifyingglass", a11y: "Search") {
                 nav.selectedTab = .search
@@ -94,7 +94,7 @@ struct LibraryView: View {
                 ) {
                     ForEach(albums) { album in
                         AlbumGridCell(album: album) {
-                            nav.libraryPath.append(AmpRoute.albumDetail(album.id))
+                            nav.push(.albumDetail(album.id))
                         }
                     }
                 }
@@ -118,7 +118,7 @@ struct LibraryView: View {
                         name: artist.name,
                         albumCount: artistAlbumCounts[artist.id] ?? 0
                     ) {
-                        nav.libraryPath.append(AmpRoute.artistDetail(artist.id))
+                        nav.push(.artistDetail(artist.id))
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
@@ -165,7 +165,7 @@ struct LibraryView: View {
             } else {
                 List(playlists) { playlist in
                     PlaylistListRow(name: playlist.name) {
-                        nav.libraryPath.append(AmpRoute.playlistDetail(playlist.id))
+                        nav.push(.playlistDetail(playlist.id))
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)

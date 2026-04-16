@@ -77,7 +77,7 @@ struct ArtistDetailView: View {
                     year: albumYears[album.id],
                     trackCount: albumTrackCounts[album.id] ?? 0,
                     onTap: {
-                        nav.libraryPath.append(AmpRoute.albumDetail(album.id))
+                        nav.push(.albumDetail(album.id))
                     }
                 )
             }
