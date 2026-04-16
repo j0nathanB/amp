@@ -126,24 +126,10 @@ struct LibraryView: View {
             if songs.isEmpty {
                 emptyState("No music found.")
             } else {
-                List(Array(songs.enumerated()), id: \.offset) { index, song in
-                    SongResultRow(
-                        title: song.title,
-                        artist: song.artist,
-                        album: song.album,
-                        duration: "",
-                        onTap: {
-                            let ids = songs.map { $0.persistentID }
-                            audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
-                        }
-                    )
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.ampWhite)
+                SongsScrubbableList(songs: songs) { index in
+                    let ids = songs.map { $0.persistentID }
+                    audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color.ampWhite)
             }
         }
     }
@@ -286,6 +272,105 @@ private struct ArtistsScrubbableList: View {
                 }
             }
         }
+    }
+}
+
+// Songs list with the same alphabet-scrubber pattern as Artists.
+// Songs are sorted by title (MPMediaQuery returns them in
+// artist/album/track order by default). Sections keyed on first letter.
+
+private struct SongsScrubbableList: View {
+    let songs: [Song]
+    let onPlay: (Int) -> Void
+
+    @State private var draggedLetter: String?
+    @State private var indicatorDismissTask: Task<Void, Never>?
+
+    // Pre-sorted and flattened with original indices so the tap callback
+    // still plays from the same queue position the list displays.
+    private var sortedSongs: [(originalIndex: Int, song: Song)] {
+        songs.enumerated()
+            .map { ($0.offset, $0.element) }
+            .sorted { a, b in
+                a.song.title.localizedCaseInsensitiveCompare(b.song.title) == .orderedAscending
+            }
+    }
+
+    private var sections: [(letter: String, items: [(originalIndex: Int, song: Song)])] {
+        let grouped = Dictionary(grouping: sortedSongs) { AlphabetSectioning.key(for: $0.song.title) }
+        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
+            (letter: letter, items: grouped[letter] ?? [])
+        }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                List {
+                    ForEach(sections, id: \.letter) { section in
+                        Section {
+                            ForEach(section.items, id: \.originalIndex) { entry in
+                                SongResultRow(
+                                    title: entry.song.title,
+                                    artist: entry.song.artist,
+                                    album: entry.song.album,
+                                    duration: "",
+                                    onTap: { onPlay(entry.originalIndex) },
+                                    onLongPress: {
+                                        NavigationService.shared.navigateToAlbum(forTrack: entry.song.persistentID)
+                                    }
+                                )
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.ampWhite)
+                            }
+                        } header: {
+                            sectionHeader(section.letter)
+                        }
+                        .id(section.letter)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
+
+                AlphabetScrubber(
+                    letters: sections.map { $0.letter },
+                    onLetterChanged: { letter in
+                        indicatorDismissTask?.cancel()
+                        draggedLetter = letter
+                        proxy.scrollTo(letter, anchor: .top)
+                    },
+                    onDragEnded: {
+                        indicatorDismissTask?.cancel()
+                        indicatorDismissTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            draggedLetter = nil
+                        }
+                    }
+                )
+                .padding(.trailing, 4)
+
+                if let letter = draggedLetter {
+                    BigLetterIndicator(letter: letter)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.clear)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ letter: String) -> some View {
+        Text(letter)
+            .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 11))
+            .foregroundStyle(Color.ampMutedText)
+            .padding(.leading, 24)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.ampWhite)
+            .listRowInsets(EdgeInsets())
     }
 }
 

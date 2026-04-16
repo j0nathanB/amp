@@ -67,41 +67,9 @@ struct NowPlayingView: View {
                 guard let id = audioPlayer.currentTrack?.persistentID else { return }
                 nav.navigateToArtist(forTrack: id)
             }
-
-            metaLineView
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
-    }
-
-    @ViewBuilder
-    private var metaLineView: some View {
-        if let track = audioPlayer.currentTrack, !track.album.isEmpty {
-            HStack(spacing: 0) {
-                Text("From ")
-                    .font(.metadata)
-                    .foregroundStyle(Color.ampMutedText)
-                Text(track.album)
-                    .font(.metadata)
-                    .foregroundStyle(Color.ampMutedText)
-                    .underline()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        nav.navigateToAlbum(forTrack: track.persistentID)
-                    }
-                if let year = trackYear(track) {
-                    Text("  ·  \(year)")
-                        .font(.metadata)
-                        .foregroundStyle(Color.ampMutedText)
-                }
-            }
-            .lineLimit(1)
-        }
-    }
-
-    private func trackYear(_ track: Song) -> Int? {
-        guard let date = track.releaseDate else { return nil }
-        return Calendar.current.component(.year, from: date)
     }
 
     // MARK: - Transport row (§7.6)

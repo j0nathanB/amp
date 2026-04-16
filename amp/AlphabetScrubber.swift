@@ -57,11 +57,10 @@ struct BigLetterIndicator: View {
     var body: some View {
         Text(letter)
             .font(.viewTitle)
-            .foregroundStyle(Color.ampBlack)
+            .foregroundStyle(Color.ampWhite)
             .frame(width: 72, height: 72)
-            .background(Color.ampWhite)
+            .background(Color.ampNavy)
             .brutalistStroke()
-            .brutalistShadow(.small)
             .accessibilityHidden(true)
     }
 }
