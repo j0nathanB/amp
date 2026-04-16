@@ -26,15 +26,15 @@ struct ArtistRow: View {
                 .foregroundStyle(Color.ampMutedText)
                 .padding(.trailing, 24)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 48)
-        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48, alignment: .center)
+        .background(Color.ampWhite)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.ampDivider)
                 .frame(height: 1)
                 .padding(.horizontal, 24)
         }
+        .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(albumCount) albums")

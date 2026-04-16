@@ -98,39 +98,49 @@ struct LibraryView: View {
         }
     }
 
+    // List gives us iOS-native row virtualization with stable sizing (and the
+    // hook for §8.5's alphabetic scrubber later). Default list chrome is
+    // suppressed so the rows render exactly as the brutalist row primitives
+    // define them.
     private var artistsList: some View {
-        ScrollView {
+        Group {
             if artists.isEmpty {
                 emptyState("No music found.")
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(artists) { artist in
-                        ArtistRow(
-                            name: artist.name,
-                            albumCount: artistAlbumCounts[artist.id] ?? 0
-                        ) {
-                            nav.libraryPath.append(AmpRoute.artistDetail(artist.id))
-                        }
+                List(artists) { artist in
+                    ArtistRow(
+                        name: artist.name,
+                        albumCount: artistAlbumCounts[artist.id] ?? 0
+                    ) {
+                        nav.libraryPath.append(AmpRoute.artistDetail(artist.id))
                     }
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.ampWhite)
                 }
-                .padding(.bottom, 24)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
             }
         }
     }
 
     private var playlistsList: some View {
-        ScrollView {
+        Group {
             if playlists.isEmpty {
                 emptyState("No playlists found.")
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(playlists) { playlist in
-                        PlaylistListRow(name: playlist.name) {
-                            nav.libraryPath.append(AmpRoute.playlistDetail(playlist.id))
-                        }
+                List(playlists) { playlist in
+                    PlaylistListRow(name: playlist.name) {
+                        nav.libraryPath.append(AmpRoute.playlistDetail(playlist.id))
                     }
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.ampWhite)
                 }
-                .padding(.bottom, 24)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
             }
         }
     }
@@ -260,15 +270,15 @@ private struct PlaylistListRow: View {
                 .padding(.leading, 24)
             Spacer(minLength: 12)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 48)
-        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48, alignment: .center)
+        .background(Color.ampWhite)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.ampDivider)
                 .frame(height: 1)
                 .padding(.horizontal, 24)
         }
+        .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .accessibilityLabel(name)
         .accessibilityAddTraits(.isButton)
