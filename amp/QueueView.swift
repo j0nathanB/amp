@@ -1,26 +1,36 @@
 import SwiftUI
 import MediaPlayer
 
-// Spec §7.3 + Queue amendments: Queue tab root. Chrome row holds the yellow
-// QUEUE title block (with trailing "N tracks") plus Loop + Shuffle toggles
-// inline — same pattern as Library's chrome. Loop here is QUEUE loop;
-// Now Playing's Loop is SONG loop (two distinct toggles).
+// Spec §7.3 + §8.4: Queue tab root with bi-directional sticky current-row
+// pinning and blue-gradient overflow bars.
 //
-// Track rows show title + artist (multi-album queues need the artist line).
-// Tapping the current row toggles play/pause; tapping any other row jumps
-// playback to that track. Neither switches tabs — Queue is its own context
-// for browsing and bouncing around playback.
+// Pin states (§8.4):
+// - .none         current row is visible in the viewport; blue bars show
+//                 at either edge when content is clipped
+// - .pinnedTop    scrolled past the current row — it sticks to the top of
+//                 the viewport; top blue bar is suppressed in its place
+// - .pinnedBottom scrolled before the current row — it sticks to the
+//                 bottom; bottom blue bar is suppressed in its place
 //
-// Spec §8.4's bi-directional sticky pinning + blue overflow bars are a
-// follow-up pass.
+// Geometry: rows before/after current are rowHeight tall, the navy-
+// inverted current row is currentRowHeight tall. `onScrollGeometryChange`
+// (iOS 17+) feeds us scrollY / viewport / content.
+
+private let rowHeight: CGFloat = 60            // TrackRow regular + artist
+private let currentRowHeight: CGFloat = 72     // TrackRow navy-inverted + artist
+private let overflowBarHeight: CGFloat = 12
 
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
+    @State private var scrollY: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
             chrome
-            trackList
+            trackListArea
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
@@ -50,43 +60,152 @@ struct QueueView: View {
         return "\(count) \(count == 1 ? "track" : "tracks")"
     }
 
-    // MARK: - Track list
+    // MARK: - Track list area (scroll + pin + overflow overlays)
 
     @ViewBuilder
-    private var trackList: some View {
+    private var trackListArea: some View {
         if audioPlayer.playbackQueue.trackIDs.isEmpty {
-            VStack {
-                Spacer()
-                Text("Queue is empty.")
-                    .font(.metadata)
-                    .foregroundStyle(Color.ampMutedText)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            emptyState
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(audioPlayer.playbackQueue.trackIDs.enumerated()), id: \.offset) { index, trackID in
-                            QueueRow(
-                                index: index,
-                                trackID: trackID,
-                                isCurrent: index == audioPlayer.currentIndex,
-                                isPlaying: audioPlayer.isPlaying
-                            ) {
-                                handleTap(at: index)
-                            }
-                            .id(index)
-                        }
-                    }
-                }
-                .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
-                .onChange(of: audioPlayer.currentIndex) { _, _ in
-                    scrollToCurrent(proxy: proxy, animated: true)
-                }
+            ZStack {
+                scrollingList
+                overflowOverlay
             }
         }
     }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text("Queue is empty.")
+                .font(.metadata)
+                .foregroundStyle(Color.ampMutedText)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var scrollingList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(audioPlayer.playbackQueue.trackIDs.enumerated()), id: \.offset) { index, trackID in
+                        QueueRow(
+                            index: index,
+                            trackID: trackID,
+                            isCurrent: index == audioPlayer.currentIndex,
+                            isPlaying: audioPlayer.isPlaying
+                        ) {
+                            handleTap(at: index)
+                        }
+                        .id(index)
+                    }
+                }
+            }
+            .onScrollGeometryChange(for: ScrollSnapshot.self, of: { geo in
+                ScrollSnapshot(
+                    offsetY: geo.contentOffset.y,
+                    viewport: geo.containerSize.height,
+                    content: geo.contentSize.height
+                )
+            }, action: { _, snap in
+                scrollY = snap.offsetY
+                viewportHeight = snap.viewport
+                contentHeight = snap.content
+            })
+            .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
+            .onChange(of: audioPlayer.currentIndex) { _, _ in
+                scrollToCurrent(proxy: proxy, animated: true)
+            }
+        }
+    }
+
+    // Overlay stack: pinned current row OR overflow bar at each edge.
+    // Spec: the pinned row replaces the blue bar on its edge; never both
+    // on the same edge.
+    private var overflowOverlay: some View {
+        VStack(spacing: 0) {
+            // Top edge
+            if pinState == .pinnedTop {
+                pinnedCurrentRow
+            } else if showTopBar {
+                topOverflowBar
+            }
+
+            Spacer(minLength: 0)
+
+            // Bottom edge
+            if pinState == .pinnedBottom {
+                pinnedCurrentRow
+            } else if showBottomBar {
+                bottomOverflowBar
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(pinState != .none)
+    }
+
+    // MARK: - Pin state + overflow flags
+
+    private enum PinState { case none, pinnedTop, pinnedBottom }
+
+    private var pinState: PinState {
+        let i = audioPlayer.currentIndex
+        guard i >= 0 else { return .none }
+        guard viewportHeight > 0 else { return .none }
+        let startY = CGFloat(i) * rowHeight
+        let endY = startY + currentRowHeight
+        if endY <= scrollY { return .pinnedTop }
+        if startY >= scrollY + viewportHeight { return .pinnedBottom }
+        return .none
+    }
+
+    private var showTopBar: Bool {
+        scrollY > 4
+    }
+
+    private var showBottomBar: Bool {
+        contentHeight > 0 && (scrollY + viewportHeight + 4) < contentHeight
+    }
+
+    // MARK: - Overlay views
+
+    @ViewBuilder
+    private var pinnedCurrentRow: some View {
+        let index = audioPlayer.currentIndex
+        if index >= 0, let trackID = audioPlayer.playbackQueue.trackIDs[safe: index] {
+            QueueRow(
+                index: index,
+                trackID: trackID,
+                isCurrent: true,
+                isPlaying: audioPlayer.isPlaying
+            ) {
+                handleTap(at: index)
+            }
+        }
+    }
+
+    private var topOverflowBar: some View {
+        LinearGradient(
+            colors: [Color("AccentSkyBlue").opacity(0.9), Color("AccentSkyBlue").opacity(0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: overflowBarHeight)
+        .allowsHitTesting(false)
+    }
+
+    private var bottomOverflowBar: some View {
+        LinearGradient(
+            colors: [Color("AccentSkyBlue").opacity(0), Color("AccentSkyBlue").opacity(0.9)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: overflowBarHeight)
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Interactions
 
     private func handleTap(at index: Int) {
         if index == audioPlayer.currentIndex {
@@ -105,6 +224,20 @@ struct QueueView: View {
         } else {
             proxy.scrollTo(index, anchor: .top)
         }
+    }
+}
+
+// MARK: - Scroll snapshot
+
+private struct ScrollSnapshot: Equatable {
+    let offsetY: CGFloat
+    let viewport: CGFloat
+    let content: CGFloat
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
