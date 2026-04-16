@@ -55,14 +55,22 @@ struct EqualizerBars: View {
         }
     }
 
-    // Audio-level-driven height: base on live level, add a small per-bar
-    // wiggle so the three bars don't move in lockstep.
+    // Audio-level-driven height. Pure signal — no sine decoration. All
+    // three bars scale by the same live level; static per-bar multipliers
+    // (0.85 / 1.00 / 0.90) give a little visual shape without masking
+    // what the audio is actually doing.
     private func audioHeight(level: CGFloat, phase: Double, t: TimeInterval) -> CGFloat {
         let minH: CGFloat = 6
         let range = maxHeight - minH
-        let wiggle = CGFloat(sin((t / 0.25 + phase) * 2 * .pi)) * 0.15
-        let combined = max(0, min(1, level + wiggle))
-        return minH + combined * range
+        let barMultiplier: CGFloat = {
+            switch phase {
+            case 0.00: return 0.85
+            case 0.33: return 1.00
+            default: return 0.90
+            }
+        }()
+        let scaled = max(0, min(1, level * barMultiplier))
+        return minH + scaled * range
     }
 
     // Sine fallback used when no levelProvider is supplied.
