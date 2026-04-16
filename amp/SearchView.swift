@@ -139,12 +139,16 @@ struct SearchView: View {
                                     title: song.title,
                                     artist: song.artist,
                                     album: song.album,
-                                    duration: ""
-                                ) {
-                                    recordRecent()
-                                    let ids = results.songs.map { $0.persistentID }
-                                    audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
-                                }
+                                    duration: "",
+                                    onTap: {
+                                        recordRecent()
+                                        let ids = results.songs.map { $0.persistentID }
+                                        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
+                                    },
+                                    onLongPress: {
+                                        nav.navigateToAlbum(forTrack: song.persistentID)
+                                    }
+                                )
                             }
                         }
                         .padding(.bottom, 24)

@@ -129,7 +129,10 @@ private struct QueueRow: View {
             isCurrent: isCurrent,
             isPlaying: isPlaying,
             audioLevelProvider: isCurrent ? { AudioPlayerService.shared.currentAudioLevel } : nil,
-            onTap: onTap
+            onTap: onTap,
+            onLongPress: {
+                NavigationService.shared.navigateToAlbum(forTrack: trackID)
+            }
         )
         .task(id: trackID) {
             let hydrated = await Task.detached(priority: .userInitiated) {
