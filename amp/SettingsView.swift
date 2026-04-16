@@ -177,10 +177,9 @@ struct BrutalistToggle: View {
                 .foregroundStyle(isOn ? Color.ampInversionLabel : Color.ampMutedText)
                 .padding(.trailing, 16)
         }
+        .animation(.easeInOut(duration: 0.25), value: isOn)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(isOn ? Color.ampNavy : Color.ampWhite)
-        .brutalistStroke()
-        .brutalistShadow(.small, when: !isOn)
+        .brutalistInvertible(isActive: isOn)
         .contentShape(Rectangle())
         .onTapGesture { isOn.toggle() }
         .accessibilityLabel(label)

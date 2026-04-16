@@ -32,11 +32,20 @@ struct TransportButton: View {
 
     var body: some View {
         Button(action: action) {
-            icon
-                .frame(width: kind.size, height: kind.size)
-                .background(backgroundColor)
-                .brutalistStroke()
-                .brutalistShadow(kind.shadowOffset, when: !inverted)
+            Group {
+                if kind.supportsInversion {
+                    icon
+                        .frame(width: kind.size, height: kind.size)
+                        .brutalistInvertible(isActive: isActive, offset: kind.shadowOffset)
+                } else {
+                    icon
+                        .frame(width: kind.size, height: kind.size)
+                        .background(backgroundColor)
+                        .brutalistStroke()
+                        .brutalistShadow(kind.shadowOffset)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: isActive)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityText)

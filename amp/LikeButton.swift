@@ -13,10 +13,9 @@ struct LikeButton: View {
             Image(systemName: isLiked ? "heart.fill" : "heart")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(isLiked ? Color.ampWhite : Color.ampBlack)
+                .animation(.easeInOut(duration: 0.25), value: isLiked)
                 .frame(width: 44, height: 44)
-                .background(isLiked ? Color.ampNavy : Color.ampWhite)
-                .brutalistStroke()
-                .brutalistShadow(.small, when: !isLiked)
+                .brutalistInvertible(isActive: isLiked)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isLiked ? "Unlike \(trackTitle)" : "Like \(trackTitle)")

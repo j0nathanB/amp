@@ -14,11 +14,10 @@ struct FilterChip: View {
             Text(label.uppercased())
                 .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 12))
                 .foregroundStyle(isSelected ? Color.ampWhite : Color.ampBlack)
+                .animation(.easeInOut(duration: 0.25), value: isSelected)
                 .padding(.horizontal, 14)
                 .frame(height: 36)
-                .background(isSelected ? Color.ampNavy : Color.ampWhite)
-                .brutalistStroke()
-                .brutalistShadow(.small, when: !isSelected)
+                .brutalistInvertible(isActive: isSelected)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

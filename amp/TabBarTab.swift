@@ -18,10 +18,9 @@ struct TabBarTab: View {
                     .font(.tabLabel)
                     .foregroundStyle(isSelected ? Color.ampWhite : Color.ampBlack)
             }
+            .animation(.easeInOut(duration: 0.25), value: isSelected)
             .frame(width: 72, height: 56)
-            .background(isSelected ? Color.ampNavy : Color.ampWhite)
-            .brutalistStroke()
-            .brutalistShadow(.small, when: !isSelected)
+            .brutalistInvertible(isActive: isSelected)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.rawValue.capitalized)

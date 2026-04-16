@@ -65,6 +65,43 @@ extension View {
     func brutalistStroke(width: CGFloat = 2) -> some View {
         modifier(BrutalistStroke(width: width))
     }
+
+    // Invertible fill: replaces the static (background + stroke + shadow)
+    // pattern for components that toggle between white+shadow (inactive)
+    // and navy+no-shadow (active). Animates the navy rect from the shadow
+    // offset onto the button while the white fill fades out — so the
+    // inversion visually "slides in" from where the shadow was sitting.
+    // Replaces:
+    //   .background(isActive ? .ampNavy : .ampWhite)
+    //   .brutalistStroke()
+    //   .brutalistShadow(.small, when: !isActive)
+    func brutalistInvertible(isActive: Bool, offset: BrutalistShadowOffset = .small) -> some View {
+        modifier(BrutalistInvertible(isActive: isActive, offsetValue: offset.rawValue))
+    }
+}
+
+struct BrutalistInvertible: ViewModifier {
+    let isActive: Bool
+    let offsetValue: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                ZStack {
+                    Rectangle()
+                        .fill(Color.ampNavy)
+                        .offset(
+                            x: isActive ? 0 : -offsetValue,
+                            y: isActive ? 0 : offsetValue
+                        )
+                    Rectangle()
+                        .fill(Color.ampWhite)
+                        .opacity(isActive ? 0 : 1)
+                }
+                .animation(.easeInOut(duration: 0.25), value: isActive)
+            }
+            .overlay(Rectangle().stroke(Color.ampBlack, lineWidth: 2))
+    }
 }
 
 #Preview("Brutalist primitives") {
