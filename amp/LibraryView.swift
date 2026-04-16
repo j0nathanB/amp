@@ -113,20 +113,10 @@ struct LibraryView: View {
             if artists.isEmpty {
                 emptyState("No music found.")
             } else {
-                List(artists) { artist in
-                    ArtistRow(
-                        name: artist.name,
-                        albumCount: artistAlbumCounts[artist.id] ?? 0
-                    ) {
-                        nav.push(.artistDetail(artist.id))
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.ampWhite)
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color.ampWhite)
+                ArtistsScrubbableList(
+                    artists: artists,
+                    albumCounts: artistAlbumCounts
+                )
             }
         }
     }
@@ -212,6 +202,92 @@ struct LibraryView: View {
 }
 
 // MARK: - Private components
+
+// Artists list with alphabet scrubber (spec §8.5). Pulled out of
+// LibraryView so the sectioning, rail, and indicator logic stays
+// focused. Albums grid + Songs list don't get the scrubber yet —
+// grid UX is a separate consideration, and Songs doesn't currently
+// sort alphabetically by title.
+
+private struct ArtistsScrubbableList: View {
+    let artists: [Artist]
+    let albumCounts: [MPMediaEntityPersistentID: Int]
+
+    @ObservedObject private var nav = NavigationService.shared
+
+    @State private var draggedLetter: String?
+    @State private var indicatorDismissTask: Task<Void, Never>?
+
+    private var sections: [(letter: String, artists: [Artist])] {
+        let grouped = Dictionary(grouping: artists) { AlphabetSectioning.key(for: $0.name) }
+        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
+            (letter: letter, artists: grouped[letter] ?? [])
+        }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                List {
+                    ForEach(sections, id: \.letter) { section in
+                        Section {
+                            ForEach(section.artists) { artist in
+                                ArtistRow(
+                                    name: artist.name,
+                                    albumCount: albumCounts[artist.id] ?? 0
+                                ) {
+                                    nav.push(.artistDetail(artist.id))
+                                }
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.ampWhite)
+                            }
+                        } header: {
+                            Text(section.letter)
+                                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 11))
+                                .foregroundStyle(Color.ampMutedText)
+                                .padding(.leading, 24)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.ampWhite)
+                                .listRowInsets(EdgeInsets())
+                        }
+                        .id(section.letter)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
+
+                AlphabetScrubber(
+                    letters: sections.map { $0.letter },
+                    onLetterChanged: { letter in
+                        indicatorDismissTask?.cancel()
+                        draggedLetter = letter
+                        proxy.scrollTo(letter, anchor: .top)
+                    },
+                    onDragEnded: {
+                        indicatorDismissTask?.cancel()
+                        indicatorDismissTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            draggedLetter = nil
+                        }
+                    }
+                )
+                .padding(.trailing, 4)
+
+                if let letter = draggedLetter {
+                    BigLetterIndicator(letter: letter)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.clear)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+        }
+    }
+}
 
 private struct ChromeButton: View {
     let icon: String
