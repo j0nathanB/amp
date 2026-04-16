@@ -287,11 +287,11 @@ struct SearchResultsView: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .sheet(item: $selectedAlbum) { album in
-            AlbumDetailView(album: album, searchResults: results)
+            LegacySearchAlbumDetailView(album: album, searchResults: results)
                 .environmentObject(audioPlayer)
         }
         .sheet(item: $selectedArtist) { artist in
-            ArtistDetailView(artist: artist, searchResults: results)
+            LegacySearchArtistDetailView(artist: artist, searchResults: results)
                 .environmentObject(audioPlayer)
         }
     }
@@ -394,7 +394,7 @@ private enum AlbumLoadError: Error {
     case timeout
 }
 
-struct AlbumDetailView: View {
+struct LegacySearchAlbumDetailView: View {
     let album: Album
     let searchResults: SearchResults
     @Environment(\.dismiss) private var dismiss
@@ -472,7 +472,7 @@ struct AlbumDetailView: View {
         }
         .background(Theme.background)
         .onAppear {
-            print("🎵 AlbumDetailView appeared for album: \(album.title) with ID: \(album.id)")
+            print("🎵 LegacySearchAlbumDetailView appeared for album: \(album.title) with ID: \(album.id)")
             loadAlbumSongs()
         }
     }
@@ -848,7 +848,7 @@ private enum ArtistLoadError: Error {
     case timeout
 }
 
-struct ArtistDetailView: View {
+struct LegacySearchArtistDetailView: View {
     let artist: Artist
     let searchResults: SearchResults
     @Environment(\.dismiss) private var dismiss
@@ -942,11 +942,11 @@ struct ArtistDetailView: View {
         }
         .background(Theme.background)
         .sheet(item: $selectedAlbum) { album in
-            AlbumDetailView(album: album, searchResults: searchResults)
+            LegacySearchAlbumDetailView(album: album, searchResults: searchResults)
                 .environmentObject(audioPlayer)
         }
         .onAppear {
-            print("🎵 ArtistDetailView appeared for artist: \(artist.name) with ID: \(artist.id)")
+            print("🎵 LegacySearchArtistDetailView appeared for artist: \(artist.name) with ID: \(artist.id)")
             loadArtistContent()
         }
     }

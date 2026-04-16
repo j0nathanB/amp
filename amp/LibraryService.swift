@@ -1101,6 +1101,64 @@ class LibraryService {
         #endif
     }
 
+    // MARK: - Album-artist canonical lookups
+    //
+    // Library's new artist rows are grouped by albumArtistPersistentID (see
+    // getAllArtistsWithAlbumCounts). These helpers query back using the
+    // same predicate so ArtistDetail's albums/songs match the canonical
+    // "Radiohead" identity rather than splitting across featured-artist
+    // variants. SearchView's legacy flow still uses getAlbums/Songs(forArtist:).
+
+    func getAlbums(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Album] {
+        #if DEBUG
+        return MockLibraryService.shared.getAlbums(forArtist: albumArtistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: albumArtistID),
+            forProperty: MPMediaItemPropertyAlbumArtistPersistentID
+        )
+        let query = MPMediaQuery.albums()
+        query.addFilterPredicate(predicate)
+        guard let collections = query.collections else { return [] }
+        let albums = collections.compactMap { collection -> Album? in
+            guard let rep = collection.representativeItem,
+                  let title = rep.albumTitle else { return nil }
+            let artist = rep.albumArtist ?? rep.artist ?? ""
+            return Album(id: rep.albumPersistentID, title: title, artist: artist)
+        }
+        return albums.sorted { a, b in
+            let collectionA = collections.first { $0.representativeItem?.albumPersistentID == a.id }
+            let collectionB = collections.first { $0.representativeItem?.albumPersistentID == b.id }
+            if let dateA = collectionA?.representativeItem?.releaseDate,
+               let dateB = collectionB?.representativeItem?.releaseDate,
+               dateA != dateB {
+                return dateA < dateB
+            }
+            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+        }
+        #endif
+    }
+
+    func getSongs(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Song] {
+        #if DEBUG
+        return MockLibraryService.shared.getSongs(forArtist: albumArtistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: albumArtistID),
+            forProperty: MPMediaItemPropertyAlbumArtistPersistentID
+        )
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        guard let items = query.items else { return [] }
+        let songs = items.map { self.song(from: $0) }
+        return songs.sorted { a, b in
+            if let da = a.releaseDate, let db = b.releaseDate, da != db { return da < db }
+            if a.album != b.album { return a.album < b.album }
+            return a.albumTrackNumber < b.albumTrackNumber
+        }
+        #endif
+    }
+
     func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {
         #if DEBUG
         return 0

@@ -7,14 +7,16 @@ import MediaPlayer
 // push Artist Detail; tap a playlist → push Playlist Detail; tap gear →
 // push Settings; tap search → switch to the Search tab.
 
-enum LibraryMode { case albums, artists, playlists }
+enum LibraryMode { case albums, artists, songs, playlists }
 
 struct LibraryView: View {
+    @EnvironmentObject var audioPlayer: AudioPlayerService
     @ObservedObject private var nav = NavigationService.shared
 
     @State private var mode: LibraryMode = .albums
     @State private var albums: [Album] = []
     @State private var artists: [Artist] = []
+    @State private var songs: [Song] = []
     @State private var playlists: [Playlist] = []
     @State private var artistAlbumCounts: [MPMediaEntityPersistentID: Int] = [:]
     @State private var isLoaded = false
@@ -53,13 +55,16 @@ struct LibraryView: View {
     }
 
     private var filterChipsRow: some View {
-        HStack(spacing: 12) {
-            FilterChip(label: "Albums", isSelected: mode == .albums) { mode = .albums }
-            FilterChip(label: "Artists", isSelected: mode == .artists) { mode = .artists }
-            FilterChip(label: "Playlists", isSelected: mode == .playlists) { mode = .playlists }
-            Spacer(minLength: 0)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                FilterChip(label: "Albums", isSelected: mode == .albums) { mode = .albums }
+                FilterChip(label: "Artists", isSelected: mode == .artists) { mode = .artists }
+                FilterChip(label: "Songs", isSelected: mode == .songs) { mode = .songs }
+                FilterChip(label: "Playlists", isSelected: mode == .playlists) { mode = .playlists }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 4) // accommodate brutalist shadow bleed
         }
-        .padding(.horizontal, 24)
         .padding(.bottom, 20)
     }
 
@@ -70,6 +75,7 @@ struct LibraryView: View {
         switch mode {
         case .albums: albumsGrid
         case .artists: artistsList
+        case .songs: songsList
         case .playlists: playlistsList
         }
     }
@@ -125,6 +131,33 @@ struct LibraryView: View {
         }
     }
 
+    private var songsList: some View {
+        Group {
+            if songs.isEmpty {
+                emptyState("No music found.")
+            } else {
+                List(Array(songs.enumerated()), id: \.offset) { index, song in
+                    SongResultRow(
+                        title: song.title,
+                        artist: song.artist,
+                        album: song.album,
+                        duration: "",
+                        onTap: {
+                            let ids = songs.map { $0.persistentID }
+                            audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
+                        }
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.ampWhite)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
+            }
+        }
+    }
+
     private var playlistsList: some View {
         Group {
             if playlists.isEmpty {
@@ -159,6 +192,7 @@ struct LibraryView: View {
         let loaded = await Task.detached(priority: .userInitiated) {
             let albums = LibraryService.shared.getAllAlbums()
             let artistRows = LibraryService.shared.getAllArtistsWithAlbumCounts()
+            let songs = LibraryService.shared.getAllSongs()
             let playlists = LibraryService.shared.getPlaylists()
 
             let artists = artistRows.map { $0.artist }
@@ -166,13 +200,14 @@ struct LibraryView: View {
             for row in artistRows {
                 counts[row.artist.id] = row.albumCount
             }
-            return (albums, artists, playlists, counts)
+            return (albums, artists, songs, playlists, counts)
         }.value
 
         self.albums = loaded.0
         self.artists = loaded.1
-        self.playlists = loaded.2
-        self.artistAlbumCounts = loaded.3
+        self.songs = loaded.2
+        self.playlists = loaded.3
+        self.artistAlbumCounts = loaded.4
     }
 }
 
