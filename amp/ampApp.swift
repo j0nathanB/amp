@@ -15,7 +15,10 @@ struct ampApp: App {
 
     var body: some Scene {
             WindowGroup {
-                PermissionCheckerView()
+                ZStack {
+                    Color.ampCream.ignoresSafeArea()
+                    PermissionCheckerView()
+                }
                     .environmentObject(audioPlayer)
                     .preferredColorScheme(settings.darkMode ? .dark : .light)
                     .accentColor(Theme.accentLightGreen) // This sets the global accent color including keyboard buttons
