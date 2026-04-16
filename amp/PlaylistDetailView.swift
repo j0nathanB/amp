@@ -40,6 +40,7 @@ struct PlaylistDetailView: View {
                 }
                 .padding(.bottom, 24)
             }
+            .overflowGradientBars()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)

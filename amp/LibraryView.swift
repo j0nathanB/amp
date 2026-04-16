@@ -81,25 +81,28 @@ struct LibraryView: View {
     }
 
     private var albumsGrid: some View {
-        ScrollView {
+        Group {
             if albums.isEmpty {
                 emptyState("No music found.")
             } else {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
-                    ],
-                    spacing: 24
-                ) {
-                    ForEach(albums) { album in
-                        AlbumGridCell(album: album) {
-                            nav.push(.albumDetail(album.id))
+                ScrollView {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 16),
+                            GridItem(.flexible(), spacing: 16)
+                        ],
+                        spacing: 24
+                    ) {
+                        ForEach(albums) { album in
+                            AlbumGridCell(album: album) {
+                                nav.push(.albumDetail(album.id))
+                            }
                         }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .overflowGradientBars()
             }
         }
     }
@@ -150,6 +153,7 @@ struct LibraryView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.ampWhite)
+                .overflowGradientBars()
             }
         }
     }
@@ -244,6 +248,7 @@ private struct ArtistsScrubbableList: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.ampWhite)
+                .overflowGradientBars()
 
                 AlphabetScrubber(
                     letters: sections.map { $0.letter },
@@ -333,6 +338,7 @@ private struct SongsScrubbableList: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.ampWhite)
+                .overflowGradientBars()
 
                 AlphabetScrubber(
                     letters: sections.map { $0.letter },

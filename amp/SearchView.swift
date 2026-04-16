@@ -90,6 +90,7 @@ struct SearchView: View {
             }
             .padding(.bottom, 24)
         }
+        .overflowGradientBars()
     }
 
     // MARK: - Results view
@@ -156,6 +157,7 @@ struct SearchView: View {
                 }
                 .padding(.bottom, 24)
             }
+            .overflowGradientBars()
         }
     }
 
