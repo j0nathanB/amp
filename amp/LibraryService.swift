@@ -1101,6 +1101,17 @@ class LibraryService {
         #endif
     }
 
+    func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {
+        #if DEBUG
+        return 0
+        #else
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        return query.items?.first?.playbackDuration ?? 0
+        #endif
+    }
+
     // Reads the MPMediaItem.lyrics property, which maps to the ID3 USLT
     // frame on the file. Returns nil when the track has no embedded lyrics.
     // Phase F is unsynced-only; synced (LRC) parsing lives in a later polish.

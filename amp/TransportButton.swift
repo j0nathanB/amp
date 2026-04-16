@@ -5,13 +5,13 @@ import SwiftUI
 // Prev/Next are momentary — no active state.
 
 enum TransportKind {
-    case bluetooth, previous, playPause, next, loop
+    case bluetooth, previous, playPause, next, loop, shuffle
 
     var size: CGFloat {
         switch self {
         case .playPause: 82
         case .previous, .next: 56
-        case .bluetooth, .loop: 44
+        case .bluetooth, .loop, .shuffle: 44
         }
     }
 
@@ -20,7 +20,7 @@ enum TransportKind {
     }
 
     var supportsInversion: Bool {
-        self == .bluetooth || self == .loop
+        self == .bluetooth || self == .loop || self == .shuffle
     }
 }
 
@@ -65,6 +65,7 @@ struct TransportButton: View {
         case .playPause: PlayPauseGlyph(isPlaying: isPlaying)
         case .next: SkipGlyph(direction: .right, color: iconColor)
         case .loop: LoopGlyph(color: iconColor)
+        case .shuffle: ShuffleGlyph(color: iconColor)
         }
     }
 
@@ -75,6 +76,7 @@ struct TransportButton: View {
         case .playPause: isPlaying ? "Pause" : "Play"
         case .next: "Next track"
         case .loop: isActive ? "Loop on" : "Loop off"
+        case .shuffle: isActive ? "Shuffle on" : "Shuffle off"
         }
     }
 }
@@ -150,6 +152,15 @@ private struct LoopGlyph: View {
     let color: Color
     var body: some View {
         Image(systemName: "arrow.clockwise")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(color)
+    }
+}
+
+private struct ShuffleGlyph: View {
+    let color: Color
+    var body: some View {
+        Image(systemName: "shuffle")
             .font(.system(size: 22, weight: .bold))
             .foregroundStyle(color)
     }
