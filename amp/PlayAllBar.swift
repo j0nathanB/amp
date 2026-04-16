@@ -25,11 +25,8 @@ struct PlayAllBar: View {
             }
             .frame(height: 44)
             .frame(maxWidth: .infinity)
-            .background(Color.ampGreen)
-            .brutalistStroke()
-            .brutalistShadow(.large)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistButtonStyle(offset: .large, fillColor: .ampGreen))
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5).onEnded { _ in onShuffleLongPress() }
         )

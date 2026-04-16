@@ -15,11 +15,8 @@ struct BackButton: View {
                 )
                 .frame(width: 12, height: 22)
                 .frame(width: 44, height: 44)
-                .background(Color.ampWhite)
-                .brutalistStroke()
-                .brutalistShadow(.small)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
         .accessibilityLabel("Back")
     }
 }

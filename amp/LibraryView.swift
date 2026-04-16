@@ -391,11 +391,8 @@ private struct ChromeButton: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(Color.ampBlack)
                 .frame(width: 44, height: 44)
-                .background(Color.ampWhite)
-                .brutalistStroke()
-                .brutalistShadow(.small)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
         .accessibilityLabel(a11y)
     }
 }

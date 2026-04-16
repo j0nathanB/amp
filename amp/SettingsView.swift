@@ -94,11 +94,8 @@ struct SettingsView: View {
                         .padding(.trailing, 16)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
-                .background(Color.ampWhite)
-                .brutalistStroke()
-                .brutalistShadow(.small)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
         }
         .padding(.horizontal, 24)
     }

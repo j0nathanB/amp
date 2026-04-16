@@ -18,11 +18,8 @@ struct LyricsButton: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
-            .background(Color.ampWhite)
-            .brutalistStroke()
-            .brutalistShadow(.small)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
         .accessibilityLabel("Lyrics")
     }
 }

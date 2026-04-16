@@ -31,24 +31,23 @@ struct TransportButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Group {
-                if kind.supportsInversion {
-                    icon
-                        .frame(width: kind.size, height: kind.size)
-                        .brutalistInvertible(isActive: isActive, offset: kind.shadowOffset)
-                } else {
-                    icon
-                        .frame(width: kind.size, height: kind.size)
-                        .background(backgroundColor)
-                        .brutalistStroke()
-                        .brutalistShadow(kind.shadowOffset)
-                }
+        if kind.supportsInversion {
+            Button(action: action) {
+                icon
+                    .frame(width: kind.size, height: kind.size)
+                    .brutalistInvertible(isActive: isActive, offset: kind.shadowOffset)
+                    .animation(.easeInOut(duration: 0.25), value: isActive)
             }
-            .animation(.easeInOut(duration: 0.25), value: isActive)
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityText)
+        } else {
+            Button(action: action) {
+                icon
+                    .frame(width: kind.size, height: kind.size)
+            }
+            .buttonStyle(BrutalistButtonStyle(offset: kind.shadowOffset, fillColor: backgroundColor))
+            .accessibilityLabel(accessibilityText)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityText)
     }
 
     private var inverted: Bool {

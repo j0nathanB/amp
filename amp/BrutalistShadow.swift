@@ -80,6 +80,48 @@ extension View {
     }
 }
 
+// ButtonStyle for non-invertible brutalist buttons (BackButton,
+// PlayAllBar, LyricsButton, ChromeButton, TransportButton prev/next/
+// play-pause). Replaces the default `.buttonStyle(.plain)` plus inline
+// background + stroke + shadow composition with a unified press-aware
+// version:
+//
+// - Unpressed: navy rect at shadow offset, opaque fill on top, 2px stroke
+// - Pressed:   navy rect slides to (0,0), hidden behind the fill. The
+//              visible effect is the shadow retracting INTO the button —
+//              consistent with the invertible animation where navy slides
+//              onto the button, just without the fill fade.
+//
+// This also kills SwiftUI's default opacity-on-press behaviour that was
+// letting the navy shadow bleed through as a washed-out blue tint.
+
+struct BrutalistButtonStyle: ButtonStyle {
+    let offset: BrutalistShadowOffset
+    let fillColor: Color
+
+    init(offset: BrutalistShadowOffset = .small, fillColor: Color = .ampWhite) {
+        self.offset = offset
+        self.fillColor = fillColor
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                ZStack {
+                    Rectangle()
+                        .fill(Color.ampNavy)
+                        .offset(
+                            x: configuration.isPressed ? 0 : -offset.rawValue,
+                            y: configuration.isPressed ? 0 : offset.rawValue
+                        )
+                    Rectangle().fill(fillColor)
+                }
+                .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+            }
+            .overlay(Rectangle().stroke(Color.ampBlack, lineWidth: 2))
+    }
+}
+
 struct BrutalistInvertible: ViewModifier {
     let isActive: Bool
     let offsetValue: CGFloat
