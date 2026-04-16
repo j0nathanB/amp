@@ -53,8 +53,13 @@ struct BrutalistStroke: ViewModifier {
 }
 
 extension View {
-    func brutalistShadow(_ offset: BrutalistShadowOffset = .small, color: Color = .ampNavy) -> some View {
-        modifier(BrutalistShadow(offset: offset, color: color))
+    @ViewBuilder
+    func brutalistShadow(_ offset: BrutalistShadowOffset = .small, color: Color = .ampNavy, when condition: Bool = true) -> some View {
+        if condition {
+            modifier(BrutalistShadow(offset: offset, color: color))
+        } else {
+            self
+        }
     }
 
     func brutalistStroke(width: CGFloat = 2) -> some View {
