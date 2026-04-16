@@ -11,7 +11,7 @@ struct TextLink: View {
     var body: some View {
         Button(action: action) {
             Text(label.uppercased())
-                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 12))
+                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 15))
                 .foregroundStyle(Color.ampMutedText)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())

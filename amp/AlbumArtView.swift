@@ -63,7 +63,7 @@ struct AlbumArtView: View {
                     Rectangle().fill(Color.ampNavy)
                     if let initial {
                         Text(initial)
-                            .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 96))
+                            .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 116))
                             .foregroundStyle(Color.ampWhite)
                     }
                 }
@@ -224,7 +224,7 @@ private struct MetadataRow: View {
                 .foregroundStyle(Color.ampInversionLabel)
                 .frame(width: 72, alignment: .leading)
             Text(row.value)
-                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 13))
+                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 16))
                 .foregroundStyle(Color.ampWhite)
                 .underline(row.isTappable, color: Color.ampInversionLabel)
                 .lineLimit(2)

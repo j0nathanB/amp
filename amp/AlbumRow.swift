@@ -64,7 +64,7 @@ struct AlbumRow: View {
                 .brutalistShadow(.small)
         } else {
             Text(String(title.prefix(1)).uppercased())
-                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 28))
+                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 34))
                 .foregroundStyle(Color.ampWhite)
                 .frame(width: 64, height: 64)
                 .background(Color.ampNavy)

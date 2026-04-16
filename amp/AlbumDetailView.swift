@@ -89,7 +89,7 @@ struct AlbumDetailView: View {
     private var infoStrip: some View {
         VStack(spacing: 4) {
             Text(album?.artist ?? "")
-                .font(.custom("AtkinsonHyperlegibleNext-Regular", size: 18))
+                .font(.custom("AtkinsonHyperlegibleNext-Regular", size: 22))
                 .foregroundStyle(Color.ampBlack)
                 .underline(album?.artist.isEmpty == false)
                 .lineLimit(1)

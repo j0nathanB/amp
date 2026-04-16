@@ -234,7 +234,7 @@ private struct ArtistsScrubbableList: View {
                             }
                         } header: {
                             Text(section.letter)
-                                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 11))
+                                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
                                 .foregroundStyle(Color.ampMutedText)
                                 .padding(.leading, 24)
                                 .padding(.vertical, 4)
@@ -370,7 +370,7 @@ private struct SongsScrubbableList: View {
 
     private func sectionHeader(_ letter: String) -> some View {
         Text(letter)
-            .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 11))
+            .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
             .foregroundStyle(Color.ampMutedText)
             .padding(.leading, 24)
             .padding(.vertical, 4)
@@ -438,7 +438,7 @@ private struct AlbumGridCell: View {
             ZStack {
                 Rectangle().fill(Color.ampNavy)
                 Text(String(album.title.prefix(1)).uppercased())
-                    .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 48))
+                    .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 58))
                     .foregroundStyle(Color.ampWhite)
             }
         }

@@ -17,7 +17,7 @@ struct AlphabetScrubber: View {
             VStack(spacing: 0) {
                 ForEach(letters, id: \.self) { letter in
                     Text(letter)
-                        .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 11))
+                        .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
                         .foregroundStyle(Color.ampBlack)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

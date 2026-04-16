@@ -12,7 +12,7 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(label.uppercased())
-                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 12))
+                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 15))
                 .foregroundStyle(isSelected ? Color.ampWhite : Color.ampBlack)
                 .animation(.easeInOut(duration: 0.25), value: isSelected)
                 .padding(.horizontal, 14)
