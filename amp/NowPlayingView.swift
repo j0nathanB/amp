@@ -76,7 +76,11 @@ struct NowPlayingView: View {
         return "From \(album)"
     }
 
-    // MARK: - Transport row (§7.6, spec amendment: no Loop)
+    // MARK: - Transport row (§7.6)
+    //
+    // Loop here is SONG loop — repeats the current track only. Queue loop
+    // (which repeats the whole queue) lives on the Queue view (Phase G).
+    // Two distinct toggles, two different homes.
 
     private var transportRow: some View {
         HStack(spacing: 0) {
@@ -94,8 +98,9 @@ struct NowPlayingView: View {
                 audioPlayer.nextTrack()
             }
             Spacer()
-            // Visual counter-weight for BT so the play button reads as centered.
-            Color.clear.frame(width: 44, height: 44)
+            TransportButton(kind: .loop, isActive: audioPlayer.isLoopingSong) {
+                audioPlayer.toggleSongLoop()
+            }
         }
         .padding(.horizontal, 24)
     }
