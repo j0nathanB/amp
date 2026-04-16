@@ -19,6 +19,7 @@ struct TrackRow: View {
     let duration: String
     let isCurrent: Bool
     let isPlaying: Bool
+    let audioLevelProvider: (() -> Float)?
     let onTap: () -> Void
     let onLongPress: (() -> Void)?
 
@@ -29,6 +30,7 @@ struct TrackRow: View {
         duration: String,
         isCurrent: Bool,
         isPlaying: Bool = false,
+        audioLevelProvider: (() -> Float)? = nil,
         onTap: @escaping () -> Void,
         onLongPress: (() -> Void)? = nil
     ) {
@@ -38,6 +40,7 @@ struct TrackRow: View {
         self.duration = duration
         self.isCurrent = isCurrent
         self.isPlaying = isPlaying
+        self.audioLevelProvider = audioLevelProvider
         self.onTap = onTap
         self.onLongPress = onLongPress
     }
@@ -97,9 +100,13 @@ struct TrackRow: View {
 
     private var navyInverted: some View {
         HStack(spacing: 0) {
-            EqualizerBars(color: .ampWhite, isAnimating: isPlaying)
-                .frame(width: 18)
-                .padding(.leading, 24)
+            EqualizerBars(
+                color: .ampWhite,
+                isAnimating: isPlaying,
+                levelProvider: audioLevelProvider
+            )
+            .frame(width: 18)
+            .padding(.leading, 24)
             titleStack(titleColor: Color.ampWhite, artistColor: Color.ampInversionLabel, boldTitle: true)
                 .padding(.leading, 14)
             Spacer(minLength: 12)

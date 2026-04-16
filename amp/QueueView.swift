@@ -128,6 +128,7 @@ private struct QueueRow: View {
             duration: formatDuration(duration),
             isCurrent: isCurrent,
             isPlaying: isPlaying,
+            audioLevelProvider: isCurrent ? { AudioPlayerService.shared.currentAudioLevel } : nil,
             onTap: onTap
         )
         .task(id: trackID) {

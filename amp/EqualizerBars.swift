@@ -11,6 +11,11 @@ struct EqualizerBars: View {
     var maxHeight: CGFloat = 28
     var isAnimating: Bool = true
 
+    // When provided, bar heights follow live audio level. Each bar adds a
+    // small per-bar wiggle so they don't move identically. True
+    // low/mid/high banding would need an AVAudioEngine FFT tap — deferred.
+    var levelProvider: (() -> Float)? = nil
+
     // Static height used when not animating — "three little lines"
     // equal-height stubs signalling "this is the current track but paused".
     private let pausedHeight: CGFloat = 8
@@ -20,13 +25,17 @@ struct EqualizerBars: View {
             if isAnimating {
                 TimelineView(.animation) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
-                    barStack(
-                        heights: [
-                            wave(t, phase: 0.00),
-                            wave(t, phase: 0.33),
-                            wave(t, phase: 0.66)
-                        ]
-                    )
+                    let heights: [CGFloat] = {
+                        if let provider = levelProvider {
+                            let level = CGFloat(provider())
+                            return [0.00, 0.33, 0.66].map { phase in
+                                audioHeight(level: level, phase: phase, t: t)
+                            }
+                        } else {
+                            return [0.00, 0.33, 0.66].map { sineHeight(t: t, phase: $0) }
+                        }
+                    }()
+                    barStack(heights: heights)
                 }
             } else {
                 barStack(heights: [pausedHeight, pausedHeight, pausedHeight])
@@ -46,10 +55,21 @@ struct EqualizerBars: View {
         }
     }
 
-    private func wave(_ t: TimeInterval, phase: Double) -> CGFloat {
+    // Audio-level-driven height: base on live level, add a small per-bar
+    // wiggle so the three bars don't move in lockstep.
+    private func audioHeight(level: CGFloat, phase: Double, t: TimeInterval) -> CGFloat {
+        let minH: CGFloat = 6
+        let range = maxHeight - minH
+        let wiggle = CGFloat(sin((t / 0.25 + phase) * 2 * .pi)) * 0.15
+        let combined = max(0, min(1, level + wiggle))
+        return minH + combined * range
+    }
+
+    // Sine fallback used when no levelProvider is supplied.
+    private func sineHeight(t: TimeInterval, phase: Double) -> CGFloat {
         let period: Double = 1.2
         let x = (t / period + phase) * 2 * .pi
-        let sine = (sin(x) + 1) / 2 // 0..1
+        let sine = (sin(x) + 1) / 2
         return 8 + CGFloat(sine) * (maxHeight - 8)
     }
 }

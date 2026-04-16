@@ -45,6 +45,13 @@ class AudioPlayerService: ObservableObject {
     var queueVersion: Int {
         return queueManager.queueVersion
     }
+
+    // Audio metering — intended to be polled by animated UI (e.g. the
+    // current-track equalizer bars in Queue) at render rate. Returns 0..1;
+    // 0 when paused or silent.
+    var currentAudioLevel: Float {
+        playbackEngine.currentAudioLevel
+    }
     
     private init() {
         // Set up delegates

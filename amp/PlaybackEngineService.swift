@@ -9,9 +9,27 @@ protocol PlaybackEngineDelegate: AnyObject {
 }
 
 class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    // Audio level metering — enabled on every new player via the didSet on
+    // `player`. Read `currentAudioLevel` from the UI at the animation rate;
+    // returns 0..1 where 0 = silence or paused, 1 = peak.
+
+    var currentAudioLevel: Float {
+        guard let player = player, player.isPlaying else { return 0 }
+        player.updateMeters()
+        let dB = player.averagePower(forChannel: 0)
+        let minDB: Float = -40
+        let maxDB: Float = 0
+        let clamped = max(minDB, min(maxDB, dB))
+        return (clamped - minDB) / (maxDB - minDB)
+    }
+
     weak var delegate: PlaybackEngineDelegate?
     
-    private var player: AVAudioPlayer?
+    private var player: AVAudioPlayer? {
+        didSet {
+            player?.isMeteringEnabled = true
+        }
+    }
     private var timer: Timer?
     private var volumeView: MPVolumeView?
     private var volumeObserver: NSKeyValueObservation?
