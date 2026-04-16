@@ -119,8 +119,19 @@ struct ArtistDetailView: View {
 
     private func loadData() async {
         let loaded = await Task.detached(priority: .userInitiated) {
-            let albums = LibraryService.shared.getAlbums(forAlbumArtist: artistID)
-            let songs = LibraryService.shared.getSongs(forAlbumArtist: artistID)
+            // AmpRoute.artistDetail carries different ID flavors depending on
+            // the caller: Library's artist list is grouped by
+            // albumArtistPersistentID (canonical), while SearchIndexService
+            // keys artists by artistPersistentID. For most tracks the two
+            // are the same value, but not always — fall back to the other
+            // predicate when the first returns empty so the view works for
+            // both entry points.
+            var albums = LibraryService.shared.getAlbums(forAlbumArtist: artistID)
+            var songs = LibraryService.shared.getSongs(forAlbumArtist: artistID)
+            if albums.isEmpty && songs.isEmpty {
+                albums = LibraryService.shared.getAlbums(forArtist: artistID)
+                songs = LibraryService.shared.getSongs(forArtist: artistID)
+            }
             let name = songs.first?.artist ?? albums.first?.artist ?? ""
 
             var albumTrackCounts: [MPMediaEntityPersistentID: Int] = [:]
