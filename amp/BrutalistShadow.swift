@@ -127,6 +127,57 @@ struct BrutalistButtonStyle: ButtonStyle {
     }
 }
 
+// Same press-retract behavior as BrutalistButtonStyle, layered on top of
+// the active/inactive inversion. Replaces the `.brutalistInvertible(...)`
+// modifier usage on components that are also Buttons — tabs, filter
+// chips, the heart, the invertible TransportButton kinds.
+//
+// Logic:
+// - When INACTIVE and pressed: navy slides to (0,0) — shadow retracts
+//   (same feedback as non-invertible buttons)
+// - When INACTIVE and released, state still inactive: navy back at offset
+// - When INACTIVE and released, state becomes ACTIVE: navy stays at (0,0),
+//   white fades out — the press feedback becomes the activation
+// - When ACTIVE and pressed: navy at (0,0), no visual press change (there
+//   is no shadow to retract)
+// - When ACTIVE and released, state becomes INACTIVE: navy slides to
+//   offset, white fades back in — deactivation transition
+
+struct BrutalistInvertibleButtonStyle: ButtonStyle {
+    let isActive: Bool
+    let offset: BrutalistShadowOffset
+
+    init(isActive: Bool, offset: BrutalistShadowOffset = .small) {
+        self.isActive = isActive
+        self.offset = offset
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        let navyAtCenter = isActive || configuration.isPressed
+        return configuration.label
+            .background {
+                GeometryReader { geo in
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.ampNavy)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .offset(
+                                x: navyAtCenter ? 0 : -offset.rawValue,
+                                y: navyAtCenter ? 0 : offset.rawValue
+                            )
+                        Rectangle()
+                            .fill(Color.ampWhite)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .opacity(isActive ? 0 : 1)
+                    }
+                    .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+                    .animation(.easeInOut(duration: 0.25), value: isActive)
+                }
+            }
+            .overlay(Rectangle().stroke(Color.ampBlack, lineWidth: 2))
+    }
+}
+
 struct BrutalistInvertible: ViewModifier {
     let isActive: Bool
     let offsetValue: CGFloat

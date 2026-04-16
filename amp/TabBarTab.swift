@@ -20,9 +20,8 @@ struct TabBarTab: View {
             }
             .animation(.easeInOut(duration: 0.25), value: isSelected)
             .frame(width: 72, height: 56)
-            .brutalistInvertible(isActive: isSelected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistInvertibleButtonStyle(isActive: isSelected, offset: .small))
         .accessibilityLabel(tab.rawValue.capitalized)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

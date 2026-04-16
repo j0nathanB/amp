@@ -17,9 +17,8 @@ struct FilterChip: View {
                 .animation(.easeInOut(duration: 0.25), value: isSelected)
                 .padding(.horizontal, 14)
                 .frame(height: 36)
-                .brutalistInvertible(isActive: isSelected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistInvertibleButtonStyle(isActive: isSelected, offset: .small))
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

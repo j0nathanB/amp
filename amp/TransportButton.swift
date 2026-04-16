@@ -35,10 +35,9 @@ struct TransportButton: View {
             Button(action: action) {
                 icon
                     .frame(width: kind.size, height: kind.size)
-                    .brutalistInvertible(isActive: isActive, offset: kind.shadowOffset)
                     .animation(.easeInOut(duration: 0.25), value: isActive)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(BrutalistInvertibleButtonStyle(isActive: isActive, offset: kind.shadowOffset))
             .accessibilityLabel(accessibilityText)
         } else {
             Button(action: action) {
@@ -89,20 +88,28 @@ struct TransportButton: View {
     }
 }
 
+// Both glyphs always render, cross-fading via opacity. Keeping the view
+// identity stable means the press animation above (shadow retract) and
+// the icon swap don't collide — earlier if/else swap between HStack and
+// Triangle triggered SwiftUI's default transition, which was leaking a
+// "ghost overlay" during the release animation.
 private struct PlayPauseGlyph: View {
     let isPlaying: Bool
     var body: some View {
-        if isPlaying {
+        ZStack {
             HStack(spacing: 10) {
                 Rectangle().fill(Color.ampBlack).frame(width: 9, height: 34)
                 Rectangle().fill(Color.ampBlack).frame(width: 9, height: 34)
             }
-        } else {
+            .opacity(isPlaying ? 1 : 0)
+
             Triangle(pointing: .right)
                 .fill(Color.ampBlack)
                 .frame(width: 22, height: 26)
                 .offset(x: 3, y: 0) // optical centering for a triangle
+                .opacity(isPlaying ? 0 : 1)
         }
+        .animation(.easeInOut(duration: 0.12), value: isPlaying)
     }
 }
 

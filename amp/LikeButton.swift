@@ -15,9 +15,8 @@ struct LikeButton: View {
                 .foregroundStyle(isLiked ? Color.ampWhite : Color.ampBlack)
                 .animation(.easeInOut(duration: 0.25), value: isLiked)
                 .frame(width: 44, height: 44)
-                .brutalistInvertible(isActive: isLiked)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BrutalistInvertibleButtonStyle(isActive: isLiked, offset: .small))
         .accessibilityLabel(isLiked ? "Unlike \(trackTitle)" : "Like \(trackTitle)")
     }
 }
