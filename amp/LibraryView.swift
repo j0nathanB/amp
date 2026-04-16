@@ -1,0 +1,285 @@
+import SwiftUI
+import MediaPlayer
+
+// Spec §7.1: Library tab root. Yellow LIBRARY title block + gear/search
+// chrome buttons, filter chips for Albums / Artists / Playlists, content
+// area switches by chip. Tap an album → push Album Detail; tap an artist →
+// push Artist Detail; tap a playlist → push Playlist Detail; tap gear →
+// push Settings; tap search → switch to the Search tab.
+
+enum LibraryMode { case albums, artists, playlists }
+
+struct LibraryView: View {
+    @ObservedObject private var nav = NavigationService.shared
+
+    @State private var mode: LibraryMode = .albums
+    @State private var albums: [Album] = []
+    @State private var artists: [Artist] = []
+    @State private var playlists: [Playlist] = []
+    @State private var artistAlbumCounts: [MPMediaEntityPersistentID: Int] = [:]
+    @State private var isLoaded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            chrome
+            filterChipsRow
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color.ampWhite)
+        .toolbar(.hidden, for: .navigationBar)
+        .task {
+            guard !isLoaded else { return }
+            await loadData()
+            isLoaded = true
+        }
+    }
+
+    // MARK: - Chrome
+
+    private var chrome: some View {
+        HStack(spacing: 12) {
+            ViewTitleBlock("LIBRARY")
+            ChromeButton(icon: "gear", a11y: "Settings") {
+                nav.libraryPath.append(AmpRoute.settings)
+            }
+            ChromeButton(icon: "magnifyingglass", a11y: "Search") {
+                nav.selectedTab = .search
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 20)
+    }
+
+    private var filterChipsRow: some View {
+        HStack(spacing: 12) {
+            FilterChip(label: "Albums", isSelected: mode == .albums) { mode = .albums }
+            FilterChip(label: "Artists", isSelected: mode == .artists) { mode = .artists }
+            FilterChip(label: "Playlists", isSelected: mode == .playlists) { mode = .playlists }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 20)
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        switch mode {
+        case .albums: albumsGrid
+        case .artists: artistsList
+        case .playlists: playlistsList
+        }
+    }
+
+    private var albumsGrid: some View {
+        ScrollView {
+            if albums.isEmpty {
+                emptyState("No music found.")
+            } else {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16)
+                    ],
+                    spacing: 24
+                ) {
+                    ForEach(albums) { album in
+                        AlbumGridCell(album: album) {
+                            nav.libraryPath.append(AmpRoute.albumDetail(album.id))
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var artistsList: some View {
+        ScrollView {
+            if artists.isEmpty {
+                emptyState("No music found.")
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(artists) { artist in
+                        ArtistRow(
+                            name: artist.name,
+                            albumCount: artistAlbumCounts[artist.id] ?? 0
+                        ) {
+                            nav.libraryPath.append(AmpRoute.artistDetail(artist.id))
+                        }
+                    }
+                }
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var playlistsList: some View {
+        ScrollView {
+            if playlists.isEmpty {
+                emptyState("No playlists found.")
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(playlists) { playlist in
+                        PlaylistListRow(name: playlist.name) {
+                            nav.libraryPath.append(AmpRoute.playlistDetail(playlist.id))
+                        }
+                    }
+                }
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func emptyState(_ text: String) -> some View {
+        Text(text)
+            .font(.metadata)
+            .foregroundStyle(Color.ampMutedText)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 80)
+    }
+
+    // MARK: - Data loading
+
+    private func loadData() async {
+        let loaded = await Task.detached(priority: .userInitiated) {
+            let albums = LibraryService.shared.getAllAlbums()
+            let artists = LibraryService.shared.getAllArtists()
+            let playlists = LibraryService.shared.getPlaylists()
+
+            // Single-pass album counts per artist, keyed by artist name.
+            let allSongs = LibraryService.shared.getAllSongs()
+            var albumsByArtistName: [String: Set<String>] = [:]
+            for song in allSongs {
+                albumsByArtistName[song.artist, default: []].insert(song.album)
+            }
+            var counts: [MPMediaEntityPersistentID: Int] = [:]
+            for artist in artists {
+                counts[artist.id] = albumsByArtistName[artist.name]?.count ?? 0
+            }
+            return (albums, artists, playlists, counts)
+        }.value
+
+        self.albums = loaded.0
+        self.artists = loaded.1
+        self.playlists = loaded.2
+        self.artistAlbumCounts = loaded.3
+    }
+}
+
+// MARK: - Private components
+
+private struct ChromeButton: View {
+    let icon: String
+    let a11y: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.ampBlack)
+                .frame(width: 44, height: 44)
+                .background(Color.ampWhite)
+                .brutalistStroke()
+                .brutalistShadow(.small)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(a11y)
+    }
+}
+
+// Spec §7.1 Albums grid: square art with 2px stroke, NO offset shadow (art is
+// content per §4). Caption: title (sans bold) + artist (sans regular muted).
+private struct AlbumGridCell: View {
+    let album: Album
+    let onTap: () -> Void
+
+    @State private var artwork: UIImage?
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 8) {
+                art
+                    .aspectRatio(1, contentMode: .fit)
+                    .brutalistStroke()
+                Text(album.title)
+                    .font(.listTitle)
+                    .foregroundStyle(Color.ampBlack)
+                    .lineLimit(1)
+                Text(album.artist)
+                    .font(.subtitle)
+                    .foregroundStyle(Color.ampMutedText)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(album.title) by \(album.artist)")
+        .task(id: album.id) {
+            await loadArtwork()
+        }
+    }
+
+    @ViewBuilder
+    private var art: some View {
+        if let artwork {
+            Image(uiImage: artwork)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            ZStack {
+                Rectangle().fill(Color.ampNavy)
+                Text(String(album.title.prefix(1)).uppercased())
+                    .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 48))
+                    .foregroundStyle(Color.ampWhite)
+            }
+        }
+    }
+
+    private func loadArtwork() async {
+        let id = album.id
+        let image = await Task.detached(priority: .userInitiated) {
+            LibraryService.shared.getArtworkImage(
+                forAlbum: id,
+                size: CGSize(width: 300, height: 300)
+            )
+        }.value
+        self.artwork = image
+    }
+}
+
+private struct PlaylistListRow: View {
+    let name: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 0) {
+                Text(name)
+                    .font(.listTitle)
+                    .foregroundStyle(Color.ampBlack)
+                    .lineLimit(1)
+                    .padding(.leading, 24)
+                Spacer(minLength: 12)
+            }
+            .frame(height: 48)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.ampDivider)
+                    .frame(height: 1)
+                    .padding(.horizontal, 24)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
+    }
+}
+
+#Preview {
+    LibraryView()
+}

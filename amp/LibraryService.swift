@@ -1048,6 +1048,48 @@ class LibraryService {
         return items.map { $0.persistentID }
         #endif
     }
+
+    func getAllAlbums() -> [Album] {
+        #if DEBUG
+        return MockLibraryService.shared.getAllAlbums()
+        #else
+        guard let collections = MPMediaQuery.albums().collections else { return [] }
+        let albums = collections.compactMap { collection -> Album? in
+            guard let rep = collection.representativeItem,
+                  let title = rep.albumTitle else { return nil }
+            let artist = rep.albumArtist ?? rep.artist ?? ""
+            return Album(id: rep.albumPersistentID, title: title, artist: artist)
+        }
+        return albums.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        #endif
+    }
+
+    func getAllArtists() -> [Artist] {
+        #if DEBUG
+        return MockLibraryService.shared.getAllArtists()
+        #else
+        guard let collections = MPMediaQuery.artists().collections else { return [] }
+        let artists = collections.compactMap { collection -> Artist? in
+            guard let rep = collection.representativeItem,
+                  let name = rep.albumArtist ?? rep.artist else { return nil }
+            return Artist(id: rep.artistPersistentID, name: name)
+        }
+        return artists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        #endif
+    }
+
+    func getArtworkImage(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
+        #if DEBUG
+        return nil
+        #else
+        let predicate = MPMediaPropertyPredicate(value: albumID, forProperty: MPMediaItemPropertyAlbumPersistentID)
+        let query = MPMediaQuery.albums()
+        query.addFilterPredicate(predicate)
+        guard let rep = query.collections?.first?.representativeItem,
+              let artwork = rep.artwork else { return nil }
+        return artwork.image(at: size)
+        #endif
+    }
 }
 
 extension LibraryService {

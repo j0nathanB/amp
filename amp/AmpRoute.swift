@@ -14,13 +14,25 @@ enum AmpRoute: Hashable {
     case lyrics
 }
 
-// Placeholder destination view. Phase D/E/F will replace each arm with the real view.
+// Destination dispatcher. Pushes to real views when they exist; otherwise
+// renders a placeholder until the corresponding phase replaces it.
 struct AmpRouteDestination: View {
     let route: AmpRoute
 
     var body: some View {
+        switch route {
+        case .settings:
+            // Legacy SettingsView keeps working (dark mode toggle etc.) until
+            // Phase F rebuilds it in the brutalist style.
+            SettingsView()
+        case .albumDetail, .artistDetail, .playlistDetail, .lyrics:
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
         VStack(spacing: 12) {
-            Text(title)
+            Text(placeholderTitle)
                 .font(.viewTitle)
                 .foregroundStyle(Color.ampBlack)
             Text("Coming in a later phase.")
@@ -32,7 +44,7 @@ struct AmpRouteDestination: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private var title: String {
+    private var placeholderTitle: String {
         switch route {
         case .albumDetail: "Album Detail"
         case .artistDetail: "Artist Detail"

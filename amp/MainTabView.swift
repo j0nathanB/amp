@@ -56,7 +56,7 @@ struct MainTabView: View {
     @ViewBuilder
     private func tabRoot(_ tab: AmpTab) -> some View {
         switch tab {
-        case .library: PlaylistsView()
+        case .library: LibraryView()
         case .search: SearchView()
         case .queue: QueueView()
         case .active: NowPlayingView()
