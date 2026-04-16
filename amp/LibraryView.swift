@@ -57,10 +57,10 @@ struct LibraryView: View {
     private var filterChipsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                FilterChip(label: "Albums", isSelected: mode == .albums) { mode = .albums }
-                FilterChip(label: "Artists", isSelected: mode == .artists) { mode = .artists }
-                FilterChip(label: "Songs", isSelected: mode == .songs) { mode = .songs }
-                FilterChip(label: "Playlists", isSelected: mode == .playlists) { mode = .playlists }
+                FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
+                FilterChip(label: "Artists", systemIcon: "person.fill", isSelected: mode == .artists) { mode = .artists }
+                FilterChip(label: "Songs", systemIcon: "music.pages", isSelected: mode == .songs) { mode = .songs }
+                FilterChip(label: "Playlists", systemIcon: "music.note.list", isSelected: mode == .playlists) { mode = .playlists }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 4) // accommodate brutalist shadow bleed
