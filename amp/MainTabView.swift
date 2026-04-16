@@ -17,7 +17,14 @@ struct MainTabView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Spec §2.1: white content frame with 2px black stroke sits on
+            // the cream canvas. A narrow cream strip (8pt) shows around the
+            // top, left, and right edges; the tab bar sits directly below
+            // on its own cream row.
             contentArea
+                .overlay(Rectangle().stroke(Color.ampBlack, lineWidth: 2))
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
             if !isKeyboardVisible {
                 tabBar
                     .transition(.opacity)
