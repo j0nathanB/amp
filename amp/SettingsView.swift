@@ -23,9 +23,8 @@ struct SettingsView: View {
     @ObservedObject private var liked = LikedTracksService.shared
     @Environment(\.dismiss) private var dismiss
 
-    @State private var shareURL: URL?
-    @State private var showShare = false
     @State private var showNoLikedAlert = false
+    @State private var exportErrorMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,13 +37,13 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showShare) {
-            if let shareURL {
-                ShareSheet(items: [shareURL])
-            }
-        }
         .alert("No liked tracks to export.", isPresented: $showNoLikedAlert) {
             Button("OK", role: .cancel) { }
+        }
+        .alert("Export failed", isPresented: .constant(exportErrorMessage != nil)) {
+            Button("OK", role: .cancel) { exportErrorMessage = nil }
+        } message: {
+            Text(exportErrorMessage ?? "")
         }
     }
 
@@ -113,11 +112,47 @@ struct SettingsView: View {
         }
         do {
             let url = try LikedTracksService.shared.generateM3UFile()
-            shareURL = url
-            showShare = true
+            presentShareSheet(for: url)
         } catch {
-            showNoLikedAlert = true
+            exportErrorMessage = error.localizedDescription
         }
+    }
+
+    // UIActivityViewController doesn't cooperate well with SwiftUI's .sheet
+    // — the sheet chrome either appears empty or the activity controller
+    // gets dismissed mid-presentation. Reaching into UIKit to present from
+    // the topmost view controller is the reliable pattern.
+    private func presentShareSheet(for url: URL) {
+        guard let topVC = topmostViewController() else {
+            exportErrorMessage = "Could not locate a view to present from."
+            return
+        }
+        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // iPad needs an anchor for the popover; hand it the root view center.
+        if let pop = activity.popoverPresentationController {
+            pop.sourceView = topVC.view
+            pop.sourceRect = CGRect(
+                x: topVC.view.bounds.midX,
+                y: topVC.view.bounds.midY,
+                width: 0,
+                height: 0
+            )
+            pop.permittedArrowDirections = []
+        }
+        topVC.present(activity, animated: true)
+    }
+
+    private func topmostViewController() -> UIViewController? {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) ?? UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController ?? scene.windows.first?.rootViewController
+        else { return nil }
+        var top = root
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        return top
     }
 }
 
@@ -156,12 +191,3 @@ struct BrutalistToggle: View {
     }
 }
 
-// MARK: - ShareSheet wrapper
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
