@@ -107,16 +107,21 @@ struct BrutalistButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
-                ZStack {
-                    Rectangle()
-                        .fill(Color.ampNavy)
-                        .offset(
-                            x: configuration.isPressed ? 0 : -offset.rawValue,
-                            y: configuration.isPressed ? 0 : offset.rawValue
-                        )
-                    Rectangle().fill(fillColor)
+                GeometryReader { geo in
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.ampNavy)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .offset(
+                                x: configuration.isPressed ? 0 : -offset.rawValue,
+                                y: configuration.isPressed ? 0 : offset.rawValue
+                            )
+                        Rectangle()
+                            .fill(fillColor)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                    .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
                 }
-                .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
             }
             .overlay(Rectangle().stroke(Color.ampBlack, lineWidth: 2))
     }
