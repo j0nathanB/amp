@@ -15,6 +15,7 @@ struct AlbumDetailView: View {
 
     @State private var album: Album?
     @State private var songs: [Song] = []
+    @State private var enrichedFirstSong: Song?
     @State private var totalDuration: TimeInterval = 0
 
     var body: some View {
@@ -66,12 +67,14 @@ struct AlbumDetailView: View {
     // MARK: - Hero art
 
     private var heroArt: some View {
-        AlbumArtView(song: songs.first ?? fallbackSong)
+        AlbumArtView(song: enrichedFirstSong ?? songs.first ?? fallbackSong)
     }
 
-    // AlbumArtView reads song.releaseDate/genre/albumTrackNumber for its
-    // back face. Passing the first song is fine for Album Detail since all
-    // tracks share album/year/genre.
+    // AlbumArtView reads song.releaseDate/genre for its back face. All
+    // tracks on an album share album/year/genre, so the first song is
+    // representative. We prefer the enriched copy (release date read from
+    // the file's ID3 tags) to match NowPlayingView — MPMediaItem often
+    // leaves releaseDate nil otherwise.
     private var fallbackSong: Song? {
         guard let album else { return nil }
         return Song(
@@ -116,7 +119,7 @@ struct AlbumDetailView: View {
     }
 
     private var yearString: String? {
-        guard let date = songs.first?.releaseDate else { return nil }
+        guard let date = enrichedFirstSong?.releaseDate ?? songs.first?.releaseDate else { return nil }
         return String(Calendar.current.component(.year, from: date))
     }
 
@@ -187,6 +190,17 @@ struct AlbumDetailView: View {
         self.songs = loaded.1
         self.durations = loaded.2
         self.totalDuration = loaded.3
+
+        // Enrich the representative song in a second pass so the backside
+        // YEAR + info-strip year fall back to ID3 tags when MPMediaItem
+        // doesn't populate releaseDate. The enricher no-ops if it's
+        // already set, so this is cheap on well-tagged libraries.
+        if let first = loaded.1.first {
+            let enriched = await LibraryService.shared.enrichSongWithFileMetadata(first)
+            if self.songs.first?.persistentID == enriched.persistentID {
+                self.enrichedFirstSong = enriched
+            }
+        }
     }
 
     private func formatDuration(_ t: TimeInterval) -> String {

@@ -2,11 +2,11 @@ import SwiftUI
 import MediaPlayer
 
 // Spec §8.1 + navigation amendment: front shows the artwork, back shows
-// ampNavy metadata in a 2-column layout. Front tap flips to the back;
-// back rows are individually tappable — artist → ArtistDetail, album →
-// AlbumDetail, genre → GenreDetail. Tap on the back-face whitespace
-// flips back to the front. Navigation pushes via NavigationService.push,
-// which targets whichever tab is currently selected.
+// ampNavy metadata as stacked label/value rows — ALBUM, ALBUM ARTIST,
+// YEAR, GENRE. Front tap flips to the back; tappable rows (album, album
+// artist, genre) route to the matching detail via NavigationService.push,
+// which targets whichever tab is currently selected. Tap on the back-face
+// whitespace (or a non-tappable row like YEAR) flips back to the front.
 //
 // The back face is pre-rotated 180° so it reads right-side-up at the
 // flip endpoint. Opacity cross-fades the two during rotation so text is
@@ -19,7 +19,7 @@ struct AlbumArtView: View {
     @ObservedObject private var nav = NavigationService.shared
     @State private var isFlipped = false
     @State private var artwork: UIImage?
-    @State private var trackTotal: Int?
+    @State private var albumArtist: String?
 
     var body: some View {
         ZStack {
@@ -39,7 +39,7 @@ struct AlbumArtView: View {
         }
         .task(id: song?.persistentID) {
             await loadArtwork()
-            await loadTrackTotal()
+            await loadAlbumArtist()
         }
         .accessibilityElement()
         .accessibilityLabel(isFlipped ? "Album details" : "Album artwork")
@@ -106,14 +106,14 @@ struct AlbumArtView: View {
     // MARK: - Metadata model
 
     fileprivate struct Row: Equatable {
-        enum Kind: Equatable { case album, year, genre, track }
+        enum Kind: Equatable { case album, artist, year, genre }
         let label: String
         let value: String
         let kind: Kind
         var isTappable: Bool {
             switch kind {
-            case .album, .genre: true
-            case .year, .track: false
+            case .album, .artist, .genre: true
+            case .year: false
             }
         }
     }
@@ -122,27 +122,23 @@ struct AlbumArtView: View {
         guard let song else { return [] }
         return [
             Row(label: "ALBUM", value: song.album.isEmpty ? "—" : song.album, kind: .album),
+            Row(label: "ALBUM ARTIST", value: albumArtistString, kind: .artist),
             Row(label: "YEAR", value: yearString, kind: .year),
-            Row(label: "GENRE", value: (song.genre?.isEmpty == false ? song.genre : nil) ?? "—", kind: .genre),
-            Row(label: "TRACK", value: trackString, kind: .track)
+            Row(label: "GENRE", value: (song.genre?.isEmpty == false ? song.genre : nil) ?? "—", kind: .genre)
         ]
     }
-
-    // Note: the artist is shown on the info strip *outside* the art (in
-    // NowPlayingView and AlbumDetailView), so we don't duplicate an ARTIST
-    // row here. Tapping the artist line below the art handles artist nav.
 
     private var yearString: String {
         guard let date = song?.releaseDate else { return "—" }
         return String(Calendar.current.component(.year, from: date))
     }
 
-    private var trackString: String {
-        guard let song, song.albumTrackNumber > 0 else { return "—" }
-        if let total = trackTotal, total > 0 {
-            return "\(song.albumTrackNumber) of \(total)"
-        }
-        return String(song.albumTrackNumber)
+    // Prefer the MPMediaItem albumArtist (loaded async); fall back to the
+    // track artist on the Song so the row is never blank while loading.
+    private var albumArtistString: String {
+        if let albumArtist, !albumArtist.isEmpty { return albumArtist }
+        if let song, !song.artist.isEmpty { return song.artist }
+        return "—"
     }
 
     // MARK: - Taps
@@ -151,12 +147,20 @@ struct AlbumArtView: View {
         switch row.kind {
         case .album:
             navigateToAlbum()
+        case .artist:
+            navigateToArtist()
         case .genre:
             navigateToGenre(row.value)
-        case .year, .track:
+        case .year:
             // Not navigable — flip back instead
             isFlipped = false
         }
+    }
+
+    private func navigateToArtist() {
+        guard let song else { return }
+        isFlipped = false
+        nav.navigateToArtist(forTrack: song.persistentID)
     }
 
     private func navigateToAlbum() {
@@ -190,13 +194,13 @@ struct AlbumArtView: View {
         self.artwork = image
     }
 
-    private func loadTrackTotal() async {
+    private func loadAlbumArtist() async {
         guard let song else {
-            trackTotal = nil
+            albumArtist = nil
             return
         }
         let id = song.persistentID
-        let total = await Task.detached(priority: .userInitiated) { () -> Int? in
+        let name = await Task.detached(priority: .userInitiated) { () -> String? in
             let predicate = MPMediaPropertyPredicate(
                 value: NSNumber(value: id),
                 forProperty: MPMediaItemPropertyPersistentID
@@ -204,10 +208,9 @@ struct AlbumArtView: View {
             let query = MPMediaQuery.songs()
             query.addFilterPredicate(predicate)
             guard let item = query.items?.first else { return nil }
-            let albumID = item.albumPersistentID
-            return LibraryService.shared.getSongs(forAlbum: albumID).count
+            return item.albumArtist ?? item.artist
         }.value
-        self.trackTotal = total
+        self.albumArtist = name
     }
 }
 
@@ -218,19 +221,18 @@ private struct MetadataRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(row.label)
                 .font(.inversionLabel)
                 .foregroundStyle(Color.ampInversionLabel)
-                .frame(width: 72, alignment: .leading)
             Text(row.value)
-                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 16))
+                .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 26))
                 .foregroundStyle(Color.ampWhite)
                 .underline(row.isTappable, color: Color.ampInversionLabel)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .accessibilityElement(children: .combine)
