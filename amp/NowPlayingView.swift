@@ -38,8 +38,10 @@ struct NowPlayingView: View {
 
                 transportRow
 
+                Spacer(minLength: 12)
+
                 utilityTray
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 16)
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
@@ -60,10 +62,10 @@ struct NowPlayingView: View {
 
             MarqueeText(
                 text: audioPlayer.currentTrack?.artist ?? "—",
-                font: .custom("AtkinsonHyperlegibleNext-Bold", size: 24),
+                font: .custom("AtkinsonHyperlegibleNext-Bold", size: 26),
                 color: Color.ampBlack
             )
-            .frame(height: 28)
+            .frame(height: 30)
             .contentShape(Rectangle())
             .onTapGesture {
                 guard let id = audioPlayer.currentTrack?.persistentID else { return }
