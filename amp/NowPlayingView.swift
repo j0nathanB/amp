@@ -17,33 +17,41 @@ struct NowPlayingView: View {
 
     var body: some View {
         GeometryReader { geo in
-            VStack(spacing: 12) {
-                // Explicit square, inset 16pt from the frame on all three
-                // sides (top / left / right). Sized off geo.size.width
-                // rather than negotiating through .aspectRatio(.fit) so
-                // it doesn't shrink to match vertical space claimed by
-                // the info strip / scrubber / transport / tray.
-                AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
-                    .frame(width: geo.size.width - 32, height: geo.size.width - 32)
-                    .padding(.top, 16)
+            ZStack(alignment: .top) {
+                VStack(spacing: 12) {
+                    // Explicit square, inset 16pt from the frame on all three
+                    // sides (top / left / right). Sized off geo.size.width
+                    // rather than negotiating through .aspectRatio(.fit) so
+                    // it doesn't shrink to match vertical space claimed by
+                    // the info strip / scrubber / transport / tray.
+                    AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
+                        .frame(width: geo.size.width - 32, height: geo.size.width - 32)
+                        .padding(.top, 16)
 
-                infoStrip
+                    infoStrip
 
-                Scrubber(
-                    currentTime: audioPlayer.playbackTime,
-                    duration: audioPlayer.songDuration,
-                    onSeek: { audioPlayer.seek(to: $0) }
-                )
-                .padding(.horizontal, 24)
+                    Scrubber(
+                        currentTime: audioPlayer.playbackTime,
+                        duration: audioPlayer.songDuration,
+                        onSeek: { audioPlayer.seek(to: $0) }
+                    )
+                    .padding(.horizontal, 24)
 
-                transportRow
+                    transportRow
+                        .offset(y: -4)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
 
+                // Pinned to the frame's bottom edge. Button bottoms sit 20pt
+                // above the bottom line so the 4px drop shadow lands exactly
+                // 16pt from it — matching the album art's 16pt top inset.
                 utilityTray
-                    .padding(.bottom, 16)
+                    .frame(width: geo.size.width)
+                    .padding(.bottom, 20)
+                    .frame(height: geo.size.height, alignment: .bottom)
             }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
@@ -96,7 +104,7 @@ struct NowPlayingView: View {
     // MARK: - Utility tray (BT / Loop / Lyrics / Like, always visible)
 
     private var utilityTray: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 20) {
             bluetoothButton
 
             TransportButton(kind: .loop, isActive: audioPlayer.isLoopingSong) {
@@ -123,23 +131,24 @@ struct NowPlayingView: View {
     }
 
     // Route indicator button:
-    // - BT audio active → bluetooth glyph in blue (#0693E3)
-    // - BT not in use  → speaker.wave.3.fill in black (audio routed to
-    //   the iPhone speaker, which is what you fall back to when BT is
-    //   disabled or no BT device is connected)
-    // Always a white button with 4px shadow — no navy inversion.
+    // - BT audio active → white bluetooth glyph on a #0693E3 blue fill
+    // - BT not in use  → speaker.wave.3.fill in black on white (audio
+    //   routed to the iPhone speaker, which is what you fall back to
+    //   when BT is disabled or no BT device is connected)
+    // 4px shadow in both states — no navy inversion.
     // AirPlayButton overlay handles the tap and presents the system
     // output picker; BrutalistButtonStyle still gets the press event so
     // the shadow-retract animation plays.
     private var bluetoothButton: some View {
         let btBlue = Color(red: 0x06 / 255, green: 0x93 / 255, blue: 0xE3 / 255)
+        let isActive = audioPlayer.isBluetoothRouteActive
         return ZStack {
             Button(action: {}) {
                 Group {
-                    if audioPlayer.isBluetoothRouteActive {
+                    if isActive {
                         BluetoothShape()
                             .stroke(
-                                btBlue,
+                                Color.ampWhite,
                                 style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                             )
                             .frame(width: 14, height: 22)
@@ -151,7 +160,7 @@ struct NowPlayingView: View {
                 }
                 .frame(width: 44, height: 44)
             }
-            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
+            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: isActive ? btBlue : .ampWhite))
 
             AirPlayButton()
                 .frame(width: 44, height: 44)
