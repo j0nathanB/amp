@@ -16,29 +16,34 @@ struct NowPlayingView: View {
     @ObservedObject private var settings = SettingsService.shared
 
     var body: some View {
-        VStack(spacing: 16) {
-            AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
-                .padding(.top, 16)
-                .layoutPriority(1)
+        GeometryReader { geo in
+            VStack(spacing: 16) {
+                // Explicit width×width so the art claims the full frame
+                // width as a square rather than negotiating with the
+                // other VStack children through .aspectRatio(.fit).
+                AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
+                    .frame(width: geo.size.width, height: geo.size.width)
+                    .padding(.top, 16)
 
-            infoStrip
+                infoStrip
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-            Scrubber(
-                currentTime: audioPlayer.playbackTime,
-                duration: audioPlayer.songDuration,
-                onSeek: { audioPlayer.seek(to: $0) }
-            )
-            .padding(.horizontal, 24)
+                Scrubber(
+                    currentTime: audioPlayer.playbackTime,
+                    duration: audioPlayer.songDuration,
+                    onSeek: { audioPlayer.seek(to: $0) }
+                )
+                .padding(.horizontal, 24)
 
-            transportRow
+                transportRow
 
-            utilityTray
-                .padding(.top, 4)
-                .padding(.bottom, 12)
+                utilityTray
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
     }
