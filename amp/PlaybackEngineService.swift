@@ -2,34 +2,92 @@ import Foundation
 import AVFoundation
 import MediaPlayer
 import UIKit
+import Accelerate
+import os.lock
 
 protocol PlaybackEngineDelegate: AnyObject {
     func playbackDidFinish(successfully: Bool)
     func playbackTimeDidUpdate(_ time: TimeInterval)
 }
 
-class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
-    // Audio level metering — enabled on every new player via the didSet on
-    // `player`. Read `currentAudioLevel` from the UI at the animation rate;
-    // returns 0..1 where 0 = silence or paused, 1 = peak.
+// Phase 1 of the EqualizerBars migration (plan: magical-nibbling-pancake).
+// The audio source is now AVAudioEngine + AVAudioPlayerNode instead of
+// AVAudioPlayer. Public API and PlaybackEngineDelegate are unchanged —
+// `currentAudioLevel` stays a single 0..1 scalar so no UI change lands
+// with this commit. Per-band banding arrives in Phase 2 on top of the
+// same FFT tap installed here.
+//
+// Time math: AVAudioEngine's playerNode reports "sample time since the
+// most recent .play()" via `playerTime(forNodeTime:)`. We track the
+// offset in seconds at which the currently-scheduled segment starts
+// (`segmentStartOffset`) and add the node's elapsed time to get wall-
+// clock position in the track. Pause/resume without a new schedule keeps
+// sampleTime accumulating; seek requires stop()+scheduleSegment() which
+// resets sampleTime to 0, so we reset segmentStartOffset at the same
+// time.
+//
+// Tap callback runs on the audio IO thread. It MUST NOT allocate,
+// publish to SwiftUI, or block. It writes a single Float behind an
+// unfair lock; the UI polls `currentAudioLevel` via TimelineView.
+
+class PlaybackEngineService: NSObject, ObservableObject {
+    // MARK: - Public surface
 
     var currentAudioLevel: Float {
-        guard let player = player, player.isPlaying else { return 0 }
-        player.updateMeters()
-        let dB = player.averagePower(forChannel: 0)
-        let minDB: Float = -40
-        let maxDB: Float = 0
-        let clamped = max(minDB, min(maxDB, dB))
-        return (clamped - minDB) / (maxDB - minDB)
+        guard playerNode.isPlaying else { return 0 }
+        return levelLock.withLock { tappedLevel }
     }
 
     weak var delegate: PlaybackEngineDelegate?
-    
-    private var player: AVAudioPlayer? {
-        didSet {
-            player?.isMeteringEnabled = true
-        }
+
+    @Published var isPlaying = false
+    @Published var songDuration: TimeInterval = 0.0
+    @Published var playbackTime: TimeInterval = 0.0
+    @Published var currentOutputName: String = ""
+    @Published var isBluetoothRouteActive: Bool = false
+    @Published var systemVolume: Float = 1.0
+
+    var hasAudioReady: Bool {
+        return file != nil
     }
+
+    // MARK: - Audio graph state
+
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private var file: AVAudioFile?
+
+    // Seconds into the track at which the currently-scheduled segment
+    // starts. Add to playerNode's elapsed sampleTime to get wall-clock
+    // position.
+    private var segmentStartOffset: TimeInterval = 0
+
+    // Uniquely identifies the most recent scheduleSegment call so stale
+    // completion callbacks (from segments that got stop()'d on seek) can
+    // be filtered out.
+    private var currentScheduleToken = UUID()
+
+    // MARK: - FFT tap state (wideband in Phase 1, per-band in Phase 2)
+
+    private let fftLog2n: vDSP_Length = 10
+    private let fftSize = 1024
+    private lazy var fftSetup: vDSP.FFT<DSPSplitComplex> = {
+        vDSP.FFT(log2n: fftLog2n, radix: .radix2, ofType: DSPSplitComplex.self)!
+    }()
+    private lazy var hannWindow: [Float] = {
+        var w = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&w, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        return w
+    }()
+    private var windowedSamples = [Float](repeating: 0, count: 1024)
+    private var fftRealParts = [Float](repeating: 0, count: 512)
+    private var fftImagParts = [Float](repeating: 0, count: 512)
+    private var fftMagnitudes = [Float](repeating: 0, count: 512)
+    private let levelLock = OSAllocatedUnfairLock()
+    private var tappedLevel: Float = 0
+
+    // MARK: - Other state (carried over verbatim from the AVAudioPlayer version)
+
     private var timer: Timer?
     private var volumeView: MPVolumeView?
     private var volumeObserver: NSKeyValueObservation?
@@ -38,7 +96,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var pausedAt: TimeInterval = 0
     private var lastNowPlayingUpdate: TimeInterval = 0
     private var pauseCleanupTimer: Timer?
-    
+
     // Track resume operations to suppress notifications
     private var isResumingFromPause = false
 
@@ -46,15 +104,11 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var consecutiveLoadFailures = 0
     private let maxConsecutiveFailures = 5
 
-    @Published var isPlaying = false
-    @Published var songDuration: TimeInterval = 0.0
-    @Published var playbackTime: TimeInterval = 0.0
-    @Published var currentOutputName: String = ""
-    @Published var isBluetoothRouteActive: Bool = false
-    @Published var systemVolume: Float = 1.0
-    
     override init() {
         super.init()
+
+        setupAudioGraph()
+
         updateCurrentOutputName()
         setupNotifications()
         updateSystemVolume()
@@ -62,7 +116,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         ensureAudioSessionConfigured()
         setupRemoteCommandCenter()
     }
-    
+
     deinit {
         NotificationCenter.default.removeObserver(self)
         timer?.invalidate()
@@ -70,23 +124,124 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         volumeView?.removeFromSuperview()
         volumeObserver?.invalidate()
         teardownRemoteCommandCenter()
+        engine.mainMixerNode.removeTap(onBus: 0)
+        if engine.isRunning {
+            engine.stop()
+        }
     }
-    
+
+    // MARK: - Audio graph
+
+    private func setupAudioGraph() {
+        engine.attach(playerNode)
+        // Connect with nil format so the mixer picks up the player's
+        // eventual output format. scheduleSegment will supply the file's
+        // processingFormat when we actually play something; the mixer
+        // adapts automatically.
+        engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
+        installMixerTap()
+    }
+
+    private func installMixerTap() {
+        let mixer = engine.mainMixerNode
+        let format = mixer.outputFormat(forBus: 0)
+        // Guard against an uninitialized format (can happen before the
+        // session/engine is active on some devices). Reinstall later if so.
+        guard format.sampleRate > 0, format.channelCount > 0 else { return }
+
+        mixer.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: format) { [weak self] buffer, _ in
+            self?.processTapBuffer(buffer)
+        }
+    }
+
+    private func processTapBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        let frameCount = Int(buffer.frameLength)
+        guard frameCount >= fftSize else { return }
+
+        // Copy first channel into scratch, applying Hann window in-place.
+        // vDSP_vmul is safe to call from the audio IO thread — no allocs.
+        let samples = channelData[0]
+        windowedSamples.withUnsafeMutableBufferPointer { out in
+            vDSP_vmul(samples, 1, hannWindow, 1, out.baseAddress!, 1, vDSP_Length(fftSize))
+        }
+
+        // Pack the windowed real signal into split-complex form, run the
+        // forward FFT in place, and take magnitudes. The reduce at the end
+        // produces a single wideband level; Phase 2 will instead bin the
+        // magnitudes array into low/mid/high ranges.
+        fftRealParts.withUnsafeMutableBufferPointer { realPtr in
+            fftImagParts.withUnsafeMutableBufferPointer { imagPtr in
+                var split = DSPSplitComplex(
+                    realp: realPtr.baseAddress!,
+                    imagp: imagPtr.baseAddress!
+                )
+
+                windowedSamples.withUnsafeBufferPointer { wPtr in
+                    wPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                        vDSP_ctoz(complexPtr, 2, &split, 1, vDSP_Length(fftSize / 2))
+                    }
+                }
+
+                fftSetup.forward(input: split, output: &split)
+
+                fftMagnitudes.withUnsafeMutableBufferPointer { magPtr in
+                    vDSP_zvabs(&split, 1, magPtr.baseAddress!, 1, vDSP_Length(fftSize / 2))
+                }
+            }
+        }
+
+        // Normalize the magnitude sum into a 0..1-ish scalar. Calibrated
+        // empirically so the visible range matches the old averagePower
+        // curve. Phase 2 replaces this with per-band binning.
+        var sum: Float = 0
+        vDSP_sve(fftMagnitudes, 1, &sum, vDSP_Length(fftSize / 2))
+        let normalized = max(0, min(1, sum / 400))
+
+        levelLock.withLock {
+            tappedLevel = normalized
+        }
+    }
+
+    private func ensureEngineRunning() {
+        guard !engine.isRunning else { return }
+        do {
+            engine.prepare()
+            try engine.start()
+            print("🎛️ AVAudioEngine started")
+        } catch {
+            print("❌ Failed to start AVAudioEngine: \(error)")
+        }
+    }
+
+    // Time in the track right now, in seconds. Offset + node elapsed.
+    // If the node hasn't rendered yet (just scheduled, not playing),
+    // falls back to the offset so UI shows the expected position.
+    private func currentPlaybackTime() -> TimeInterval {
+        guard let nodeTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime),
+              playerTime.sampleRate > 0 else {
+            return segmentStartOffset
+        }
+        let elapsed = Double(playerTime.sampleTime) / playerTime.sampleRate
+        return segmentStartOffset + max(0, elapsed)
+    }
+
     // MARK: - Playback Control
-    
+
     func play(song: Song, isManualSelection: Bool = false) {
         guard let url = getAudioURL(for: song) else {
             print("❌ No audio URL found for song: \(song.title)")
             return
         }
-        
+
         // Check if this is the same song being resumed
         let isSameSong = lastPlayedSong?.persistentID == song.persistentID
         let storedPausePosition = pausedAt
-        
+
         // Track the song for memory management
         lastPlayedSong = song
-        
+
         // CRITICAL FIX: Only reset pausedAt if this is a genuinely new song
         if !isSameSong {
             pausedAt = 0
@@ -94,93 +249,88 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else {
             print("🎵 Resuming same song: \(song.title) from position \(storedPausePosition)s")
         }
-        
+
         // Cancel any pending cleanup since we're starting new playback
         cancelDelayedCleanup()
-        
-        commonPlay(url: url)
-        
-        // If resuming same song, determine the correct position to resume from
+
+        // For a same-song resume, start the segment at the stored pause
+        // position (or the user's manual seek position if that differs).
+        let startSeconds: TimeInterval
         if isSameSong {
-            // Check if user has manually sought to a different position
-            let hasManuallySeeeked = abs(playbackTime - storedPausePosition) > 0.1 // 0.1s tolerance
-            let resumePosition = hasManuallySeeeked ? playbackTime : storedPausePosition
-            
-            if resumePosition > 0 {
-                player?.currentTime = resumePosition
-                playbackTime = resumePosition
-                if hasManuallySeeeked {
-                    print("✅ Resuming from manual seek position: \(resumePosition)s")
-                } else {
-                    print("✅ Resuming from stored pause position: \(resumePosition)s")
-                }
+            let hasManuallySeeked = abs(playbackTime - storedPausePosition) > 0.1
+            startSeconds = hasManuallySeeked ? playbackTime : storedPausePosition
+            if hasManuallySeeked {
+                print("✅ Resuming from manual seek position: \(startSeconds)s")
+            } else {
+                print("✅ Resuming from stored pause position: \(startSeconds)s")
             }
+        } else {
+            startSeconds = 0
         }
-        
+
+        schedulePlayback(url: url, fromSeconds: startSeconds, autoPlay: true)
+
         updateNowPlayingInfo(for: song)
-        
+
         // Schedule notification for track change
         scheduleTrackChangeNotification(for: song, isManualSelection: isManualSelection)
     }
-    
+
     func playPause() {
-        if let player = player {
-            // Player exists, normal pause/resume
-            if player.isPlaying {
-                // CRITICAL FIX: Store current playback position BEFORE pausing
-                pausedAt = player.currentTime
-                print("⏸️ Pausing at position: \(pausedAt)s")
+        if playerNode.isPlaying {
+            // Currently playing — pause.
+            pausedAt = currentPlaybackTime()
+            print("⏸️ Pausing at position: \(pausedAt)s")
 
-                player.pause()
-                isPlaying = false
-                stopTimer()
-                // Update now playing info to reflect paused state
-                updateNowPlayingInfoTime()
-                // Schedule cleanup after 30 seconds to free memory during long pauses
-                scheduleDelayedCleanup()
-            } else {
-                // Mark this as a resume, not a new track
-                isResumingFromPause = true
+            playerNode.pause()
+            isPlaying = false
+            stopTimer()
+            updateNowPlayingInfoTime()
+            scheduleDelayedCleanup()
+        } else if file != nil {
+            // Node is paused OR stopped-with-a-pending-segment (from a
+            // seek-while-paused). Either way, play() resumes.
+            isResumingFromPause = true
 
-                // CRITICAL FIX: Determine the correct position to resume from
-                let hasManuallySeeeked = abs(playbackTime - pausedAt) > 0.1 // 0.1s tolerance
-                let resumePosition = hasManuallySeeeked ? playbackTime : pausedAt
+            let hasManuallySeeked = abs(playbackTime - pausedAt) > 0.1
+            let resumePosition = hasManuallySeeked ? playbackTime : pausedAt
 
-                if resumePosition > 0 {
-                    player.currentTime = resumePosition
-                    playbackTime = resumePosition
-                    if hasManuallySeeeked {
-                        print("▶️ Resuming from manual seek position: \(resumePosition)s")
-                    } else {
-                        print("▶️ Resuming from stored pause position: \(resumePosition)s")
-                    }
-                } else {
-                    print("▶️ Resuming from current position: \(player.currentTime)s")
+            if resumePosition > 0 && abs(resumePosition - currentPlaybackTime()) > 0.1 {
+                // Segment was scheduled from a different position; reschedule
+                // to land exactly on resumePosition.
+                if let url = lastPlayedSong.flatMap({ getAudioURL(for: $0) }) {
+                    schedulePlayback(url: url, fromSeconds: resumePosition, autoPlay: true)
+                    isResumingFromPause = false
+                    return
                 }
-
-                player.play()
-                isPlaying = true
-                startTimer()
-                // Cancel any pending cleanup since we're resuming
-                cancelDelayedCleanup()
-                // Update now playing info to reflect playing state
-                updateNowPlayingInfoTime()
-                isResumingFromPause = false
             }
+
+            if hasManuallySeeked {
+                print("▶️ Resuming from manual seek position: \(resumePosition)s")
+            } else {
+                print("▶️ Resuming from current node position")
+            }
+
+            ensureEngineRunning()
+            playerNode.play()
+            isPlaying = true
+            startTimer()
+            cancelDelayedCleanup()
+            updateNowPlayingInfoTime()
+            isResumingFromPause = false
         } else if let song = lastPlayedSong {
-            // Player was released, reload and resume (fallback case)
+            // File was released (30s cleanup). Reload and resume.
             print("🔄 Entering resume path - song: \(song.title), pausedAt: \(pausedAt)s")
             isResumingFromPause = true
             resumeFromPause(song: song, at: pausedAt)
             isResumingFromPause = false
         } else {
-            // No audio loaded at all - cannot play/pause
             print("⚠️ PlayPause called but no audio is loaded. Use play(song:) to start playback.")
         }
     }
-    
+
     func stop() {
-        player?.stop()
+        playerNode.stop()
         isPlaying = false
         playbackTime = 0.0
         stopTimer()
@@ -191,42 +341,176 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("🧹 Cleared Now Playing info after stop")
         }
     }
-    
+
     func seek(to time: TimeInterval) {
-        player?.currentTime = time
-        playbackTime = time
-        
-        // Update stored pause position if seeking while paused
-        // This ensures that if the user seeks while paused, the new position is remembered
-        if !isPlaying {
-            pausedAt = time
-            print("📍 Manual seek while paused to: \(time)s")
+        // If we have a file loaded, reschedule from the new frame. If we
+        // don't (post-cleanup), just remember pausedAt — the next resume
+        // will reopen at this position.
+        if let audioFile = file {
+            let wasPlaying = playerNode.isPlaying
+            let sampleRate = audioFile.processingFormat.sampleRate
+            let clampedTime = max(0, min(songDuration, time))
+            let startFrame = AVAudioFramePosition(clampedTime * sampleRate)
+            let framesRemaining = AVAudioFrameCount(max(0, audioFile.length - startFrame))
+
+            playerNode.stop()
+
+            if framesRemaining > 0 {
+                segmentStartOffset = clampedTime
+                playbackTime = clampedTime
+                let myToken = UUID()
+                currentScheduleToken = myToken
+
+                playerNode.scheduleSegment(
+                    audioFile,
+                    startingFrame: startFrame,
+                    frameCount: framesRemaining,
+                    at: nil,
+                    completionCallbackType: .dataPlayedBack
+                ) { [weak self] _ in
+                    self?.handleScheduleCompletion(token: myToken)
+                }
+
+                if wasPlaying {
+                    ensureEngineRunning()
+                    playerNode.play()
+                }
+            } else {
+                // Seek past end of track — treat as completion.
+                segmentStartOffset = clampedTime
+                playbackTime = clampedTime
+            }
+        } else {
+            playbackTime = time
         }
-        
+
+        // Update stored pause position if seeking while paused so the next
+        // resume lands here.
+        if !isPlaying {
+            pausedAt = playbackTime
+            print("📍 Manual seek while paused to: \(playbackTime)s")
+        }
+
         // Update now playing info with new elapsed time
         updateNowPlayingInfoTime()
     }
-    
+
     func loadWithoutPlaying(song: Song) {
         guard let url = getAudioURL(for: song) else {
             print("❌ No audio URL found for song: \(song.title)")
             return
         }
-        
-        // Track the song for memory management  
+
+        // Track the song for memory management
         lastPlayedSong = song
         pausedAt = 0
-        
-        commonLoad(url: url)
+
+        schedulePlayback(url: url, fromSeconds: 0, autoPlay: false)
         updateNowPlayingInfo(for: song)
     }
-    
-    var hasAudioReady: Bool {
-        return player != nil
+
+    // MARK: - Scheduling
+
+    // Central scheduling routine. Opens the file (if URL differs or no
+    // file loaded), stops any previously-scheduled segment, sets the
+    // seconds-offset for time math, and optionally kicks off playback.
+    private func schedulePlayback(url: URL, fromSeconds: TimeInterval, autoPlay: Bool) {
+        ensureAudioSessionConfigured()
+        ensureEngineRunning()
+
+        do {
+            let audioFile = try AVAudioFile(forReading: url)
+            file = audioFile
+
+            let sampleRate = audioFile.processingFormat.sampleRate
+            let totalFrames = audioFile.length
+            songDuration = Double(totalFrames) / sampleRate
+
+            let clampedStart = max(0, min(songDuration, fromSeconds))
+            let startFrame = AVAudioFramePosition(clampedStart * sampleRate)
+            let framesRemaining = AVAudioFrameCount(max(0, totalFrames - startFrame))
+
+            guard framesRemaining > 0 else {
+                print("⚠️ Scheduled past end of track — treating as completion")
+                isPlaying = false
+                delegate?.playbackDidFinish(successfully: true)
+                return
+            }
+
+            playerNode.stop()
+
+            segmentStartOffset = clampedStart
+            playbackTime = clampedStart
+
+            let myToken = UUID()
+            currentScheduleToken = myToken
+
+            playerNode.scheduleSegment(
+                audioFile,
+                startingFrame: startFrame,
+                frameCount: framesRemaining,
+                at: nil,
+                completionCallbackType: .dataPlayedBack
+            ) { [weak self] _ in
+                self?.handleScheduleCompletion(token: myToken)
+            }
+
+            if autoPlay {
+                playerNode.play()
+                isPlaying = true
+                startTimer()
+            } else {
+                isPlaying = false
+                stopTimer()
+            }
+
+            consecutiveLoadFailures = 0
+        } catch {
+            print("❌ Failed to open audio file: \(error)")
+            print("❌ File may be corrupt or unsupported format")
+            isPlaying = false
+
+            consecutiveLoadFailures += 1
+            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
+
+            if consecutiveLoadFailures < maxConsecutiveFailures {
+                print("🔄 Attempting to skip to next track...")
+                delegate?.playbackDidFinish(successfully: false)
+            } else {
+                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
+                consecutiveLoadFailures = 0
+            }
+        }
     }
-    
+
+    // Completion handler for scheduleSegment. Fires on a background queue
+    // and can arrive *after* a manual stop/seek has discarded the segment
+    // (AVFoundation drains pending callbacks); gate on the token + current
+    // file state to suppress stale fires.
+    private func handleScheduleCompletion(token: UUID) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard self.currentScheduleToken == token else {
+                print("🗑️ Stale scheduleSegment completion (token mismatch) — ignoring")
+                return
+            }
+            guard self.file != nil else {
+                print("🗑️ scheduleSegment completion after stop — ignoring")
+                return
+            }
+            print("========================================")
+            print("🎵 AVAudioPlayerNode finished playing segment")
+            print("   Track: \(self.lastPlayedSong?.title ?? "Unknown")")
+            print("========================================")
+            self.consecutiveLoadFailures = 0
+            self.isPlaying = false
+            self.stopTimer()
+            self.delegate?.playbackDidFinish(successfully: true)
+        }
+    }
+
     // MARK: - Private Methods
-    
+
     private func getAudioURL(for song: Song) -> URL? {
         let predicate = MPMediaPropertyPredicate(
             value: NSNumber(value: song.persistentID),
@@ -234,15 +518,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         )
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
+
         guard let item = query.items?.first,
               let assetURL = item.assetURL else {
             return nil
         }
-        
+
         return assetURL
     }
-    
+
     private func getArtwork(for song: Song) -> MPMediaItemArtwork? {
         let predicate = MPMediaPropertyPredicate(
             value: NSNumber(value: song.persistentID),
@@ -250,257 +534,105 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         )
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
-        
+
         guard let item = query.items?.first else {
             return nil
         }
-        
+
         return item.artwork
     }
-    
-    private func commonPlay(url: URL) {
-        // Ensure audio session is configured before playing
-        ensureAudioSessionConfigured()
 
-        do {
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.delegate = self
-            player?.volume = systemVolume // Apply current system volume
-
-            songDuration = player?.duration ?? 0.0
-            playbackTime = 0.0
-
-            player?.play()
-            isPlaying = true
-            startTimer()
-
-            // Reset failure counter on successful load
-            consecutiveLoadFailures = 0
-        } catch {
-            print("❌ Failed to play audio: \(error)")
-            print("❌ File may be corrupt or unsupported format")
-            isPlaying = false
-
-            // Track consecutive failures
-            consecutiveLoadFailures += 1
-            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
-
-            // Notify delegate to skip to next track (unless we've failed too many times)
-            if consecutiveLoadFailures < maxConsecutiveFailures {
-                print("🔄 Attempting to skip to next track...")
-                delegate?.playbackDidFinish(successfully: false)
-            } else {
-                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
-                consecutiveLoadFailures = 0 // Reset for next attempt
-            }
-        }
-    }
-    
-    private func commonLoad(url: URL) {
-        // Ensure audio session is configured before loading
-        ensureAudioSessionConfigured()
-
-        do {
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.delegate = self
-            player?.volume = systemVolume // Apply current system volume
-
-            songDuration = player?.duration ?? 0.0
-            playbackTime = 0.0
-
-            // Don't play, just load
-            isPlaying = false
-            stopTimer()
-
-            // Reset failure counter on successful load
-            consecutiveLoadFailures = 0
-        } catch {
-            print("❌ Failed to load audio: \(error)")
-            print("❌ File may be corrupt or unsupported format")
-            isPlaying = false
-
-            // Track consecutive failures
-            consecutiveLoadFailures += 1
-            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
-
-            // Notify delegate to skip to next track (unless we've failed too many times)
-            if consecutiveLoadFailures < maxConsecutiveFailures {
-                print("🔄 Attempting to skip to next track...")
-                delegate?.playbackDidFinish(successfully: false)
-            } else {
-                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
-                consecutiveLoadFailures = 0 // Reset for next attempt
-            }
-        }
-    }
-    
-    private func commonLoadForResume(url: URL, resumeTime: TimeInterval) {
-        // Special load method for resume that preserves pause position
-        ensureAudioSessionConfigured()
-
-        do {
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.delegate = self
-            player?.volume = systemVolume // Apply current system volume
-
-            songDuration = player?.duration ?? 0.0
-            // Don't reset playbackTime to 0 - preserve the pause position
-            playbackTime = resumeTime
-
-            // Don't play, just load
-            isPlaying = false
-            stopTimer()
-
-            // Reset failure counter on successful load
-            consecutiveLoadFailures = 0
-        } catch {
-            print("❌ Failed to load audio for resume: \(error)")
-            print("❌ File may be corrupt or unsupported format")
-            isPlaying = false
-
-            // Track consecutive failures
-            consecutiveLoadFailures += 1
-            print("❌ Consecutive load failures: \(consecutiveLoadFailures)/\(maxConsecutiveFailures)")
-
-            // Notify delegate to skip to next track (unless we've failed too many times)
-            if consecutiveLoadFailures < maxConsecutiveFailures {
-                print("🔄 Attempting to skip to next track...")
-                delegate?.playbackDidFinish(successfully: false)
-            } else {
-                print("⚠️ Too many consecutive failures - stopping playback to prevent infinite loop")
-                consecutiveLoadFailures = 0 // Reset for next attempt
-            }
-        }
-    }
-    
     private func startTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self, let player = self.player else { return }
-            
-            self.playbackTime = player.currentTime
-            self.delegate?.playbackTimeDidUpdate(player.currentTime)
-            
+            guard let self = self else { return }
+            let now = self.currentPlaybackTime()
+            self.playbackTime = now
+            self.delegate?.playbackTimeDidUpdate(now)
+
             // Update now playing info every second to avoid excessive updates
-            if player.currentTime - self.lastNowPlayingUpdate >= 1.0 {
+            if now - self.lastNowPlayingUpdate >= 1.0 {
                 self.updateNowPlayingInfoTime()
-                self.lastNowPlayingUpdate = player.currentTime
+                self.lastNowPlayingUpdate = now
             }
         }
     }
-    
+
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
     }
-    
+
     private func scheduleDelayedCleanup() {
         // Cancel any existing cleanup timer
         pauseCleanupTimer?.invalidate()
-        
+
         // Schedule cleanup after 30 seconds of being paused to save memory
         pauseCleanupTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
             guard let self = self, !self.isPlaying else { return }
-            
+
             print("🧹 Starting delayed cleanup after 30s pause")
             self.cleanupAudioResourcesOnPause()
         }
     }
-    
+
     private func cancelDelayedCleanup() {
         pauseCleanupTimer?.invalidate()
         pauseCleanupTimer = nil
     }
-    
+
     private func cleanupAudioResourcesOnPause() {
-        // When paused for memory optimization, we can release the audio player
-        // but keep track of current position for seamless resume
-        guard let player = player else { return }
-        
-        // Store current time for resume
-        pausedAt = player.currentTime
-        
-        // Release the audio player to free memory
-        self.player = nil
-        
-        // Keep the playback time for UI consistency  
+        // Release the file handle but keep the engine graph intact.
+        // Engine idle overhead is ~1–2MB; full restart is more expensive
+        // than staying warm. On resume we reopen the file at pausedAt.
+        guard file != nil else { return }
+
+        // pausedAt was already captured when pause fired, but re-capture
+        // in case something slipped through.
+        pausedAt = currentPlaybackTime() > 0 ? currentPlaybackTime() : pausedAt
+
+        playerNode.stop()
+        file = nil
         playbackTime = pausedAt
-        
-        // Deactivate audio session to free system resources
+
         deactivateAudioSessionIfNeeded()
-        
+
         // CRITICAL: Notify AudioPlayerService to coordinate with QueueManager
         // This prevents the queue from being reloaded after memory cleanup
         AudioPlayerService.shared.notifyMemoryCleanup()
-        
+
         print("🧹 Audio resources cleaned up - stored position \(pausedAt)s for song: \(lastPlayedSong?.title ?? "Unknown")")
     }
-    
+
     private func cleanupAudioResourcesOnStop() {
-        // Complete cleanup when stopping
-        player = nil
+        playerNode.stop()
+        file = nil
         lastPlayedSong = nil
         pausedAt = 0
         songDuration = 0.0
         playbackTime = 0.0
+        segmentStartOffset = 0
         deactivateAudioSessionIfNeeded()
     }
-    
+
     private func resumeFromPause(song: Song, at time: TimeInterval) {
-        // Resume playback after memory optimization cleanup
+        // File was released by the 30s cleanup timer. Reopen and schedule
+        // from `time`, then play.
         guard let url = getAudioURL(for: song) else {
             print("❌ Cannot resume - no audio URL found for song: \(song.title)")
             return
         }
-        
+
         print("🔄 Resuming playback at \(time)s after memory cleanup for: \(song.title)")
-        
-        // Use a more reliable approach: load, prepare, seek, then play
-        ensureAudioSessionConfigured()
-        
-        do {
-            player = try AVAudioPlayer(contentsOf: url)
-            player?.delegate = self
-            player?.volume = systemVolume
-            
-            // Prepare the player to ensure it's ready for operations
-            let prepareSuccess = player?.prepareToPlay() ?? false
-            print("🔧 AVAudioPlayer prepare result: \(prepareSuccess)")
-            
-            guard let player = player else {
-                print("❌ Player is nil after creation")
-                return
-            }
-            
-            songDuration = player.duration
-            
-            // Seek BEFORE setting up for playback
-            if time > 0 && time <= player.duration {
-                player.currentTime = time
-                playbackTime = time
-                print("🎯 Seeked to \(time)s (duration: \(player.duration)s)")
-            } else {
-                playbackTime = 0
-                print("⚠️ Invalid seek time \(time)s, duration is \(player.duration)s")
-            }
-            
-            // Now start playing from the seek position
-            player.play()
-            isPlaying = true
-            startTimer()
-            
-            updateNowPlayingInfo(for: song)
-            
-        } catch {
-            print("❌ Failed to resume audio: \(error)")
-            isPlaying = false
-        }
+
+        schedulePlayback(url: url, fromSeconds: time, autoPlay: true)
+        updateNowPlayingInfo(for: song)
     }
-    
+
     private func deactivateAudioSessionIfNeeded() {
         // Only deactivate if we're not playing and configured
         guard !isPlaying && audioSessionConfigured else { return }
-        
+
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             audioSessionConfigured = false
@@ -509,15 +641,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("⚠️ Failed to deactivate audio session: \(error)")
         }
     }
-    
+
     private func updateNowPlayingInfo(for song: Song) {
         guard !song.title.isEmpty else {
             print("⚠️ Skipping now playing info update - empty song title")
             return
         }
-        
+
         print("🎵 Setting up Now Playing info for: \(song.title) by \(song.artist) from \(song.releaseDate)")
-        
+
         var nowPlayingInfo = [String: Any]()
         nowPlayingInfo[MPMediaItemPropertyTitle] = song.title
         nowPlayingInfo[MPMediaItemPropertyArtist] = song.artist.isEmpty ? "Unknown Artist" : song.artist
@@ -525,7 +657,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = max(0, songDuration)
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        
+
         // CRITICAL FIX: Add artwork to Now Playing info
         if let artwork = getArtwork(for: song) {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
@@ -533,14 +665,14 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else {
             print("⚠️ No artwork available for Now Playing info")
         }
-        
+
         DispatchQueue.main.async {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
             print("✅ Now Playing info updated with artwork and album info")
             print("📊 Now Playing Center state: \(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil ? "Active" : "Inactive")")
         }
     }
-    
+
     private func updateNowPlayingInfoTime() {
         // Update only time-sensitive properties without recreating the entire info
         guard var currentInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo else {
@@ -551,24 +683,28 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             return
         }
-        
+
         // Just update time properties, preserving artwork and all other metadata
         currentInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
         currentInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        
+
         DispatchQueue.main.async {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = currentInfo
         }
     }
-    
+
     // MARK: - Audio Session & Volume Management
-    
+
     private func ensureAudioSessionConfigured() {
-        guard !audioSessionConfigured else { return }
-        
+        guard !audioSessionConfigured else {
+            // Session already up; just make sure the engine is running.
+            ensureEngineRunning()
+            return
+        }
+
         let session = AVAudioSession.sharedInstance()
         print("🔊 Configuring audio session - Current Category: \(session.category.rawValue)")
-        
+
         // First, ensure the session is properly deactivated if needed
         do {
             try session.setActive(false, options: .notifyOthersOnDeactivation)
@@ -576,24 +712,29 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } catch {
             print("ℹ️ Audio session reset not needed: \(error)")
         }
-        
+
         // Small delay to ensure session state is stable
         Thread.sleep(forTimeInterval: 0.1)
-        
+
         do {
             // Set category with options for Now Playing and Control Center support
             try session.setCategory(.playback, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP])
             print("🔊 Audio session category set to .playback with mode .default and bluetooth options")
-            
+
             // Activate the session
             try session.setActive(true)
             print("🔊 Audio session activated successfully")
-            
+
             audioSessionConfigured = true
             print("✅ Audio session configured successfully - Now Playing should be available")
+
+            // With the session active, start the engine (idempotent).
+            ensureEngineRunning()
+            // If the tap couldn't attach earlier (format wasn't ready), try again.
+            reinstallMixerTapIfNeeded()
         } catch let error as NSError {
             print("❌ Failed to configure audio session: \(error) - Code: \(error.code)")
-            
+
             // Try a simpler approach if the full setup fails
             do {
                 // Try with just the playback category, no options
@@ -603,6 +744,8 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 print("🔊 Fallback: Audio session activated successfully")
                 audioSessionConfigured = true
                 print("✅ Fallback audio session configured successfully - Now Playing should still work")
+                ensureEngineRunning()
+                reinstallMixerTapIfNeeded()
             } catch {
                 print("❌ Even fallback audio session setup failed: \(error)")
                 // Even if configuration fails, mark as configured to prevent infinite loops
@@ -610,47 +753,62 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         }
     }
-    
+
+    // If the tap couldn't attach at init time (e.g., mainMixerNode didn't
+    // have a format yet), attach it now.
+    private func reinstallMixerTapIfNeeded() {
+        let mixer = engine.mainMixerNode
+        let format = mixer.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else { return }
+
+        // The docs don't expose a way to query if a tap is installed; try
+        // removing then re-installing. removeTap is a no-op if none exists.
+        mixer.removeTap(onBus: 0)
+        mixer.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: format) { [weak self] buffer, _ in
+            self?.processTapBuffer(buffer)
+        }
+    }
+
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
-            self, 
-            selector: #selector(handleRouteChange(notification:)), 
-            name: AVAudioSession.routeChangeNotification, 
+            self,
+            selector: #selector(handleRouteChange(notification:)),
+            name: AVAudioSession.routeChangeNotification,
             object: nil
         )
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAudioSessionInterruption(notification:)),
             name: AVAudioSession.interruptionNotification,
             object: nil
         )
-        
+
         // Set up volume monitoring using multiple approaches
         setupVolumeMonitoring()
         setupKVOVolumeMonitoring()
     }
-    
+
     private func setupVolumeMonitoring() {
         // Create a hidden MPVolumeView to monitor system volume
         volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 0, height: 0))
         volumeView?.isHidden = true
         volumeView?.alpha = 0.0
-        
+
         // Add to a window to make it functional
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first {
             window.addSubview(volumeView!)
         }
-        
+
         // Monitor the volume slider
         if let volumeSlider = volumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider {
             volumeSlider.addTarget(self, action: #selector(handleVolumeChange), for: .valueChanged)
             systemVolume = volumeSlider.value
-            player?.volume = systemVolume
+            engine.mainMixerNode.outputVolume = systemVolume
         }
     }
-    
+
     private func setupKVOVolumeMonitoring() {
         // Use KVO to observe AVAudioSession outputVolume changes
         let audioSession = AVAudioSession.sharedInstance()
@@ -660,10 +818,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         }
     }
-    
+
     @objc private func handleRouteChange(notification: Notification) {
         print("🔄 Audio route change detected")
-        
+
         guard let userInfo = notification.userInfo,
               let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
@@ -672,31 +830,31 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             updateSystemVolume()
             return
         }
-        
+
         print("🔄 Route change reason: \(routeChangeReasonDescription(reason))")
-        
+
         switch reason {
         case .oldDeviceUnavailable:
             print("🎧 Bluetooth device disconnected - handling disconnection")
             handleBluetoothDisconnection()
-            
+
         case .newDeviceAvailable:
             print("🎧 New audio device connected - seamless handoff")
             updateCurrentOutputName()
             updateSystemVolume()
             // Continue playback seamlessly for new device connections
-            
+
         default:
             print("🔄 Other route change - updating audio state")
             updateCurrentOutputName()
             updateSystemVolume()
         }
     }
-    
+
     @objc private func handleVolumeChange() {
         updateSystemVolume()
     }
-    
+
     @objc private func handleAudioSessionInterruption(notification: Notification) {
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
@@ -712,10 +870,11 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("📞 Audio session interruption began")
             print("   Possible causes: phone call, alarm, notification, Siri, FaceTime")
             print("   Current track: \(lastPlayedSong?.title ?? "Unknown")")
-            print("   Playback position: \(player?.currentTime ?? 0)s")
+            print("   Playback position: \(currentPlaybackTime())s")
             print("========================================")
             if isPlaying {
-                player?.pause()
+                pausedAt = currentPlaybackTime()
+                playerNode.pause()
                 isPlaying = false
                 stopTimer()
                 updateNowPlayingInfoTime()
@@ -735,43 +894,45 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                     print("   This provides predictable behavior")
                 }
             }
+            // The engine may need restarting after the session deactivation
+            // the system performed. Next playPause() will re-prep via
+            // ensureAudioSessionConfigured → ensureEngineRunning.
             print("========================================")
 
         @unknown default:
             print("❓ Unknown interruption type")
         }
     }
-    
+
     private func handleBluetoothDisconnection() {
         print("🎧 Handling Bluetooth disconnection")
-        
+
         // Always pause playback when Bluetooth disconnects
-        if let player = player {
-            if player.isPlaying {
-                print("⏸️ Pausing playback due to Bluetooth disconnection")
-                player.pause()
-            }
-            
-            // Sync player state if inconsistent
-            if player.isPlaying != isPlaying {
-                print("🔧 Syncing player state - player.isPlaying: \(player.isPlaying), UI isPlaying: \(isPlaying)")
-            }
+        if playerNode.isPlaying {
+            print("⏸️ Pausing playback due to Bluetooth disconnection")
+            pausedAt = currentPlaybackTime()
+            playerNode.pause()
         }
-        
+
+        // Sync player state if inconsistent
+        if playerNode.isPlaying != isPlaying {
+            print("🔧 Syncing player state - node.isPlaying: \(playerNode.isPlaying), UI isPlaying: \(isPlaying)")
+        }
+
         // Update UI state
         isPlaying = false
         stopTimer()
-        
+
         // Update Now Playing info to reflect paused state
         updateNowPlayingInfoTime()
-        
+
         // Update output name and volume for the new route
         updateCurrentOutputName()
         updateSystemVolume()
-        
+
         print("✅ Bluetooth disconnection handled - playback paused, UI updated")
     }
-    
+
     private func routeChangeReasonDescription(_ reason: AVAudioSession.RouteChangeReason) -> String {
         switch reason {
         case .unknown:
@@ -794,7 +955,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return "Unknown Default"
         }
     }
-    
+
     private func updateSystemVolume() {
         if let volumeSlider = volumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider {
             systemVolume = volumeSlider.value
@@ -803,18 +964,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let session = AVAudioSession.sharedInstance()
             systemVolume = session.outputVolume
         }
-        
+
         print("🔊 System volume updated: \(systemVolume)")
-        
-        // Apply system volume to player to handle Bluetooth floor issue
-        player?.volume = systemVolume
-        
-        // Log player volume for debugging
-        if let playerVolume = player?.volume {
-            print("🎵 Player volume set to: \(playerVolume)")
-        }
+
+        // Apply system volume to engine output to handle Bluetooth floor issue
+        engine.mainMixerNode.outputVolume = systemVolume
+
+        print("🎵 Engine mixer volume set to: \(engine.mainMixerNode.outputVolume)")
     }
-    
+
     private func updateCurrentOutputName() {
         let session = AVAudioSession.sharedInstance()
         let outputs = session.currentRoute.outputs
@@ -826,13 +984,13 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let btPortTypes: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothLE, .bluetoothHFP]
         isBluetoothRouteActive = outputs.contains { btPortTypes.contains($0.portType) }
     }
-    
+
     // MARK: - Remote Command Center
-    
+
     private func setupRemoteCommandCenter() {
         print("🎛️ Setting up Remote Command Center...")
         let commandCenter = MPRemoteCommandCenter.shared()
-        
+
         // Play command
         commandCenter.playCommand.isEnabled = true
         commandCenter.playCommand.addTarget { [weak self] _ in
@@ -841,7 +999,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.playPause()
             return .success
         }
-        
+
         // Pause command
         commandCenter.pauseCommand.isEnabled = true
         commandCenter.pauseCommand.addTarget { [weak self] _ in
@@ -850,7 +1008,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.playPause()
             return .success
         }
-        
+
         // Toggle play/pause command (for headphones)
         commandCenter.togglePlayPauseCommand.isEnabled = true
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
@@ -859,7 +1017,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.playPause()
             return .success
         }
-        
+
         // Next track command
         commandCenter.nextTrackCommand.isEnabled = true
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
@@ -868,14 +1026,14 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.delegate?.playbackDidFinish(successfully: true)
             return .success
         }
-        
+
         // Previous track command
         commandCenter.previousTrackCommand.isEnabled = true
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
             // Check if we should restart current track or go to previous
-            if let currentTime = self.player?.currentTime, currentTime > 4.0 {
-                // If more than 3 seconds in, restart current track
+            if self.currentPlaybackTime() > 4.0 {
+                // If more than 4 seconds in, restart current track
                 self.seek(to: 0)
             } else {
                 // Otherwise, request previous track through AudioPlayerService
@@ -883,26 +1041,26 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             return .success
         }
-        
+
         // Disable seek forward/backward commands to ensure track navigation buttons appear
         // These commands cause the 10-second seek buttons to appear instead of track navigation
         commandCenter.skipForwardCommand.isEnabled = false
         commandCenter.skipBackwardCommand.isEnabled = false
-        
+
         // Change playback position command (for scrubber)
         commandCenter.changePlaybackPositionCommand.isEnabled = true
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self = self,
                   let positionEvent = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            
+
             self.seek(to: positionEvent.positionTime)
             return .success
         }
-        
+
         print("✅ Remote Command Center configured")
         print("🎛️ Commands enabled: play, pause, toggle, next track, previous track, scrub")
     }
-    
+
     // Force refresh Now Playing info (for debugging Control Center issues)
     func refreshNowPlayingInfo() {
         guard let currentSong = lastPlayedSong else {
@@ -912,10 +1070,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         print("🔄 Force refreshing Now Playing info...")
         updateNowPlayingInfo(for: currentSong)
     }
-    
+
     private func teardownRemoteCommandCenter() {
         let commandCenter = MPRemoteCommandCenter.shared()
-        
+
         commandCenter.playCommand.removeTarget(nil)
         commandCenter.pauseCommand.removeTarget(nil)
         commandCenter.togglePlayPauseCommand.removeTarget(nil)
@@ -923,12 +1081,12 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         commandCenter.previousTrackCommand.removeTarget(nil)
         // Skip commands are disabled, no need to remove targets
         commandCenter.changePlaybackPositionCommand.removeTarget(nil)
-        
+
         print("🧹 Remote Command Center cleaned up")
     }
-    
+
     // MARK: - Notification Integration
-    
+
     private func scheduleTrackChangeNotification(for song: Song, isManualSelection: Bool) {
         // Schedule the notification - let the notification service decide whether to send it
         NotificationService.shared.scheduleTrackChangeNotification(
@@ -936,28 +1094,5 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             artwork: nil,
             isManualSelection: isManualSelection
         )
-    }
-    
-    // MARK: - AVAudioPlayerDelegate
-
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        print("========================================")
-        print("🎵 AVAudioPlayer finished playing")
-        print("   Track: \(lastPlayedSong?.title ?? "Unknown")")
-        print("   Successfully: \(flag ? "✅ YES" : "❌ NO")")
-        print("   Duration: \(player.duration)s")
-        print("   Final position: \(player.currentTime)s")
-        if !flag {
-            print("   ⚠️ WARNING: Track did not finish successfully!")
-            print("   This indicates an audio error occurred")
-        } else {
-            // Reset failure counter on successful playback
-            consecutiveLoadFailures = 0
-        }
-        print("========================================")
-
-        isPlaying = false
-        stopTimer()
-        delegate?.playbackDidFinish(successfully: flag)
     }
 }
