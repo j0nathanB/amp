@@ -1,88 +1,33 @@
 import SwiftUI
 
-struct Theme {
-    // Colors from Asset Catalog (static, non-dark-mode-aware)
-    static let accentLightGreen = Color("AccentLightGreen")
-    static let accentPink = Color("AccentPink")
-    static let accentSkyBlue = Color("AccentSkyBlue")
-    static let accentYellow = Color("AccentYellow")
-    static let accentRed = Color("AccentRed")
-    static let accentGreen = Color("AccentGreen")
-    static let backgroundColor = Color("BackgroundColor")
-    static let touchDownColor = Color("TouchDownColor")
+// Brutalist typography tokens (redesign spec §3). Color tokens live in the
+// Asset Catalog and are auto-exposed by Xcode as Color.ampWhite, .ampNavy,
+// etc. — reference them directly without a wrapper type.
 
-    // Dynamic colors that respond to dark mode
-    static var background: Color {
-        isDarkMode ? Color.black : Color.white
-    }
+extension Font {
+    private static let sansRegular = "AtkinsonHyperlegibleNext-Regular"
+    private static let sansBold = "AtkinsonHyperlegibleNext-Bold"
+    private static let sansItalic = "AtkinsonHyperlegibleNext-RegularItalic"
+    private static let monoRegular = "AtkinsonHyperlegibleMono-Regular"
+    private static let monoBold = "AtkinsonHyperlegibleMono-Bold"
 
-    static var primaryText: Color {
-        isDarkMode ? Color.white : Color.black
-    }
-
-    static var secondaryText: Color {
-        isDarkMode ? Color.gray : Color.gray
-    }
-
-    static var accentIndigo: Color {
-        isDarkMode ? Color(red: 0.4, green: 0.4, blue: 0.45) : Color("AccentIndigo")
-    }
-
-    static var accentDarkIndigo: Color {
-        isDarkMode ? Color(red: 0.45, green: 0.45, blue: 0.5) : Color("AccentDarkIndigo")
-    }
-
-    static var accentLightBlue: Color {
-        isDarkMode ? Color(red: 0.4, green: 0.6, blue: 0.8) : Color("AccentLightBlue")
-    }
-
-    static var accentDarkBlue: Color {
-        isDarkMode ? Color(red: 0.3, green: 0.5, blue: 0.7) : Color("AccentDarkBlue")
-    }
-
-    static var buttonShadow: Color {
-        isDarkMode ? accentYellow : Color("AccentDarkIndigo")
-    }
-
-    static var playButtonIcon: Color {
-        isDarkMode ? Color.black : Color.white
-    }
-
-    static var mainButtonStroke: Color {
-        isDarkMode ? Color(white: 0.65) : primaryText
-    }
-
-    static var searchShadow: Color {
-        isDarkMode ? Color("AccentDarkSpruce") : Color("AccentDarkIndigo")
-    }
-
-    // Helper to check dark mode state
-    private static var isDarkMode: Bool {
-        SettingsService.shared.darkMode
-    }
-    
-    // --- Updated Font Hierarchy with Better Weight Differentiation ---
-    // The largest font, for main titles in views like NowPlayingView.
-    static let titleFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 32)
-    
-    static let nowPlayingTrackFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 30)
-    static let nowPlayingArtistFont = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 24)
-    static let queuePlayingFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
-    static let queueSongFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
-    
-    // Using size variation instead of italics for albums
-    static let searchAlbumFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 22)
-    // The standard font for all list items.
-    static let bodyFont = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 18)
-    
-    // Secondary information with tighter tracking
-    static let secondaryInfoFont = Font.custom("AtkinsonHyperlegibleMono-Regular", size: 18)
-    
-    // A distinct font for section headers in lists.
-    static let sectionHeaderFont = Font.custom("AtkinsonHyperlegibleMono-Bold", size: 22)
-    
-    static let bodyItalicFont = Font.custom("AtkinsonHyperlegibleNext-RegularItalic", size: 18)
-    
-    static let tabFont = Font.custom("AtkinsonHyperlegibleNext-Bold", size: 18)
-    static let tabFontSelected = Font.custom("AtkinsonHyperlegibleNext-Regular", size: 16)
+    // Sizes are the spec §3 values scaled +20% and rounded up, with a 12pt
+    // floor. Keeps the relative type hierarchy intact while lifting the
+    // smallest labels above iOS's 11pt readability threshold.
+    static let viewTitle = Font.custom(monoBold, size: 27)          // was 22
+    static let playAllBarTitle = Font.custom(monoBold, size: 22)    // was 18
+    static let nowPlayingTitle = Font.custom(sansBold, size: 32)    // was 26
+    static let listTitle = Font.custom(sansBold, size: 20)          // was 16
+    // Spec calls for weight 500; Atkinson Next ships only Regular + Bold, so Regular is the closest non-emphasized weight.
+    static let listTitleMedium = Font.custom(sansRegular, size: 20) // was 16
+    // Queue-only: title line sized by scaling the old subtitle→title ratio (20/17) onto the 20pt title.
+    static let queueRowTitle = Font.custom(sansBold, size: 24)
+    static let bodyBrutalist = Font.custom(sansRegular, size: 22)   // was 18
+    static let subtitle = Font.custom(sansRegular, size: 17)        // was 14
+    static let subtitleItalic = Font.custom(sansItalic, size: 17)   // was 14
+    static let metadata = Font.custom(monoRegular, size: 15)        // was 12
+    static let timestamp = Font.custom(monoRegular, size: 16)       // was 13
+    static let tabLabel = Font.custom(monoBold, size: 12)           // was 10 (floor)
+    static let inversionLabel = Font.custom(monoBold, size: 12)     // was 10 (floor)
+    static let trackNumber = Font.custom(monoRegular, size: 16)     // was 13
 }

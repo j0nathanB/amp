@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import MediaPlayer
 
 class AudioPlayerService: ObservableObject {
     static let shared = AudioPlayerService()
@@ -8,7 +9,7 @@ class AudioPlayerService: ObservableObject {
     // Services
     private let playbackEngine = PlaybackEngineService()
     let queueManager = QueueManagerService()  // Made internal for app lifecycle access
-    private let navigation = NavigationService()
+    private let navigation = NavigationService.shared
 
     // Track whether we're auto-advancing after track completion
     private var isAutoAdvancing = false
@@ -30,10 +31,10 @@ class AudioPlayerService: ObservableObject {
     @Published var songDuration: TimeInterval = 0.0
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
+    @Published var isBluetoothRouteActive: Bool = false
     @Published var isShuffled = false
     @Published var isLooped = false
     @Published var isLoopingSong = false
-    @Published var selectedTab: Tab = .queue
     @Published var currentIndex: Int = -1
     @Published var systemVolume: Float = 1.0
     
@@ -45,7 +46,7 @@ class AudioPlayerService: ObservableObject {
     var queueVersion: Int {
         return queueManager.queueVersion
     }
-    
+
     private init() {
         // Set up delegates
         playbackEngine.delegate = self
@@ -74,6 +75,9 @@ class AudioPlayerService: ObservableObject {
         
         playbackEngine.$currentOutputName
             .assign(to: &$currentOutputName)
+
+        playbackEngine.$isBluetoothRouteActive
+            .assign(to: &$isBluetoothRouteActive)
         
         playbackEngine.$systemVolume
             .assign(to: &$systemVolume)
@@ -111,10 +115,6 @@ class AudioPlayerService: ObservableObject {
         queueManager.$isLooped
             .assign(to: &$isLooped)
         
-        // Bind navigation properties
-        navigation.$selectedTab
-            .assign(to: &$selectedTab)
-        
         // Bind currentIndex from playbackQueue changes
         queueManager.$playbackQueue
             .map { $0.currentIndex ?? -1 }
@@ -143,6 +143,44 @@ class AudioPlayerService: ObservableObject {
         // Clear transition state immediately after manual playback
         transitionState = .none
     }
+
+    // `navigateToNowPlaying` is an opt-out for detail views (Album /
+    // Playlist / Artist) that want to start playback without leaving their
+    // context — highlighting + play/pause happen in-place, matching how
+    // Queue taps behave. Library / Search still jump to Now Playing via
+    // the default (true).
+    func startPlayback(fromTrackIDs trackIDs: [MPMediaEntityPersistentID],
+                       startingAt index: Int = 0,
+                       navigateToNowPlaying: Bool = true) {
+        guard !trackIDs.isEmpty, index >= 0, index < trackIDs.count else {
+            print("❌ [AudioPlayerService] Invalid IDs startPlayback: count=\(trackIDs.count) index=\(index)")
+            return
+        }
+
+        // Pre-hydrate the starting track so transitionState can be set before
+        // queueManager.startPlayback fires currentTrackDidChange through the delegate.
+        guard let startSong = LibraryService.shared.getSong(by: trackIDs[index]) else {
+            print("❌ [AudioPlayerService] Could not hydrate starting track \(trackIDs[index])")
+            return
+        }
+
+        print("🎵 [AudioPlayerService] startPlayback (IDs) \(trackIDs.count) tracks, starting with: \(startSong.title)")
+
+        transitionState = .transitioning(to: startSong)
+
+        queueManager.startPlayback(fromTrackIDs: trackIDs, startingAt: index)
+        if navigateToNowPlaying {
+            navigation.navigateToNowPlaying()
+        }
+
+        if let track = queueManager.currentTrack {
+            playbackEngine.play(song: track, isManualSelection: true)
+        } else {
+            print("❌ [AudioPlayerService] ERROR: Current track is nil after IDs startPlayback!")
+        }
+
+        transitionState = .none
+    }
     
     func playTrack(at index: Int) {
         if let track = queueManager.playTrack(at: index) {
@@ -150,7 +188,10 @@ class AudioPlayerService: ObservableObject {
             transitionState = .transitioning(to: track)
 
             playbackEngine.play(song: track, isManualSelection: true)
-            navigation.navigateToNowPlaying()
+            // No navigateToNowPlaying() here — Queue taps keep the user on
+            // Queue so they can play/pause and jump around without losing
+            // context. "Start playback from Library / Search" still routes
+            // to Now Playing via the startPlayback(...) variants.
 
             // Clear transition state immediately after manual playback
             transitionState = .none

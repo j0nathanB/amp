@@ -4,7 +4,6 @@ import MediaPlayer
 @main
 struct ampApp: App {
     @StateObject private var audioPlayer = AudioPlayerService.shared
-    @StateObject private var settings = SettingsService.shared
     @Environment(\.scenePhase) var scenePhase
 
     init() {
@@ -15,10 +14,13 @@ struct ampApp: App {
 
     var body: some Scene {
             WindowGroup {
-                PermissionCheckerView()
+                ZStack {
+                    Color.ampCream.ignoresSafeArea()
+                    PermissionCheckerView()
+                }
                     .environmentObject(audioPlayer)
-                    .preferredColorScheme(settings.darkMode ? .dark : .light)
-                    .accentColor(Theme.accentLightGreen) // This sets the global accent color including keyboard buttons
+                    .preferredColorScheme(.light) // brutalist design is light-only (spec §2.1)
+                    .tint(Color.ampGreen)
                     .ignoresSafeArea(.keyboard, edges: .bottom) // Handle keyboard at the app level
                     .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                         print("[App] Entering foreground")

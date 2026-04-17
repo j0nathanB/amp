@@ -453,6 +453,14 @@ class MockLibraryService {
         return mockSongs
     }
 
+    func getAllAlbums() -> [Album] {
+        return mockAlbums.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    func getAllArtists() -> [Artist] {
+        return mockArtists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     func getAllSongIDs() -> [MPMediaEntityPersistentID] {
         return mockSongs.map { $0.persistentID }
     }

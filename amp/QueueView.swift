@@ -1,344 +1,283 @@
 import SwiftUI
 import MediaPlayer
 
-// Singleton to manage loaded songs and prevent re-loading
-class QueueSongCache: ObservableObject {
-    static let shared = QueueSongCache()
-    private var loadedSongs: [MPMediaEntityPersistentID: Song] = [:]
-    private var currentQueueVersion: Int = -1
-    
-    private init() {}
-    
-    func getSong(trackID: MPMediaEntityPersistentID) -> Song? {
-        return loadedSongs[trackID]
-    }
-    
-    func setSong(_ song: Song) {
-        loadedSongs[song.persistentID] = song
-    }
-    
-    func updateQueueVersion(_ version: Int) {
-        // Only clear cache if queue structure changed significantly
-        if currentQueueVersion != version && currentQueueVersion != -1 {
-            print("🔄 Queue version changed from \(currentQueueVersion) to \(version)")
-            // Don't clear the cache - songs are still valid even if queue changes
-        }
-        currentQueueVersion = version
-    }
-    
-    func clearCache() {
-        loadedSongs.removeAll()
-        print("🗑️ Song cache cleared")
-    }
-}
+// Spec §7.3 + §8.4: Queue tab root with bi-directional sticky current-row
+// pinning and blue-gradient overflow bars.
+//
+// Pin states (§8.4):
+// - .none         current row is visible in the viewport; blue bars show
+//                 at either edge when content is clipped
+// - .pinnedTop    scrolled past the current row — it sticks to the top of
+//                 the viewport; top blue bar is suppressed in its place
+// - .pinnedBottom scrolled before the current row — it sticks to the
+//                 bottom; bottom blue bar is suppressed in its place
+//
+// Geometry: rows before/after current are rowHeight tall, the navy-
+// inverted current row is currentRowHeight tall. `onScrollGeometryChange`
+// (iOS 17+) feeds us scrollY / viewport / content.
 
-// Singleton to manage queue view state across tab switches
-class QueueViewState: ObservableObject {
-    static let shared = QueueViewState()
-    
-    @Published var lastKnownCurrentIndex: Int = -1
-    @Published var isActivelyViewing: Bool = false
-    
-    private init() {}
-    
-    func updateCurrentIndex(_ index: Int) {
-        lastKnownCurrentIndex = index
-    }
-    
-    func setActiveViewing(_ active: Bool) {
-        isActivelyViewing = active
-    }
-}
+private let rowHeight: CGFloat = 72            // TrackRow prominent regular + artist
+private let currentRowHeight: CGFloat = 84     // TrackRow prominent navy-inverted + artist
+private let overflowBarHeight: CGFloat = 12
 
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
-    @StateObject private var viewState = QueueViewState.shared
-    @StateObject private var settings = SettingsService.shared
-    @State private var lastCurrentIndex: Int = -1
-    @State private var isScrollable = false
-    @State private var isAtBottom = false
-    @State private var contentHeight: CGFloat = 0
+
+    @State private var scrollY: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Custom header with controlled spacing
-                ZStack(alignment: .leading) {
-                    Text("Queue")
-                        .font(Theme.titleFont)
-                        .foregroundColor(Theme.primaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if !audioPlayer.playbackQueue.isEmpty {
-                        HStack(spacing: 12) {
-                            Button("Loop") {
-                                audioPlayer.toggleLoop()
-                            }
-                            .foregroundColor(audioPlayer.isLooped ? .white : Theme.primaryText)
-                            .font(Theme.bodyFont)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                ZStack {
-                                    // Layer 1: The hard shadow (offset background) - only show in light mode
-                                    if !settings.darkMode {
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(Theme.buttonShadow)
-                                            .offset(x: -6, y: 6)
-                                    }
-
-                                    // Layer 2: The main button background
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(audioPlayer.isLooped ? Theme.accentPink : Theme.background)
-                                }
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Theme.primaryText, lineWidth: 2)
-                            )
-
-                            Button("Shuffle") {
-                                audioPlayer.toggleShuffle()
-                            }
-                            .foregroundColor(audioPlayer.isShuffled ? .white : Theme.primaryText)
-                            .font(Theme.bodyFont)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                ZStack {
-                                    // Layer 1: The hard shadow (offset background) - only show in light mode
-                                    if !settings.darkMode {
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(Theme.buttonShadow)
-                                            .offset(x: -6, y: 6)
-                                    }
-
-                                    // Layer 2: The main button background
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(audioPlayer.isShuffled ? Theme.accentPink : Theme.background)
-                                }
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Theme.primaryText, lineWidth: 2)
-                            )
-                        }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-                .frame(height: 28)
-                .padding(.vertical, 20)
-                .padding(.horizontal, 16)
-                .background(Theme.background)
-
-                // Separator line below header
-                Rectangle()
-                    .fill(Theme.primaryText)
-                    .frame(height: 2)
-
-                // Content area
-                GeometryReader { geometry in
-                    Group {
-                        if audioPlayer.playbackQueue.isEmpty {
-                            VStack {
-                                Spacer()
-                                Text("The queue is empty.")
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                            }
-                        } else {
-                            ScrollViewReader { proxy in
-                                ScrollView {
-                                    VStack(spacing: 0) {
-                                        LazyVStack(spacing: 0) {
-                                            ForEach(0..<audioPlayer.playbackQueue.count, id: \.self) { index in
-                                                LazyQueueItemView(index: index)
-                                                    .id("item-\(index)-\(audioPlayer.queueVersion)")
-                                            }
-                                        }
-                                        .id("queue-\(audioPlayer.queueVersion)")
-
-                                        // Invisible anchor at the bottom to track scroll position
-                                        Color.clear
-                                            .frame(height: 1)
-                                            .background(
-                                                GeometryReader { bottomGeometry in
-                                                    Color.clear.preference(
-                                                        key: ScrollOffsetPreferenceKey.self,
-                                                        value: bottomGeometry.frame(in: .named("queue-scroll")).minY
-                                                    )
-                                                }
-                                            )
-                                    }
-                                    .background(
-                                        GeometryReader { contentGeometry in
-                                            Color.clear.preference(
-                                                key: ContentHeightPreferenceKey.self,
-                                                value: contentGeometry.size.height
-                                            )
-                                        }
-                                    )
-                                }
-                                .coordinateSpace(name: "queue-scroll")
-                                .onPreferenceChange(ContentHeightPreferenceKey.self) { height in
-                                    contentHeight = height
-                                    viewportHeight = geometry.size.height
-                                    isScrollable = height > geometry.size.height
-                                }
-                                .onPreferenceChange(ScrollOffsetPreferenceKey.self) { bottomOffset in
-                                    // bottomOffset is the Y position of the bottom anchor in the scroll view
-                                    // When at top: bottomOffset ≈ contentHeight
-                                    // When at bottom: bottomOffset ≈ viewportHeight
-                                    let threshold: CGFloat = 20
-
-                                    if isScrollable {
-                                        // We're at the bottom when the bottom anchor is visible near the bottom of viewport
-                                        isAtBottom = bottomOffset <= (viewportHeight + threshold)
-                                    } else {
-                                        // Content fits entirely in viewport
-                                        isAtBottom = true
-                                    }
-                                }
-                                .onChange(of: audioPlayer.currentIndex) { oldIndex, newIndex in
-                                    let wasTracking = viewState.lastKnownCurrentIndex == oldIndex
-
-                                    guard newIndex >= 0 else { return }
-
-                                    // Only auto-scroll if user is actively viewing AND we were tracking the previous song
-                                    if viewState.isActivelyViewing && wasTracking {
-                                        // User is actively viewing and song changed - smooth scroll
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo("item-\(newIndex)-\(audioPlayer.queueVersion)", anchor: .top)
-                                        }
-                                    }
-
-                                    viewState.updateCurrentIndex(newIndex)
-                                    lastCurrentIndex = newIndex
-                                }
-                                .onAppear {
-                                    viewState.setActiveViewing(true)
-
-                                    let currentIndex = audioPlayer.currentIndex
-
-                                    // Scroll to the currently playing track on appear (no animation to prevent jank)
-                                    if currentIndex >= 0 {
-                                        proxy.scrollTo("item-\(currentIndex)-\(audioPlayer.queueVersion)", anchor: .top)
-                                    }
-
-                                    viewState.updateCurrentIndex(currentIndex)
-                                    lastCurrentIndex = currentIndex
-                                }
-                                .onDisappear {
-                                    viewState.setActiveViewing(false)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer()
-
-                // Bottom bars section - only show when content is scrollable AND not at bottom
-                if isScrollable && !isAtBottom {
-                    VStack(spacing: 0) {
-                        // Light blue gradient bar (16px)
-                        Rectangle()
-                            .fill(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [.white.opacity(0), Theme.accentSkyBlue]),
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(height: 16)
-
-                        // 2px separator bar with 10px bottom padding
-                        Rectangle()
-                            .fill(Theme.primaryText)
-                            .frame(height: 2)
-                            .padding(.bottom, 10)
-                    }
-                    .transition(.opacity)
-                }
-            }
-            .navigationBarHidden(true)
-        }
-    }
-}
-
-// Lazy-loading queue item view
-private struct LazyQueueItemView: View {
-    @EnvironmentObject var audioPlayer: AudioPlayerService
-    let index: Int
-    @State private var song: Song?
-    @GestureState private var isPressed = false
-    
-    private let songCache = QueueSongCache.shared
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            ListItemView(
-                title: song?.title ?? "Loading...",
-                subtitle: song?.artist ?? "",
-                isPlaying: index == audioPlayer.currentIndex,
-                detail: nil,
-                playPauseAction: {
-                    if song != nil {
-                        audioPlayer.playPause()
-                    }
-                },
-                isPressed: isPressed,
-                showTopBorder: index == 0 // Only show top border for first item
-            )
-            .opacity(song != nil ? 1.0 : 0.6) // Slightly dim loading items
-            .onTapGesture {
-                // Allow tap even if song is still loading, as long as we have a valid index
-                if index < audioPlayer.playbackQueue.count {
-                    audioPlayer.playTrack(at: index)
-                }
-            }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($isPressed) { _, state, _ in
-                        state = true
-                    }
-            )
+            chrome
+            trackListArea
         }
-        .onAppear {
-            loadSongIfNeeded()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ampWhite)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    // MARK: - Chrome
+
+    private var chrome: some View {
+        HStack(spacing: 12) {
+            ViewTitleBlock("QUEUE", trailing: trackCountLabel)
+            TransportButton(kind: .loop, isActive: audioPlayer.isLooped) {
+                audioPlayer.toggleLoop()
+            }
+            TransportButton(kind: .shuffle, isActive: audioPlayer.isShuffled) {
+                audioPlayer.toggleShuffle()
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, 20)
+    }
+
+    private var trackCountLabel: String? {
+        let count = audioPlayer.playbackQueue.trackIDs.count
+        guard count > 0 else { return nil }
+        return "\(count) \(count == 1 ? "\ntrack" : "\ntracks")"
+    }
+
+    // MARK: - Track list area (scroll + pin + overflow overlays)
+
+    @ViewBuilder
+    private var trackListArea: some View {
+        if audioPlayer.playbackQueue.trackIDs.isEmpty {
+            emptyState
+        } else {
+            ZStack {
+                scrollingList
+                overflowOverlay
+            }
         }
     }
-    
-    private func loadSongIfNeeded() {
-        guard let trackID = audioPlayer.playbackQueue.getTrackID(at: index) else { return }
-        
-        // Update queue version tracking
-        songCache.updateQueueVersion(audioPlayer.queueVersion)
-        
-        // Check cache first
-        if let cachedSong = songCache.getSong(trackID: trackID) {
-            self.song = cachedSong
-            return
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text("Queue is empty.")
+                .font(.metadata)
+                .foregroundStyle(Color.ampMutedText)
+            Spacer()
         }
-        
-        // Don't reload if we already have the correct song
-        if let currentSong = self.song, currentSong.persistentID == trackID {
-            // Cache the song we already have
-            songCache.setSong(currentSong)
-            return
-        }
-        
-        // Load from library if not cached
-        Task {
-            if let loadedSong = LibraryService.shared.getSong(by: trackID) {
-                await MainActor.run {
-                    self.song = loadedSong
-                    // Cache the loaded song
-                    songCache.setSong(loadedSong)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var scrollingList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(audioPlayer.playbackQueue.trackIDs.enumerated()), id: \.offset) { index, trackID in
+                        QueueRow(
+                            index: index,
+                            trackID: trackID,
+                            isCurrent: index == audioPlayer.currentIndex
+                        ) {
+                            handleTap(at: index)
+                        }
+                        .id(index)
+                    }
                 }
             }
+            .onScrollGeometryChange(for: ScrollSnapshot.self, of: { geo in
+                ScrollSnapshot(
+                    offsetY: geo.contentOffset.y,
+                    viewport: geo.containerSize.height,
+                    content: geo.contentSize.height
+                )
+            }, action: { _, snap in
+                scrollY = snap.offsetY
+                viewportHeight = snap.viewport
+                contentHeight = snap.content
+            })
+            .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
+            .onChange(of: audioPlayer.currentIndex) { _, _ in
+                scrollToCurrent(proxy: proxy, animated: true)
+            }
+        }
+    }
+
+    // Overlay stack: pinned current row OR overflow bar at each edge.
+    // Spec: the pinned row replaces the blue bar on its edge; never both
+    // on the same edge.
+    private var overflowOverlay: some View {
+        VStack(spacing: 0) {
+            // Top edge
+            if pinState == .pinnedTop {
+                pinnedCurrentRow
+            } else if showTopBar {
+                topOverflowBar
+            }
+
+            Spacer(minLength: 0)
+
+            // Bottom edge
+            if pinState == .pinnedBottom {
+                pinnedCurrentRow
+            } else if showBottomBar {
+                bottomOverflowBar
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(pinState != .none)
+    }
+
+    // MARK: - Pin state + overflow flags
+
+    private enum PinState { case none, pinnedTop, pinnedBottom }
+
+    private var pinState: PinState {
+        let i = audioPlayer.currentIndex
+        guard i >= 0 else { return .none }
+        guard viewportHeight > 0 else { return .none }
+        let startY = CGFloat(i) * rowHeight
+        let endY = startY + currentRowHeight
+        if endY <= scrollY { return .pinnedTop }
+        if startY >= scrollY + viewportHeight { return .pinnedBottom }
+        return .none
+    }
+
+    private var showTopBar: Bool {
+        scrollY > 4
+    }
+
+    private var showBottomBar: Bool {
+        contentHeight > 0 && (scrollY + viewportHeight + 4) < contentHeight
+    }
+
+    // MARK: - Overlay views
+
+    @ViewBuilder
+    private var pinnedCurrentRow: some View {
+        let index = audioPlayer.currentIndex
+        if index >= 0, let trackID = audioPlayer.playbackQueue.trackIDs[safe: index] {
+            QueueRow(
+                index: index,
+                trackID: trackID,
+                isCurrent: true
+            ) {
+                handleTap(at: index)
+            }
+        }
+    }
+
+    private var topOverflowBar: some View {
+        LinearGradient(
+            colors: [Color("AccentSkyBlue").opacity(0.9), Color("AccentSkyBlue").opacity(0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: overflowBarHeight)
+        .allowsHitTesting(false)
+    }
+
+    private var bottomOverflowBar: some View {
+        LinearGradient(
+            colors: [Color("AccentSkyBlue").opacity(0), Color("AccentSkyBlue").opacity(0.9)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: overflowBarHeight)
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Interactions
+
+    private func handleTap(at index: Int) {
+        if index == audioPlayer.currentIndex {
+            audioPlayer.playPause()
+        } else {
+            audioPlayer.playTrack(at: index)
+        }
+    }
+
+    private func scrollToCurrent(proxy: ScrollViewProxy, animated: Bool) {
+        guard let index = audioPlayer.playbackQueue.currentIndex else { return }
+        if animated {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(index, anchor: .top)
+            }
+        } else {
+            proxy.scrollTo(index, anchor: .top)
         }
     }
 }
 
+// MARK: - Scroll snapshot
+
+private struct ScrollSnapshot: Equatable {
+    let offsetY: CGFloat
+    let viewport: CGFloat
+    let content: CGFloat
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - QueueRow (wraps TrackRow with async song + duration hydration)
+
+private struct QueueRow: View {
+    let index: Int
+    let trackID: MPMediaEntityPersistentID
+    let isCurrent: Bool
+    let onTap: () -> Void
+
+    @State private var song: Song?
+    @State private var duration: TimeInterval = 0
+
+    var body: some View {
+        TrackRow(
+            position: "\(index + 1)",
+            title: song?.title ?? "…",
+            artist: song?.artist,
+            duration: formatDuration(duration),
+            isCurrent: isCurrent,
+            prominent: true,
+            onTap: onTap,
+            onLongPress: {
+                NavigationService.shared.navigateToAlbum(forTrack: trackID)
+            }
+        )
+        .task(id: trackID) {
+            let hydrated = await Task.detached(priority: .userInitiated) {
+                (
+                    song: LibraryService.shared.getSong(by: trackID),
+                    duration: LibraryService.shared.getDuration(forTrack: trackID)
+                )
+            }.value
+            self.song = hydrated.song
+            self.duration = hydrated.duration
+        }
+    }
+
+    private func formatDuration(_ t: TimeInterval) -> String {
+        guard t > 0 else { return "" }
+        let total = Int(t.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}

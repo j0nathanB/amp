@@ -1048,6 +1048,191 @@ class LibraryService {
         return items.map { $0.persistentID }
         #endif
     }
+
+    func getAllAlbums() -> [Album] {
+        #if DEBUG
+        return MockLibraryService.shared.getAllAlbums().sorted(by: albumTitleOrder)
+        #else
+        guard let collections = MPMediaQuery.albums().collections else { return [] }
+        let albums = collections.compactMap { collection -> Album? in
+            guard let rep = collection.representativeItem,
+                  let title = rep.albumTitle else { return nil }
+            let artist = rep.albumArtist ?? rep.artist ?? ""
+            return Album(id: rep.albumPersistentID, title: title, artist: artist)
+        }
+        return albums.sorted(by: albumTitleOrder)
+        #endif
+    }
+
+    // Apple Music-style title/name sort. Used for albums, artists,
+    // songs, and genres to keep Library alphabetics feeling native.
+    //
+    // 1. Strip leading non-alphanumeric characters when building the sort
+    //    key so names like "#1" compare as "1" and "...And Justice for
+    //    All" compares as "And Justice for All".
+    // 2. Pure-punctuation titles ("()" by Sigur Rós, etc.) sort first —
+    //    empty stripped key is always less than any non-empty key.
+    // 3. Remaining names compare with .numeric so "2" < "4" < "10" rather
+    //    than lexicographically. "4" < "4 Way Street" < "5 Minute
+    //    Meditations" < "9 to 5" < "10 000 Hz Legend" follows naturally.
+    // 4. Tie-break by the original name to keep ordering stable when
+    //    stripped keys collide (e.g. "!Hola" and "Hola").
+
+    static func nameOrder(_ lhs: String, _ rhs: String) -> Bool {
+        let keyL = sortKey(for: lhs)
+        let keyR = sortKey(for: rhs)
+
+        if keyL.isEmpty != keyR.isEmpty {
+            return keyL.isEmpty
+        }
+
+        let result = keyL.compare(keyR, options: [.caseInsensitive, .numeric])
+        if result == .orderedSame {
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+        return result == .orderedAscending
+    }
+
+    static func sortKey(for name: String) -> String {
+        String(name.drop(while: { !$0.isLetter && !$0.isNumber }))
+    }
+
+    private func albumTitleOrder(_ a: Album, _ b: Album) -> Bool {
+        Self.nameOrder(a.title, b.title)
+    }
+
+    func getAllArtists() -> [Artist] {
+        return getAllArtistsWithAlbumCounts().map { $0.artist }
+    }
+
+    // Deduplicated artist list with precomputed per-artist album counts.
+    // Grouping is by MPMediaItemPropertyAlbumArtistPersistentID so "Radiohead"
+    // doesn't appear twice when some tracks carry a featured-artist string in
+    // their .artist field — album-artist is the canonical identity.
+    func getAllArtistsWithAlbumCounts() -> [(artist: Artist, albumCount: Int)] {
+        #if DEBUG
+        let artists = MockLibraryService.shared.getAllArtists()
+        return artists.map {
+            ($0, MockLibraryService.shared.getAlbums(forArtist: $0.id).count)
+        }
+        #else
+        let query = MPMediaQuery()
+        query.groupingType = .albumArtist
+        guard let collections = query.collections else { return [] }
+        // MPMediaQuery occasionally returns multiple collections that resolve
+        // to the same persistent ID (e.g. tracks with no albumArtist set all
+        // land in separate collections but fall back to the same
+        // artistPersistentID). Dedupe by resolved ID after building rows.
+        var seen: Set<MPMediaEntityPersistentID> = []
+        let rows: [(Artist, Int)] = collections.compactMap { collection in
+            guard let rep = collection.representativeItem else { return nil }
+            guard let name = rep.albumArtist ?? rep.artist, !name.isEmpty else { return nil }
+            let id = rep.albumArtistPersistentID != 0 ? rep.albumArtistPersistentID : rep.artistPersistentID
+            guard id != 0 else { return nil }
+            guard seen.insert(id).inserted else { return nil }
+            let artist = Artist(id: id, name: name)
+            let albumCount = Set(collection.items.map { $0.albumPersistentID }).count
+            return (artist, albumCount)
+        }
+        return rows.sorted { Self.nameOrder($0.0.name, $1.0.name) }
+        #endif
+    }
+
+    // MARK: - Album-artist canonical lookups
+    //
+    // Library's new artist rows are grouped by albumArtistPersistentID (see
+    // getAllArtistsWithAlbumCounts). These helpers query back using the
+    // same predicate so ArtistDetail's albums/songs match the canonical
+    // "Radiohead" identity rather than splitting across featured-artist
+    // variants. SearchView's legacy flow still uses getAlbums/Songs(forArtist:).
+
+    func getAlbums(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Album] {
+        #if DEBUG
+        return MockLibraryService.shared.getAlbums(forArtist: albumArtistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: albumArtistID),
+            forProperty: MPMediaItemPropertyAlbumArtistPersistentID
+        )
+        let query = MPMediaQuery.albums()
+        query.addFilterPredicate(predicate)
+        guard let collections = query.collections else { return [] }
+        let albums = collections.compactMap { collection -> Album? in
+            guard let rep = collection.representativeItem,
+                  let title = rep.albumTitle else { return nil }
+            let artist = rep.albumArtist ?? rep.artist ?? ""
+            return Album(id: rep.albumPersistentID, title: title, artist: artist)
+        }
+        return albums.sorted { a, b in
+            let collectionA = collections.first { $0.representativeItem?.albumPersistentID == a.id }
+            let collectionB = collections.first { $0.representativeItem?.albumPersistentID == b.id }
+            if let dateA = collectionA?.representativeItem?.releaseDate,
+               let dateB = collectionB?.representativeItem?.releaseDate,
+               dateA != dateB {
+                return dateA < dateB
+            }
+            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+        }
+        #endif
+    }
+
+    func getSongs(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Song] {
+        #if DEBUG
+        return MockLibraryService.shared.getSongs(forArtist: albumArtistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: albumArtistID),
+            forProperty: MPMediaItemPropertyAlbumArtistPersistentID
+        )
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        guard let items = query.items else { return [] }
+        let songs = items.map { self.song(from: $0) }
+        return songs.sorted { a, b in
+            if let da = a.releaseDate, let db = b.releaseDate, da != db { return da < db }
+            if a.album != b.album { return a.album < b.album }
+            return a.albumTrackNumber < b.albumTrackNumber
+        }
+        #endif
+    }
+
+    func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {
+        #if DEBUG
+        return 0
+        #else
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        return query.items?.first?.playbackDuration ?? 0
+        #endif
+    }
+
+    // Reads the MPMediaItem.lyrics property, which maps to the ID3 USLT
+    // frame on the file. Returns nil when the track has no embedded lyrics.
+    // Phase F is unsynced-only; synced (LRC) parsing lives in a later polish.
+    func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {
+        #if DEBUG
+        return nil
+        #else
+        let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        return query.items?.first?.lyrics
+        #endif
+    }
+
+    func getArtworkImage(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
+        #if DEBUG
+        return nil
+        #else
+        let predicate = MPMediaPropertyPredicate(value: albumID, forProperty: MPMediaItemPropertyAlbumPersistentID)
+        let query = MPMediaQuery.albums()
+        query.addFilterPredicate(predicate)
+        guard let rep = query.collections?.first?.representativeItem,
+              let artwork = rep.artwork else { return nil }
+        return artwork.image(at: size)
+        #endif
+    }
 }
 
 extension LibraryService {
