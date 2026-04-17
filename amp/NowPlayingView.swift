@@ -18,10 +18,12 @@ struct NowPlayingView: View {
     var body: some View {
         VStack(spacing: 16) {
             AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
 
             infoStrip
+
+            Spacer(minLength: 8)
 
             Scrubber(
                 currentTime: audioPlayer.playbackTime,
@@ -29,8 +31,6 @@ struct NowPlayingView: View {
                 onSeek: { audioPlayer.seek(to: $0) }
             )
             .padding(.horizontal, 24)
-
-            Spacer(minLength: 12)
 
             transportRow
 
@@ -112,7 +112,7 @@ struct NowPlayingView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 24)
     }
 

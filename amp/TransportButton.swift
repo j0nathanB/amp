@@ -9,8 +9,8 @@ enum TransportKind {
 
     var size: CGFloat {
         switch self {
-        case .playPause: 100
-        case .previous, .next: 68
+        case .playPause: 82
+        case .previous, .next: 56
         case .bluetooth, .loop, .shuffle: 44
         }
     }
