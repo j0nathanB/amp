@@ -10,6 +10,18 @@ protocol PlaybackEngineDelegate: AnyObject {
     func playbackTimeDidUpdate(_ time: TimeInterval)
 }
 
+// Three-band envelope for EqualizerBars. Band levels are 0..1 envelope-
+// followed FFT magnitudes at < 250 Hz (low), 250 Hz – 4 kHz (mid), and
+// > 4 kHz (high). Populated by the mixer tap at ~30 Hz (throttled);
+// consumed by the UI via AudioPlayerService.currentBandLevels.
+struct BandLevels: Equatable {
+    var low: Float
+    var mid: Float
+    var high: Float
+
+    static let zero = BandLevels(low: 0, mid: 0, high: 0)
+}
+
 // Phase 1 of the EqualizerBars migration (plan: magical-nibbling-pancake).
 // The audio source is now AVAudioEngine + AVAudioPlayerNode instead of
 // AVAudioPlayer. Public API and PlaybackEngineDelegate are unchanged —
@@ -46,6 +58,7 @@ class PlaybackEngineService: NSObject, ObservableObject {
     @Published var currentOutputName: String = ""
     @Published var isBluetoothRouteActive: Bool = false
     @Published var systemVolume: Float = 1.0
+    @Published var bandLevels: BandLevels = .zero
 
     var hasAudioReady: Bool {
         return file != nil
@@ -85,6 +98,32 @@ class PlaybackEngineService: NSObject, ObservableObject {
     private var fftMagnitudes = [Float](repeating: 0, count: 512)
     private let levelLock = OSAllocatedUnfairLock()
     private var tappedLevel: Float = 0
+
+    // Band binning + envelope followers. Bin ranges are sample-rate
+    // dependent; recomputed whenever the tap (re)installs. Envelope
+    // coefficients are per-tap-callback (not per-sample); higher =
+    // faster. Asymmetric attack/release gives lows a slow, punchy feel
+    // and highs a twitchy, cymbal-like one.
+    private var lowBinRange: Range<Int> = 1..<6
+    private var midBinRange: Range<Int> = 6..<94
+    private var highBinRange: Range<Int> = 94..<512
+    private var envelopes = BandLevels.zero
+    private let lowAttack: Float = 0.15
+    private let lowRelease: Float = 0.03
+    private let midAttack: Float = 0.25
+    private let midRelease: Float = 0.06
+    private let highAttack: Float = 0.35
+    private let highRelease: Float = 0.10
+    // Empirical gain that lifts bin-averaged magnitudes into the visible
+    // 0..1 range for typical listening levels. Tunable in Phase 4.
+    private let bandGain: Float = 8
+
+    // Throttle band-level publishes to the main actor. Tap fires at
+    // ~43 Hz (44.1kHz) / ~47 Hz (48kHz); publishing every callback is
+    // fine performance-wise but 30 Hz is enough for SwiftUI animation
+    // and avoids gratuitous diffs.
+    private let bandPublishInterval: CFTimeInterval = 1.0 / 30.0
+    private var lastBandPublishTime: CFTimeInterval = 0
 
     // MARK: - Other state (carried over verbatim from the AVAudioPlayer version)
 
@@ -149,9 +188,27 @@ class PlaybackEngineService: NSObject, ObservableObject {
         // session/engine is active on some devices). Reinstall later if so.
         guard format.sampleRate > 0, format.channelCount > 0 else { return }
 
+        configureBandBinRanges(sampleRate: format.sampleRate)
+
         mixer.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: format) { [weak self] buffer, _ in
             self?.processTapBuffer(buffer)
         }
+    }
+
+    // Bin index for a given target frequency under the current FFT size.
+    // Clamped so we never underflow bin 1 (bin 0 is DC, always excluded)
+    // or overflow past the Nyquist bin.
+    private func configureBandBinRanges(sampleRate: Double) {
+        let halfSize = fftSize / 2
+        let binsForFreq: (Double) -> Int = { freq in
+            let raw = Int((freq * Double(self.fftSize) / sampleRate).rounded())
+            return min(halfSize, max(1, raw))
+        }
+        let lowCut = binsForFreq(250)
+        let highCut = binsForFreq(4000)
+        lowBinRange = 1..<lowCut
+        midBinRange = lowCut..<highCut
+        highBinRange = highCut..<halfSize
     }
 
     private func processTapBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -191,9 +248,7 @@ class PlaybackEngineService: NSObject, ObservableObject {
             }
         }
 
-        // Normalize the magnitude sum into a 0..1-ish scalar. Calibrated
-        // empirically so the visible range matches the old averagePower
-        // curve. Phase 2 replaces this with per-band binning.
+        // Wideband scalar for the existing currentAudioLevel path.
         var sum: Float = 0
         vDSP_sve(fftMagnitudes, 1, &sum, vDSP_Length(fftSize / 2))
         let normalized = max(0, min(1, sum / 400))
@@ -201,6 +256,47 @@ class PlaybackEngineService: NSObject, ObservableObject {
         levelLock.withLock {
             tappedLevel = normalized
         }
+
+        // Per-band energy → bin averages → envelope followers.
+        let lowRaw = rawBandLevel(range: lowBinRange)
+        let midRaw = rawBandLevel(range: midBinRange)
+        let highRaw = rawBandLevel(range: highBinRange)
+
+        envelopes.low = envelopeFollow(current: envelopes.low, target: lowRaw, attack: lowAttack, release: lowRelease)
+        envelopes.mid = envelopeFollow(current: envelopes.mid, target: midRaw, attack: midAttack, release: midRelease)
+        envelopes.high = envelopeFollow(current: envelopes.high, target: highRaw, attack: highAttack, release: highRelease)
+
+        let snapshot = envelopes
+
+        // Throttle main-actor publishes. Tap fires ~43–47 Hz; 30 Hz is
+        // plenty for UI and avoids half the main-thread hops.
+        let now = CACurrentMediaTime()
+        if now - lastBandPublishTime >= bandPublishInterval {
+            lastBandPublishTime = now
+            DispatchQueue.main.async { [weak self] in
+                self?.bandLevels = snapshot
+            }
+        }
+    }
+
+    // Mean magnitude inside the band, scaled to 0..1. vDSP_sve + divide
+    // stays on the audio thread without allocating.
+    private func rawBandLevel(range: Range<Int>) -> Float {
+        guard !range.isEmpty else { return 0 }
+        var sum: Float = 0
+        fftMagnitudes.withUnsafeBufferPointer { ptr in
+            vDSP_sve(ptr.baseAddress!.advanced(by: range.lowerBound),
+                     1,
+                     &sum,
+                     vDSP_Length(range.count))
+        }
+        let avg = sum / Float(range.count)
+        return max(0, min(1, avg * bandGain))
+    }
+
+    private func envelopeFollow(current: Float, target: Float, attack: Float, release: Float) -> Float {
+        let coeff = target > current ? attack : release
+        return current + (target - current) * coeff
     }
 
     private func ensureEngineRunning() {
@@ -760,6 +856,8 @@ class PlaybackEngineService: NSObject, ObservableObject {
         let mixer = engine.mainMixerNode
         let format = mixer.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else { return }
+
+        configureBandBinRanges(sampleRate: format.sampleRate)
 
         // The docs don't expose a way to query if a tap is installed; try
         // removing then re-installing. removeTap is a no-op if none exists.
