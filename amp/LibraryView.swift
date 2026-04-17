@@ -56,21 +56,15 @@ struct LibraryView: View {
     }
 
     private var filterChipsRow: some View {
-        GeometryReader { geo in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
-                    FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists) { mode = .artists }
-                    FilterChip(label: "Songs", systemIcon: "music.quarternote.3", isSelected: mode == .songs) { mode = .songs }
-                    FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
-                    FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists) { mode = .playlists }
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 4) // accommodate brutalist shadow bleed
-                .frame(minWidth: geo.size.width, alignment: .center)
-            }
+        HStack(spacing: 12) {
+            FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
+            FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists) { mode = .artists }
+            FilterChip(label: "Songs", systemIcon: "music.quarternote.3", isSelected: mode == .songs) { mode = .songs }
+            FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
+            FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists) { mode = .playlists }
         }
-        .frame(height: 48)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 4) // accommodate brutalist shadow bleed
         .padding(.bottom, 20)
     }
 
