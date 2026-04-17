@@ -3,10 +3,11 @@ import MediaPlayer
 import AVKit
 
 // Spec §7.6 + layout revision: tab root for the Active tab. Art takes
-// nearly the full content-frame width; title + artist info strip; big
-// Prev / Play-Pause / Next transport row sits lower in the frame;
-// BT / Loop / Lyrics / Like are tucked behind a hideable "more" tray
-// at the bottom-right.
+// nearly the full content-frame width with matched top / horizontal
+// padding so the square art reads as visually inset evenly from all
+// three edges. Info strip sits below with title + artist. Prev /
+// Play-Pause / Next transport row is centered and lower in the frame.
+// BT / Loop / Lyrics / Like always visible at the bottom-right.
 
 struct NowPlayingView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
@@ -14,13 +15,11 @@ struct NowPlayingView: View {
     @ObservedObject private var liked = LikedTracksService.shared
     @ObservedObject private var settings = SettingsService.shared
 
-    @State private var showMore = false
-
     var body: some View {
         VStack(spacing: 16) {
             AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 16)
 
             infoStrip
 
@@ -35,11 +34,10 @@ struct NowPlayingView: View {
 
             transportRow
 
-            moreTray
+            utilityTray
                 .padding(.top, 4)
                 .padding(.bottom, 12)
         }
-        .padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
@@ -89,56 +87,33 @@ struct NowPlayingView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    // MARK: - More tray (BT / Loop / Lyrics / Like behind a chevron toggle)
+    // MARK: - Utility tray (BT / Loop / Lyrics / Like, always visible)
 
-    private var moreTray: some View {
+    private var utilityTray: some View {
         HStack(spacing: 12) {
-            if showMore {
-                bluetoothButton
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            bluetoothButton
 
-                TransportButton(kind: .loop, isActive: audioPlayer.isLoopingSong) {
-                    audioPlayer.toggleSongLoop()
-                }
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            TransportButton(kind: .loop, isActive: audioPlayer.isLoopingSong) {
+                audioPlayer.toggleSongLoop()
+            }
 
-                if settings.showLyrics {
-                    LyricsButton {
-                        nav.push(.lyrics)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
-                }
-
-                if let track = audioPlayer.currentTrack {
-                    LikeButton(
-                        isLiked: liked.isLiked(trackID: track.persistentID),
-                        trackTitle: track.title
-                    ) {
-                        liked.toggleLike(trackID: track.persistentID)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            if settings.showLyrics {
+                LyricsButton {
+                    nav.push(.lyrics)
                 }
             }
 
-            moreToggle
+            if let track = audioPlayer.currentTrack {
+                LikeButton(
+                    isLiked: liked.isLiked(trackID: track.persistentID),
+                    trackTitle: track.title
+                ) {
+                    liked.toggleLike(trackID: track.persistentID)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.horizontal, 24)
-    }
-
-    private var moreToggle: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                showMore.toggle()
-            }
-        } label: {
-            Image(systemName: showMore ? "chevron.down" : "chevron.up")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(Color.ampBlack)
-                .frame(width: 44, height: 44)
-        }
-        .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
-        .accessibilityLabel(showMore ? "Hide more actions" : "Show more actions")
     }
 
     // BT button with AirPlay route picker overlaid for hit testing.

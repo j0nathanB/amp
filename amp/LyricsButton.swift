@@ -9,28 +9,13 @@ struct LyricsButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                LyricsGlyph()
-                    .frame(width: 20, height: 12)
-                Text("Lyrics")
-                    .font(.listTitle)
-                    .foregroundStyle(Color.ampBlack)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 44)
+            Image(systemName: "music.note.list")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.ampBlack)
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
         .accessibilityLabel("Lyrics")
-    }
-}
-
-private struct LyricsGlyph: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Rectangle().fill(Color.ampBlack).frame(width: 14, height: 2)
-            Rectangle().fill(Color.ampBlack).frame(width: 20, height: 2)
-            Rectangle().fill(Color.ampBlack).frame(width: 12, height: 2)
-        }
     }
 }
 

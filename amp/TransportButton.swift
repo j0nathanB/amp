@@ -166,7 +166,7 @@ private struct BluetoothShape: Shape {
 private struct LoopGlyph: View {
     let color: Color
     var body: some View {
-        Image(systemName: "arrow.clockwise")
+        Image(systemName: "repeat")
             .font(.system(size: 22, weight: .bold))
             .foregroundStyle(color)
     }
