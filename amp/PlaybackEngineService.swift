@@ -50,6 +50,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var songDuration: TimeInterval = 0.0
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
+    @Published var isBluetoothRouteActive: Bool = false
     @Published var systemVolume: Float = 1.0
     
     override init() {
@@ -816,11 +817,14 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     private func updateCurrentOutputName() {
         let session = AVAudioSession.sharedInstance()
-        if let currentRoute = session.currentRoute.outputs.first {
-            currentOutputName = currentRoute.portName
+        let outputs = session.currentRoute.outputs
+        if let first = outputs.first {
+            currentOutputName = first.portName
         } else {
             currentOutputName = "iPhone"
         }
+        let btPortTypes: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothLE, .bluetoothHFP]
+        isBluetoothRouteActive = outputs.contains { btPortTypes.contains($0.portType) }
     }
     
     // MARK: - Remote Command Center

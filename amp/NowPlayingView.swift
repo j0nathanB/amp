@@ -38,7 +38,7 @@ struct NowPlayingView: View {
 
                 transportRow
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 0)
 
                 utilityTray
                     .padding(.bottom, 16)
@@ -122,13 +122,37 @@ struct NowPlayingView: View {
         .padding(.horizontal, 24)
     }
 
-    // BT button with AirPlay route picker overlaid for hit testing.
+    // Route indicator button:
+    // - BT audio active → bluetooth glyph in blue (#0693E3)
+    // - BT not in use  → speaker.wave.3.fill in black (audio routed to
+    //   the iPhone speaker, which is what you fall back to when BT is
+    //   disabled or no BT device is connected)
+    // Always a white button with 4px shadow — no navy inversion.
+    // AirPlayButton overlay handles the tap and presents the system
+    // output picker; BrutalistButtonStyle still gets the press event so
+    // the shadow-retract animation plays.
     private var bluetoothButton: some View {
-        let isActive = !audioPlayer.currentOutputName.isEmpty
-            && audioPlayer.currentOutputName != "iPhone"
+        let btBlue = Color(red: 0x06 / 255, green: 0x93 / 255, blue: 0xE3 / 255)
         return ZStack {
-            TransportButton(kind: .bluetooth, isActive: isActive) {}
-                .allowsHitTesting(false)
+            Button(action: {}) {
+                Group {
+                    if audioPlayer.isBluetoothRouteActive {
+                        BluetoothShape()
+                            .stroke(
+                                btBlue,
+                                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                            )
+                            .frame(width: 14, height: 22)
+                    } else {
+                        Image(systemName: "speaker.wave.3.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color.ampBlack)
+                    }
+                }
+                .frame(width: 44, height: 44)
+            }
+            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
+
             AirPlayButton()
                 .frame(width: 44, height: 44)
                 .accessibilityLabel("Audio output")

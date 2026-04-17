@@ -140,28 +140,6 @@ private struct BluetoothGlyph: View {
     }
 }
 
-private struct BluetoothShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let top = CGPoint(x: rect.midX, y: rect.minY)
-        let bottom = CGPoint(x: rect.midX, y: rect.maxY)
-        let topRight = CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.25)
-        let bottomRight = CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.75)
-        let topLeft = CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.25)
-        let bottomLeft = CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.75)
-
-        // Upper triangle: top → topRight → mid-left
-        p.move(to: top)
-        p.addLine(to: topRight)
-        p.addLine(to: bottomLeft)
-        // Full stem: bottom-left → bottom
-        p.move(to: topLeft)
-        p.addLine(to: bottomRight)
-        p.addLine(to: bottom)
-        p.addLine(to: top)
-        return p
-    }
-}
 
 private struct LoopGlyph: View {
     let color: Color
