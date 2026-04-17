@@ -63,6 +63,13 @@ struct LibraryView: View {
             FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
             FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists) { mode = .playlists }
         }
+        // Don't animate the implicit layout change when a chip swaps from
+        // icon to text. Letting SwiftUI animate the width growth makes the
+        // navy fill appear to slide horizontally from the old (narrow)
+        // chip position to the new (wide) one. Snapping the width change
+        // keeps the ButtonStyle's navy-slide/white-fade in place without
+        // an extra horizontal translation.
+        .animation(nil, value: mode)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 4) // accommodate brutalist shadow bleed
         .padding(.bottom, 20)
