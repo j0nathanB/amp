@@ -99,24 +99,7 @@ struct LibraryView: View {
             if albums.isEmpty {
                 emptyState("No music found.")
             } else {
-                ScrollView {
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 16),
-                            GridItem(.flexible(), spacing: 16)
-                        ],
-                        spacing: 24
-                    ) {
-                        ForEach(albums) { album in
-                            AlbumGridCell(album: album) {
-                                nav.push(.albumDetail(album.id))
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-                }
-                .overflowGradientBars()
+                AlbumsScrubbableGrid(albums: albums)
             }
         }
     }
@@ -222,9 +205,7 @@ struct LibraryView: View {
 
 // Artists list with alphabet scrubber (spec §8.5). Pulled out of
 // LibraryView so the sectioning, rail, and indicator logic stays
-// focused. Albums grid + Songs list don't get the scrubber yet —
-// grid UX is a separate consideration, and Songs doesn't currently
-// sort alphabetically by title.
+// focused. Songs / Genres / Albums mirror the same pattern below.
 
 private struct ArtistsScrubbableList: View {
     let artists: [Artist]
@@ -480,6 +461,96 @@ private struct GenresScrubbableList: View {
                 }
             }
         }
+    }
+}
+
+// Albums grid with the same alphabet-scrubber pattern. Albums arrive
+// pre-sorted (LibraryService.albumTitleOrder — leading punctuation
+// stripped, "#" bucket first). Each letter section renders its own
+// LazyVGrid so the letter header above the grid anchors ScrollViewReader's
+// scrollTo. Non-alphabetic leading chars bucket into "#".
+
+private struct AlbumsScrubbableGrid: View {
+    let albums: [Album]
+
+    @ObservedObject private var nav = NavigationService.shared
+
+    @State private var draggedLetter: String?
+    @State private var indicatorDismissTask: Task<Void, Never>?
+
+    private var sections: [(letter: String, albums: [Album])] {
+        let grouped = Dictionary(grouping: albums) { AlphabetSectioning.key(for: $0.title) }
+        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
+            (letter: letter, albums: grouped[letter] ?? [])
+        }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(sections, id: \.letter) { section in
+                            sectionHeader(section.letter)
+                                .id(section.letter)
+
+                            LazyVGrid(
+                                columns: [
+                                    GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16)
+                                ],
+                                spacing: 24
+                            ) {
+                                ForEach(section.albums) { album in
+                                    AlbumGridCell(album: album) {
+                                        nav.push(.albumDetail(album.id))
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 24)
+                        }
+                    }
+                }
+                .background(Color.ampWhite)
+                .overflowGradientBars()
+
+                AlphabetScrubber(
+                    letters: sections.map { $0.letter },
+                    onLetterChanged: { letter in
+                        indicatorDismissTask?.cancel()
+                        draggedLetter = letter
+                        proxy.scrollTo(letter, anchor: .top)
+                    },
+                    onDragEnded: {
+                        indicatorDismissTask?.cancel()
+                        indicatorDismissTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            draggedLetter = nil
+                        }
+                    }
+                )
+                .padding(.trailing, 4)
+
+                if let letter = draggedLetter {
+                    BigLetterIndicator(letter: letter)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.clear)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ letter: String) -> some View {
+        Text(letter)
+            .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
+            .foregroundStyle(Color.ampMutedText)
+            .padding(.leading, 24)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.ampWhite)
     }
 }
 
