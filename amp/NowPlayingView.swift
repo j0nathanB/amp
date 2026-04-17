@@ -44,7 +44,7 @@ struct NowPlayingView: View {
                     .padding(.top, 4)
                     .padding(.bottom, 12)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
