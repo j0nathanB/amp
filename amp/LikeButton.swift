@@ -18,6 +18,13 @@ struct LikeButton: View {
             Image(systemName: isLiked ? "heart.fill" : "heart")
                 .font(.system(size: isLiked ? 26 : 18, weight: .semibold))
                 .foregroundStyle(isLiked ? Self.likedRed : Color.ampBlack)
+                // .identity makes the symbol swap instantaneous so the
+                // fill → outline happens in a single frame. Without this,
+                // SwiftUI's default symbol-replace crossfade left a big
+                // red-fading-to-black filled heart visible mid-transition
+                // — reading as a "big navy heart". Size animates smoothly
+                // via the .animation below.
+                .contentTransition(.identity)
                 .animation(.easeInOut(duration: 0.25), value: isLiked)
                 .frame(width: 44, height: 44)
         }
