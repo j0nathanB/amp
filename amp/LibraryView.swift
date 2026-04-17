@@ -59,7 +59,13 @@ struct LibraryView: View {
         HStack(spacing: 12) {
             FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
             FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists) { mode = .artists }
-            FilterChip(label: "Songs", systemIcon: "music.quarternote.3", isSelected: mode == .songs) { mode = .songs }
+            FilterChip(
+                label: "Songs",
+                // Music-note swap when Playlists is active keeps the row
+                // visually distinct from the neighboring radio.fill glyph.
+                systemIcon: mode == .playlists ? "music.note" : "music.quarternote.3",
+                isSelected: mode == .songs
+            ) { mode = .songs }
             FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
             FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists) { mode = .playlists }
         }
