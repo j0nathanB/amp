@@ -151,8 +151,14 @@ class AudioPlayerService: ObservableObject {
         transitionState = .none
     }
 
+    // `navigateToNowPlaying` is an opt-out for detail views (Album /
+    // Playlist / Artist) that want to start playback without leaving their
+    // context — highlighting + play/pause happen in-place, matching how
+    // Queue taps behave. Library / Search still jump to Now Playing via
+    // the default (true).
     func startPlayback(fromTrackIDs trackIDs: [MPMediaEntityPersistentID],
-                       startingAt index: Int = 0) {
+                       startingAt index: Int = 0,
+                       navigateToNowPlaying: Bool = true) {
         guard !trackIDs.isEmpty, index >= 0, index < trackIDs.count else {
             print("❌ [AudioPlayerService] Invalid IDs startPlayback: count=\(trackIDs.count) index=\(index)")
             return
@@ -170,7 +176,9 @@ class AudioPlayerService: ObservableObject {
         transitionState = .transitioning(to: startSong)
 
         queueManager.startPlayback(fromTrackIDs: trackIDs, startingAt: index)
-        navigation.navigateToNowPlaying()
+        if navigateToNowPlaying {
+            navigation.navigateToNowPlaying()
+        }
 
         if let track = queueManager.currentTrack {
             playbackEngine.play(song: track, isManualSelection: true)

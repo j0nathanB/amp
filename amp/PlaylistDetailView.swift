@@ -138,21 +138,31 @@ struct PlaylistDetailView: View {
 
     // MARK: - Playback
 
+    // All three triggers stay on the Playlist Detail view. Tapping the
+    // currently playing row toggles play/pause — same convention as the
+    // Queue tab and Album Detail.
+
     private func playAll() {
         let ids = songs.map { $0.persistentID }
         guard !ids.isEmpty else { return }
-        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0)
+        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0, navigateToNowPlaying: false)
     }
 
     private func shufflePlayAll() {
         let ids = songs.map { $0.persistentID }.shuffled()
         guard !ids.isEmpty else { return }
-        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0)
+        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0, navigateToNowPlaying: false)
     }
 
     private func playFromIndex(_ index: Int) {
+        guard index >= 0, index < songs.count else { return }
+        let tappedID = songs[index].persistentID
+        if audioPlayer.currentTrack?.persistentID == tappedID {
+            audioPlayer.playPause()
+            return
+        }
         let ids = songs.map { $0.persistentID }
-        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
+        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index, navigateToNowPlaying: false)
     }
 
     // MARK: - Loading

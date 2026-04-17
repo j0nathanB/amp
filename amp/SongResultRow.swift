@@ -3,6 +3,12 @@ import SwiftUI
 // Spec §5.5: 60 tall. Title at x=24, subtitle {Artist} · <italic>{Album}</italic>,
 // duration right-aligned. 1px divider at bottom.
 //
+// `isCurrent` flips to a navy-inverted variant mirroring TrackRow's current
+// row — equalizer bars on the left (animating while `isPlaying`), white
+// text on navy. Used by ArtistDetailView so the currently playing song
+// highlights the same way it does in Album / Playlist Detail. Library
+// songs list and Search results pass the defaults and render unchanged.
+//
 // Uses .onTapGesture + .contentShape instead of Button so the outer frame
 // stays authoritative for LazyVStack sizing (see ArtistRow for background).
 
@@ -11,6 +17,9 @@ struct SongResultRow: View {
     let artist: String
     let album: String
     let duration: String
+    let isCurrent: Bool
+    let isPlaying: Bool
+    let audioLevelProvider: (() -> Float)?
     let onTap: () -> Void
     let onLongPress: (() -> Void)?
 
@@ -19,6 +28,9 @@ struct SongResultRow: View {
         artist: String,
         album: String,
         duration: String,
+        isCurrent: Bool = false,
+        isPlaying: Bool = false,
+        audioLevelProvider: (() -> Float)? = nil,
         onTap: @escaping () -> Void,
         onLongPress: (() -> Void)? = nil
     ) {
@@ -26,18 +38,39 @@ struct SongResultRow: View {
         self.artist = artist
         self.album = album
         self.duration = duration
+        self.isCurrent = isCurrent
+        self.isPlaying = isPlaying
+        self.audioLevelProvider = audioLevelProvider
         self.onTap = onTap
         self.onLongPress = onLongPress
     }
 
     var body: some View {
+        Group {
+            if isCurrent { navyInverted } else { regular }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                onLongPress?()
+            }
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(a11yLabel)
+        .accessibilityAddTraits([.isButton, isCurrent ? .isSelected : []])
+    }
+
+    // MARK: - Regular variant
+
+    private var regular: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.listTitle)
                     .foregroundStyle(Color.ampBlack)
                     .lineLimit(1)
-                subtitle
+                subtitle(artistColor: Color.ampMutedText, albumColor: Color.ampMutedText)
             }
             .padding(.leading, 24)
             Spacer(minLength: 12)
@@ -48,37 +81,67 @@ struct SongResultRow: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 60)
-        .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.ampDivider)
                 .frame(height: 1)
                 .padding(.horizontal, 24)
         }
-        .onTapGesture(perform: onTap)
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                onLongPress?()
-            }
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title) by \(artist) from \(album), \(duration)")
-        .accessibilityAddTraits(.isButton)
     }
 
-    private var subtitle: some View {
+    // MARK: - Navy-inverted variant (current track)
+
+    private var navyInverted: some View {
+        HStack(spacing: 0) {
+            EqualizerBars(
+                color: .ampWhite,
+                isAnimating: isPlaying,
+                levelProvider: audioLevelProvider
+            )
+            .frame(width: 18)
+            .padding(.leading, 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.listTitle)
+                    .foregroundStyle(Color.ampWhite)
+                    .lineLimit(1)
+                subtitle(artistColor: Color.ampInversionLabel, albumColor: Color.ampInversionLabel)
+            }
+            .padding(.leading, 14)
+
+            Spacer(minLength: 12)
+            Text(duration)
+                .font(.timestamp)
+                .foregroundStyle(Color.ampWhite)
+                .padding(.trailing, 24)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 60)
+        .background(Color.ampNavy)
+    }
+
+    // MARK: - Shared pieces
+
+    @ViewBuilder
+    private func subtitle(artistColor: Color, albumColor: Color) -> some View {
         HStack(spacing: 6) {
             Text(artist)
                 .font(.subtitle)
-                .foregroundStyle(Color.ampMutedText)
+                .foregroundStyle(artistColor)
             Text("·")
                 .font(.subtitle)
-                .foregroundStyle(Color.ampMutedText)
+                .foregroundStyle(artistColor)
             Text(album)
                 .font(.subtitleItalic)
-                .foregroundStyle(Color.ampMutedText)
+                .foregroundStyle(albumColor)
         }
         .lineLimit(1)
+    }
+
+    private var a11yLabel: String {
+        let base = "\(title) by \(artist) from \(album), \(duration)"
+        return isCurrent ? "Now playing: \(base)" : base
     }
 }
 
