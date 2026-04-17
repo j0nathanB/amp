@@ -1064,35 +1064,41 @@ class LibraryService {
         #endif
     }
 
-    // Apple Music-style album sort:
+    // Apple Music-style title/name sort. Used for albums, artists,
+    // songs, and genres to keep Library alphabetics feeling native.
+    //
     // 1. Strip leading non-alphanumeric characters when building the sort
-    //    key so titles like "#1" compare as "1" and "...And Justice for
+    //    key so names like "#1" compare as "1" and "...And Justice for
     //    All" compares as "And Justice for All".
-    // 2. Pure-punctuation titles ( "()" by Sigur Rós, etc.) sort first —
-    //    their stripped key is empty, which is always less than any
-    //    non-empty key.
-    // 3. Remaining titles compare with .numeric so "2" < "4" < "10" rather
+    // 2. Pure-punctuation titles ("()" by Sigur Rós, etc.) sort first —
+    //    empty stripped key is always less than any non-empty key.
+    // 3. Remaining names compare with .numeric so "2" < "4" < "10" rather
     //    than lexicographically. "4" < "4 Way Street" < "5 Minute
     //    Meditations" < "9 to 5" < "10 000 Hz Legend" follows naturally.
-    // 4. Tie-break by the original title to keep ordering stable when
+    // 4. Tie-break by the original name to keep ordering stable when
     //    stripped keys collide (e.g. "!Hola" and "Hola").
-    private func albumTitleOrder(_ a: Album, _ b: Album) -> Bool {
-        let keyA = Self.sortKey(for: a.title)
-        let keyB = Self.sortKey(for: b.title)
 
-        if keyA.isEmpty != keyB.isEmpty {
-            return keyA.isEmpty
+    static func nameOrder(_ lhs: String, _ rhs: String) -> Bool {
+        let keyL = sortKey(for: lhs)
+        let keyR = sortKey(for: rhs)
+
+        if keyL.isEmpty != keyR.isEmpty {
+            return keyL.isEmpty
         }
 
-        let result = keyA.compare(keyB, options: [.caseInsensitive, .numeric])
+        let result = keyL.compare(keyR, options: [.caseInsensitive, .numeric])
         if result == .orderedSame {
-            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
         }
         return result == .orderedAscending
     }
 
-    private static func sortKey(for title: String) -> String {
-        String(title.drop(while: { !$0.isLetter && !$0.isNumber }))
+    static func sortKey(for name: String) -> String {
+        String(name.drop(while: { !$0.isLetter && !$0.isNumber }))
+    }
+
+    private func albumTitleOrder(_ a: Album, _ b: Album) -> Bool {
+        Self.nameOrder(a.title, b.title)
     }
 
     func getAllArtists() -> [Artist] {
@@ -1128,7 +1134,7 @@ class LibraryService {
             let albumCount = Set(collection.items.map { $0.albumPersistentID }).count
             return (artist, albumCount)
         }
-        return rows.sorted { $0.0.name.localizedCaseInsensitiveCompare($1.0.name) == .orderedAscending }
+        return rows.sorted { Self.nameOrder($0.0.name, $1.0.name) }
         #endif
     }
 

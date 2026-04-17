@@ -208,7 +208,7 @@ struct LibraryView: View {
         self.artistAlbumCounts = loaded.4
 
         self.genres = await LibraryService.shared.getAllGenres()
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .sorted(by: LibraryService.nameOrder)
     }
 }
 
@@ -317,9 +317,7 @@ private struct SongsScrubbableList: View {
     private var sortedSongs: [(originalIndex: Int, song: Song)] {
         songs.enumerated()
             .map { ($0.offset, $0.element) }
-            .sorted { a, b in
-                a.song.title.localizedCaseInsensitiveCompare(b.song.title) == .orderedAscending
-            }
+            .sorted { LibraryService.nameOrder($0.song.title, $1.song.title) }
     }
 
     private var sections: [(letter: String, items: [(originalIndex: Int, song: Song)])] {
