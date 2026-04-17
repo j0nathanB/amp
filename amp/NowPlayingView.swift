@@ -18,11 +18,13 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             VStack(spacing: 16) {
-                // Explicit width×width so the art claims the full frame
-                // width as a square rather than negotiating with the
-                // other VStack children through .aspectRatio(.fit).
+                // Explicit square, inset 16pt from the frame on all three
+                // sides (top / left / right). Sized off geo.size.width
+                // rather than negotiating through .aspectRatio(.fit) so
+                // it doesn't shrink to match vertical space claimed by
+                // the info strip / scrubber / transport / tray.
                 AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
-                    .frame(width: geo.size.width, height: geo.size.width)
+                    .frame(width: geo.size.width - 32, height: geo.size.width - 32)
                     .padding(.top, 16)
 
                 infoStrip
