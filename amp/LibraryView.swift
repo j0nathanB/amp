@@ -62,7 +62,7 @@ struct LibraryView: View {
                 FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists) { mode = .artists }
                 FilterChip(label: "Songs", systemIcon: "music.note.square.stack.fill", isSelected: mode == .songs) { mode = .songs }
                 FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
-                FilterChip(label: "Playlists", systemIcon: "music.note.list", isSelected: mode == .playlists) { mode = .playlists }
+                FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists) { mode = .playlists }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 4) // accommodate brutalist shadow bleed
