@@ -20,6 +20,8 @@ extension Font {
     static let listTitle = Font.custom(sansBold, size: 20)          // was 16
     // Spec calls for weight 500; Atkinson Next ships only Regular + Bold, so Regular is the closest non-emphasized weight.
     static let listTitleMedium = Font.custom(sansRegular, size: 20) // was 16
+    // Queue-only: title line sized by scaling the old subtitle→title ratio (20/17) onto the 20pt title.
+    static let queueRowTitle = Font.custom(sansBold, size: 24)
     static let bodyBrutalist = Font.custom(sansRegular, size: 22)   // was 18
     static let subtitle = Font.custom(sansRegular, size: 17)        // was 14
     static let subtitleItalic = Font.custom(sansItalic, size: 17)   // was 14

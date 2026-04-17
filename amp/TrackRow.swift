@@ -1,13 +1,17 @@
 import SwiftUI
 
 // Spec §5.4 + Queue amendment: two variants.
-// Regular: 48 tall (or 60 with optional artist line).
-// Navy-inverted: 64 tall (or 72 with optional artist line), equalizer bars
-// replace the position number. Equalizer animates only while playing —
-// static three-line glyph when paused.
+// Regular: 48 tall (or 60 with optional artist line; 72 when prominent).
+// Navy-inverted: 64 tall (or 72 with optional artist line; 84 when
+// prominent), equalizer bars replace the position number. Equalizer
+// animates only while playing — static three-line glyph when paused.
 //
 // `artist` is Queue-specific; Album Detail passes nil (tracks share the
 // album's artist already in the hero info strip).
+//
+// `prominent` is Queue-only: bumps title/artist to a larger size hierarchy
+// (24pt bold title, 20pt artist) and grows the row to match. Playlists
+// still use the default sizing.
 //
 // Uses .onTapGesture + .contentShape instead of Button so the outer frame
 // stays authoritative for LazyVStack sizing (see ArtistRow for background).
@@ -19,6 +23,7 @@ struct TrackRow: View {
     let duration: String
     let isCurrent: Bool
     let isPlaying: Bool
+    let prominent: Bool
     let audioLevelProvider: (() -> Float)?
     let onTap: () -> Void
     let onLongPress: (() -> Void)?
@@ -30,6 +35,7 @@ struct TrackRow: View {
         duration: String,
         isCurrent: Bool,
         isPlaying: Bool = false,
+        prominent: Bool = false,
         audioLevelProvider: (() -> Float)? = nil,
         onTap: @escaping () -> Void,
         onLongPress: (() -> Void)? = nil
@@ -40,6 +46,7 @@ struct TrackRow: View {
         self.duration = duration
         self.isCurrent = isCurrent
         self.isPlaying = isPlaying
+        self.prominent = prominent
         self.audioLevelProvider = audioLevelProvider
         self.onTap = onTap
         self.onLongPress = onLongPress
@@ -67,19 +74,27 @@ struct TrackRow: View {
 
     private var hasArtist: Bool { !(artist?.isEmpty ?? true) }
 
-    private var regularHeight: CGFloat { hasArtist ? 60 : 48 }
-    private var navyHeight: CGFloat { hasArtist ? 72 : 64 }
+    private var regularHeight: CGFloat {
+        if prominent && hasArtist { return 72 }
+        return hasArtist ? 60 : 48
+    }
+    private var navyHeight: CGFloat {
+        if prominent && hasArtist { return 84 }
+        return hasArtist ? 72 : 64
+    }
 
     // MARK: - Regular variant
 
     private var regular: some View {
         HStack(spacing: 0) {
-            Text(position)
-                .font(.trackNumber)
-                .foregroundStyle(Color.ampMutedTextStrong)
-                .frame(width: 40, alignment: .trailing)
+            if !prominent {
+                Text(position)
+                    .font(.trackNumber)
+                    .foregroundStyle(Color.ampMutedTextStrong)
+                    .frame(width: 40, alignment: .trailing)
+            }
             titleStack(titleColor: Color.ampBlack, artistColor: Color.ampMutedText, boldTitle: false)
-                .padding(.leading, 16)
+                .padding(.leading, prominent ? 24 : 16)
             Spacer(minLength: 12)
             Text(duration)
                 .font(.timestamp)
@@ -125,16 +140,21 @@ struct TrackRow: View {
     private func titleStack(titleColor: Color, artistColor: Color, boldTitle: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(boldTitle ? .listTitle : .listTitleMedium)
+                .font(titleFont(boldTitle: boldTitle))
                 .foregroundStyle(titleColor)
                 .lineLimit(1)
             if let artist, !artist.isEmpty {
                 Text(artist)
-                    .font(.subtitle)
+                    .font(prominent ? .listTitleMedium : .subtitle)
                     .foregroundStyle(artistColor)
                     .lineLimit(1)
             }
         }
+    }
+
+    private func titleFont(boldTitle: Bool) -> Font {
+        if prominent { return .queueRowTitle }
+        return boldTitle ? .listTitle : .listTitleMedium
     }
 
     private var accessibilityText: String {

@@ -16,8 +16,8 @@ import MediaPlayer
 // inverted current row is currentRowHeight tall. `onScrollGeometryChange`
 // (iOS 17+) feeds us scrollY / viewport / content.
 
-private let rowHeight: CGFloat = 60            // TrackRow regular + artist
-private let currentRowHeight: CGFloat = 72     // TrackRow navy-inverted + artist
+private let rowHeight: CGFloat = 72            // TrackRow prominent regular + artist
+private let currentRowHeight: CGFloat = 84     // TrackRow prominent navy-inverted + artist
 private let overflowBarHeight: CGFloat = 12
 
 struct QueueView: View {
@@ -261,6 +261,7 @@ private struct QueueRow: View {
             duration: formatDuration(duration),
             isCurrent: isCurrent,
             isPlaying: isPlaying,
+            prominent: true,
             audioLevelProvider: isCurrent ? { AudioPlayerService.shared.currentAudioLevel } : nil,
             onTap: onTap,
             onLongPress: {
