@@ -72,9 +72,8 @@ struct ArtistDetailView: View {
     private var albumsList: some View {
         VStack(spacing: 0) {
             ForEach(albums) { album in
-                AlbumRow(
-                    artwork: nil,
-                    title: album.title,
+                ArtistAlbumRow(
+                    album: album,
                     year: albumYears[album.id],
                     trackCount: albumTrackCounts[album.id] ?? 0,
                     onTap: {
@@ -182,5 +181,38 @@ struct ArtistDetailView: View {
         guard t > 0 else { return "" }
         let total = Int(t.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+// AlbumRow takes a UIImage?; load it per-row here so each row owns its
+// own artwork state without blocking the artist-level loadData pass.
+// Mirrors AlbumGridCell's approach in LibraryView.
+
+private struct ArtistAlbumRow: View {
+    let album: Album
+    let year: Int?
+    let trackCount: Int
+    let onTap: () -> Void
+
+    @State private var artwork: UIImage?
+
+    var body: some View {
+        AlbumRow(
+            artwork: artwork,
+            title: album.title,
+            year: year,
+            trackCount: trackCount,
+            onTap: onTap
+        )
+        .task(id: album.id) {
+            let id = album.id
+            let image = await Task.detached(priority: .userInitiated) {
+                LibraryService.shared.getArtworkImage(
+                    forAlbum: id,
+                    size: CGSize(width: 128, height: 128)
+                )
+            }.value
+            self.artwork = image
+        }
     }
 }
