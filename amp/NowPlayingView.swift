@@ -18,8 +18,7 @@ struct NowPlayingView: View {
     var body: some View {
         VStack(spacing: 16) {
             AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
+                .padding(.top, 16)
 
             infoStrip
 
