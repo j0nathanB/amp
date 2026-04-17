@@ -206,8 +206,9 @@ struct LibraryView: View {
 // Artists list with alphabet scrubber (spec §8.5). Pulled out of
 // LibraryView so the sectioning, rail, and indicator logic stays
 // focused. Songs / Genres / Albums mirror the same pattern below.
+// Reused by GenreDetailView.
 
-private struct ArtistsScrubbableList: View {
+struct ArtistsScrubbableList: View {
     let artists: [Artist]
     let albumCounts: [MPMediaEntityPersistentID: Int]
 
@@ -291,11 +292,18 @@ private struct ArtistsScrubbableList: View {
 // Songs list with the same alphabet-scrubber pattern as Artists.
 // Songs are sorted by title (MPMediaQuery returns them in
 // artist/album/track order by default). Sections keyed on first letter.
+// Reused by GenreDetailView.
+//
+// The audio-player binding drives the currently-playing row highlight.
+// The onPlay callback owns the playback semantics — callers decide
+// whether to navigate to Now Playing (Library) or stay in place
+// (GenreDetail).
 
-private struct SongsScrubbableList: View {
+struct SongsScrubbableList: View {
     let songs: [Song]
     let onPlay: (Int) -> Void
 
+    @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var draggedLetter: String?
     @State private var indicatorDismissTask: Task<Void, Never>?
 
@@ -326,6 +334,11 @@ private struct SongsScrubbableList: View {
                                     artist: entry.song.artist,
                                     album: entry.song.album,
                                     duration: "",
+                                    isCurrent: audioPlayer.currentTrack?.persistentID == entry.song.persistentID,
+                                    isPlaying: audioPlayer.isPlaying,
+                                    audioLevelProvider: audioPlayer.currentTrack?.persistentID == entry.song.persistentID
+                                        ? { AudioPlayerService.shared.currentAudioLevel }
+                                        : nil,
                                     onTap: { onPlay(entry.originalIndex) },
                                     onLongPress: {
                                         NavigationService.shared.navigateToAlbum(forTrack: entry.song.persistentID)
@@ -469,8 +482,9 @@ private struct GenresScrubbableList: View {
 // stripped, "#" bucket first). Each letter section renders its own
 // LazyVGrid so the letter header above the grid anchors ScrollViewReader's
 // scrollTo. Non-alphabetic leading chars bucket into "#".
+// Reused by GenreDetailView.
 
-private struct AlbumsScrubbableGrid: View {
+struct AlbumsScrubbableGrid: View {
     let albums: [Album]
 
     @ObservedObject private var nav = NavigationService.shared

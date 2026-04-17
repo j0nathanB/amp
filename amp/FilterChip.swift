@@ -5,22 +5,30 @@ import SwiftUI
 // on toggle — HStack in Library reflows around it.
 // White + 2px stroke + 4px navy shadow when inactive; navy inversion
 // when active (no shadow). Press feedback via BrutalistInvertibleButtonStyle.
+//
+// `alwaysShowIcon` is an opt-in for views that don't want the icon→text
+// swap on select (e.g. Genre Detail, where the yellow block below the
+// chip row already labels the current mode). Default behaviour matches
+// the spec.
 
 struct FilterChip: View {
     let label: String
     let systemIcon: String?
     let isSelected: Bool
+    let alwaysShowIcon: Bool
     let action: () -> Void
 
     init(
         label: String,
         systemIcon: String? = nil,
         isSelected: Bool,
+        alwaysShowIcon: Bool = false,
         action: @escaping () -> Void
     ) {
         self.label = label
         self.systemIcon = systemIcon
         self.isSelected = isSelected
+        self.alwaysShowIcon = alwaysShowIcon
         self.action = action
     }
 
@@ -37,7 +45,11 @@ struct FilterChip: View {
 
     @ViewBuilder
     private var content: some View {
-        if isSelected || systemIcon == nil {
+        if alwaysShowIcon, let systemIcon {
+            Image(systemName: systemIcon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.ampWhite : Color.ampBlack)
+        } else if isSelected || systemIcon == nil {
             Text(label.uppercased())
                 .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 15))
                 .foregroundStyle(isSelected ? Color.ampWhite : Color.ampBlack)
