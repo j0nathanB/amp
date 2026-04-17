@@ -60,7 +60,7 @@ struct LibraryView: View {
             HStack(spacing: 12) {
                 FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
                 FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists) { mode = .artists }
-                FilterChip(label: "Songs", systemIcon: "music.pages.fill", isSelected: mode == .songs) { mode = .songs }
+                FilterChip(label: "Songs", systemIcon: "music.note.square.stack.fill", isSelected: mode == .songs) { mode = .songs }
                 FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
                 FilterChip(label: "Playlists", systemIcon: "music.note.list", isSelected: mode == .playlists) { mode = .playlists }
             }
