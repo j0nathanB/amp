@@ -17,7 +17,7 @@ struct NowPlayingView: View {
 
     var body: some View {
         GeometryReader { geo in
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 // Explicit square, inset 16pt from the frame on all three
                 // sides (top / left / right). Sized off geo.size.width
                 // rather than negotiating through .aspectRatio(.fit) so
@@ -29,8 +29,6 @@ struct NowPlayingView: View {
 
                 infoStrip
 
-                Spacer(minLength: 8)
-
                 Scrubber(
                     currentTime: audioPlayer.playbackTime,
                     duration: audioPlayer.songDuration,
@@ -41,8 +39,7 @@ struct NowPlayingView: View {
                 transportRow
 
                 utilityTray
-                    .padding(.top, 4)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 8)
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
