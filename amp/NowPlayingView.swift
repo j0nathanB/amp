@@ -2,11 +2,11 @@ import SwiftUI
 import MediaPlayer
 import AVKit
 
-// Spec §7.6: tab root for the Active tab. No back button, no shuffle, no
-// track-info button. Hero art takes device width minus 48px padding;
-// tapping flips to the metadata face (§8.1). Info strip left-aligned
-// below art. Scrubber + times. Transport row: BT · Prev · Play/Pause ·
-// Next (Loop moved to Queue per spec amendment). Action row: Lyrics + Like.
+// Spec §7.6 + layout revision: tab root for the Active tab. Art takes
+// nearly the full content-frame width; title + artist info strip; big
+// Prev / Play-Pause / Next transport row sits lower in the frame;
+// BT / Loop / Lyrics / Like are tucked behind a hideable "more" tray
+// at the bottom-right.
 
 struct NowPlayingView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
@@ -14,10 +14,13 @@ struct NowPlayingView: View {
     @ObservedObject private var liked = LikedTracksService.shared
     @ObservedObject private var settings = SettingsService.shared
 
+    @State private var showMore = false
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             AlbumArtView(song: audioPlayer.enrichedCurrentTrack ?? audioPlayer.currentTrack)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
 
             infoStrip
 
@@ -28,40 +31,37 @@ struct NowPlayingView: View {
             )
             .padding(.horizontal, 24)
 
+            Spacer(minLength: 12)
+
             transportRow
-                .padding(.top, 8)
 
-            if settings.showLyrics || audioPlayer.currentTrack != nil {
-                actionRow
-                    .padding(.top, 4)
-            }
-
-            Spacer(minLength: 0)
+            moreTray
+                .padding(.top, 4)
+                .padding(.bottom, 12)
         }
-        .padding(.top, 16)
-        .padding(.bottom, 16)
+        .padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    // MARK: - Info strip (§7.6)
+    // MARK: - Info strip (§7.6, artist bumped to 75% of title)
 
     private var infoStrip: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             MarqueeText(
                 text: audioPlayer.currentTrack?.title ?? "—",
                 font: .nowPlayingTitle,
                 color: Color.ampBlack
             )
-            .frame(height: 32)
+            .frame(height: 36)
 
             MarqueeText(
                 text: audioPlayer.currentTrack?.artist ?? "—",
-                font: .listTitle,
+                font: .custom("AtkinsonHyperlegibleNext-Bold", size: 24),
                 color: Color.ampBlack
             )
-            .frame(height: 22)
+            .frame(height: 28)
             .contentShape(Rectangle())
             .onTapGesture {
                 guard let id = audioPlayer.currentTrack?.persistentID else { return }
@@ -72,38 +72,76 @@ struct NowPlayingView: View {
         .padding(.horizontal, 24)
     }
 
-    // MARK: - Transport row (§7.6)
-    //
-    // Loop here is SONG loop — repeats the current track only. Queue loop
-    // (which repeats the whole queue) lives on the Queue view (Phase G).
-    // Two distinct toggles, two different homes.
+    // MARK: - Transport row — Prev / Play-Pause / Next only, centered
 
     private var transportRow: some View {
-        HStack(spacing: 0) {
-            bluetoothButton
-            Spacer()
+        HStack(spacing: 20) {
             TransportButton(kind: .previous) {
                 audioPlayer.previousTrack()
             }
-            Spacer().frame(width: 12)
             TransportButton(kind: .playPause, isPlaying: audioPlayer.isPlaying) {
                 audioPlayer.playPause()
             }
-            Spacer().frame(width: 12)
             TransportButton(kind: .next) {
                 audioPlayer.nextTrack()
             }
-            Spacer()
-            TransportButton(kind: .loop, isActive: audioPlayer.isLoopingSong) {
-                audioPlayer.toggleSongLoop()
-            }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // MARK: - More tray (BT / Loop / Lyrics / Like behind a chevron toggle)
+
+    private var moreTray: some View {
+        HStack(spacing: 12) {
+            if showMore {
+                bluetoothButton
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+
+                TransportButton(kind: .loop, isActive: audioPlayer.isLoopingSong) {
+                    audioPlayer.toggleSongLoop()
+                }
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+
+                if settings.showLyrics {
+                    LyricsButton {
+                        nav.push(.lyrics)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+
+                if let track = audioPlayer.currentTrack {
+                    LikeButton(
+                        isLiked: liked.isLiked(trackID: track.persistentID),
+                        trackTitle: track.title
+                    ) {
+                        liked.toggleLike(trackID: track.persistentID)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+
+            moreToggle
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.horizontal, 24)
     }
 
-    // BT button: brutalist glyph visually; taps forward to AVRoutePickerView
-    // which presents the system output picker. Active state when the current
-    // route isn't the built-in speaker.
+    private var moreToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showMore.toggle()
+            }
+        } label: {
+            Image(systemName: showMore ? "chevron.down" : "chevron.up")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Color.ampBlack)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
+        .accessibilityLabel(showMore ? "Hide more actions" : "Show more actions")
+    }
+
+    // BT button with AirPlay route picker overlaid for hit testing.
     private var bluetoothButton: some View {
         let isActive = !audioPlayer.currentOutputName.isEmpty
             && audioPlayer.currentOutputName != "iPhone"
@@ -114,28 +152,5 @@ struct NowPlayingView: View {
                 .frame(width: 44, height: 44)
                 .accessibilityLabel("Audio output")
         }
-    }
-
-    // MARK: - Action row (§7.6 + §5.15)
-
-    private var actionRow: some View {
-        HStack(spacing: 16) {
-            Spacer()
-            if settings.showLyrics {
-                LyricsButton {
-                    nav.push(.lyrics)
-                }
-            }
-            if let track = audioPlayer.currentTrack {
-                LikeButton(
-                    isLiked: liked.isLiked(trackID: track.persistentID),
-                    trackTitle: track.title
-                ) {
-                    liked.toggleLike(trackID: track.persistentID)
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 24)
     }
 }
