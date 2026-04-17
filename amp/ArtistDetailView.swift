@@ -28,6 +28,9 @@ struct ArtistDetailView: View {
             chrome
             ScrollView {
                 VStack(spacing: 0) {
+                    artistTitle
+                        .padding(.bottom, 16)
+
                     ViewTitleBlock("Albums")
                         .padding(.horizontal, 24)
                         .padding(.bottom, 12)
@@ -56,8 +59,10 @@ struct ArtistDetailView: View {
     private var chrome: some View {
         HStack(spacing: 12) {
             BackButton { dismiss() }
+            Spacer(minLength: 12)
             PlayAllBar(
-                title: artistName.isEmpty ? "…" : artistName,
+                title: "Play all",
+                fillsWidth: false,
                 onTap: playAll,
                 onShuffleLongPress: shufflePlayAll
             )
@@ -65,6 +70,16 @@ struct ArtistDetailView: View {
         .padding(.horizontal, 24)
         .padding(.top, 16)
         .padding(.bottom, 20)
+    }
+
+    private var artistTitle: some View {
+        Text(artistName.isEmpty ? "…" : artistName)
+            .font(.nowPlayingTitle)
+            .foregroundStyle(Color.ampBlack)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
     }
 
     // MARK: - Sections

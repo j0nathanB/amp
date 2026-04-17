@@ -23,6 +23,9 @@ struct AlbumDetailView: View {
             chrome
             ScrollView {
                 VStack(spacing: 0) {
+                    albumTitle
+                        .padding(.bottom, 16)
+
                     heroArt
                         .padding(.horizontal, 24)
                         .padding(.bottom, 20)
@@ -53,8 +56,10 @@ struct AlbumDetailView: View {
     private var chrome: some View {
         HStack(spacing: 12) {
             BackButton { dismiss() }
+            Spacer(minLength: 12)
             PlayAllBar(
-                title: album?.title ?? "…",
+                title: "Play all",
+                fillsWidth: false,
                 onTap: playAll,
                 onShuffleLongPress: shufflePlayAll
             )
@@ -62,6 +67,16 @@ struct AlbumDetailView: View {
         .padding(.horizontal, 24)
         .padding(.top, 16)
         .padding(.bottom, 20)
+    }
+
+    private var albumTitle: some View {
+        Text(album?.title ?? "…")
+            .font(.nowPlayingTitle)
+            .foregroundStyle(Color.ampBlack)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
     }
 
     // MARK: - Hero art

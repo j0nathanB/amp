@@ -2,11 +2,14 @@ import SwiftUI
 import MediaPlayer
 
 // Spec §7.8: mirrors AlbumDetail with key differences:
-// - play-all bar shows playlist name
 // - art area renders a 2×2 collage of the first four unique album covers
 //   from the playlist's tracks (§7.8)
 // - track rows show the artist on each row (playlists are multi-artist)
 // - no "Tracks" yellow block (the track count sits in the meta line)
+//
+// Chrome uses a compact "Play all" bar right-aligned next to BackButton;
+// the playlist name sits above the collage, same format as Album /
+// Artist / Genre Detail.
 //
 // Phase H ships the collage from track album artwork. If the playlist
 // itself has iTunes-assigned artwork we could prefer that; hooking in
@@ -29,6 +32,9 @@ struct PlaylistDetailView: View {
             chrome
             ScrollView {
                 VStack(spacing: 0) {
+                    playlistTitle
+                        .padding(.bottom, 16)
+
                     collage
                         .padding(.horizontal, 24)
                         .padding(.bottom, 20)
@@ -55,8 +61,10 @@ struct PlaylistDetailView: View {
     private var chrome: some View {
         HStack(spacing: 12) {
             BackButton { dismiss() }
+            Spacer(minLength: 12)
             PlayAllBar(
-                title: name.isEmpty ? "…" : name,
+                title: "Play all",
+                fillsWidth: false,
                 onTap: playAll,
                 onShuffleLongPress: shufflePlayAll
             )
@@ -64,6 +72,16 @@ struct PlaylistDetailView: View {
         .padding(.horizontal, 24)
         .padding(.top, 16)
         .padding(.bottom, 20)
+    }
+
+    private var playlistTitle: some View {
+        Text(name.isEmpty ? "…" : name)
+            .font(.nowPlayingTitle)
+            .foregroundStyle(Color.ampBlack)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
     }
 
     // MARK: - Collage (§7.8)

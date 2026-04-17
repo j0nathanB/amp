@@ -25,6 +25,7 @@ struct LibraryView: View {
     var body: some View {
         VStack(spacing: 0) {
             chrome
+            modeTitle
             filterChipsRow
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -38,16 +39,37 @@ struct LibraryView: View {
         }
     }
 
+    // The mode title above the chips labels the current filter — same
+    // treatment Genre Detail gives the genre name. With the title doing
+    // that job, chips can stay icon-only in both states (alwaysShowIcon
+    // on filterChipsRow) instead of expanding the selected one.
+    private var modeTitle: some View {
+        Text(modeLabel)
+            .font(.nowPlayingTitle)
+            .foregroundStyle(Color.ampBlack)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
+    }
+
+    private var modeLabel: String {
+        switch mode {
+        case .albums: return "Albums"
+        case .artists: return "Artists"
+        case .songs: return "Songs"
+        case .genres: return "Genres"
+        case .playlists: return "Playlists"
+        }
+    }
+
     // MARK: - Chrome
 
     private var chrome: some View {
         HStack(spacing: 12) {
             ViewTitleBlock("LIBRARY")
-            ChromeButton(icon: "gear", a11y: "Settings") {
+            ChromeButton(icon: "gearshape", a11y: "Settings") {
                 nav.push(.settings)
-            }
-            ChromeButton(icon: "magnifyingglass", a11y: "Search") {
-                nav.selectedTab = .search
             }
         }
         .padding(.horizontal, 24)
@@ -57,25 +79,12 @@ struct LibraryView: View {
 
     private var filterChipsRow: some View {
         HStack(spacing: 12) {
-            FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
-            FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists) { mode = .artists }
-            FilterChip(
-                label: "Songs",
-                // Music-note swap when Playlists is active keeps the row
-                // visually distinct from the neighboring radio.fill glyph.
-                systemIcon: mode == .playlists ? "music.note" : "music.quarternote.3",
-                isSelected: mode == .songs
-            ) { mode = .songs }
-            FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres) { mode = .genres }
-            FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists) { mode = .playlists }
+            FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums, alwaysShowIcon: true) { mode = .albums }
+            FilterChip(label: "Artists", systemIcon: "person.wave.2.fill", isSelected: mode == .artists, alwaysShowIcon: true) { mode = .artists }
+            FilterChip(label: "Songs", systemIcon: "music.quarternote.3", isSelected: mode == .songs, alwaysShowIcon: true) { mode = .songs }
+            FilterChip(label: "Genres", systemIcon: "xmark.triangle.circle.square.fill", isSelected: mode == .genres, alwaysShowIcon: true) { mode = .genres }
+            FilterChip(label: "Playlists", systemIcon: "radio.fill", isSelected: mode == .playlists, alwaysShowIcon: true) { mode = .playlists }
         }
-        // Don't animate the implicit layout change when a chip swaps from
-        // icon to text. Letting SwiftUI animate the width growth makes the
-        // navy fill appear to slide horizontally from the old (narrow)
-        // chip position to the new (wide) one. Snapping the width change
-        // keeps the ButtonStyle's navy-slide/white-fade in place without
-        // an extra horizontal translation.
-        .animation(nil, value: mode)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 4) // accommodate brutalist shadow bleed
         .padding(.bottom, 20)
