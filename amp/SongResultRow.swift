@@ -3,11 +3,11 @@ import SwiftUI
 // Spec §5.5: 60 tall. Title at x=24, subtitle {Artist} · <italic>{Album}</italic>,
 // duration right-aligned. 1px divider at bottom.
 //
-// `isCurrent` flips to a navy-inverted variant mirroring TrackRow's current
-// row — equalizer bars on the left (animating while `isPlaying`), white
-// text on navy. Used by ArtistDetailView so the currently playing song
-// highlights the same way it does in Album / Playlist Detail. Library
-// songs list and Search results pass the defaults and render unchanged.
+// `isCurrent` flips the row to a navy-inverted variant — white text on
+// navy, no decoration. Used by ArtistDetailView so the currently playing
+// song highlights the same way Album / Playlist Detail do via TrackRow.
+// Library songs list and Search results pass the defaults and render
+// unchanged.
 //
 // Uses .onTapGesture + .contentShape instead of Button so the outer frame
 // stays authoritative for LazyVStack sizing (see ArtistRow for background).
@@ -18,8 +18,6 @@ struct SongResultRow: View {
     let album: String
     let duration: String
     let isCurrent: Bool
-    let isPlaying: Bool
-    let audioLevelProvider: (() -> Float)?
     let onTap: () -> Void
     let onLongPress: (() -> Void)?
 
@@ -29,8 +27,6 @@ struct SongResultRow: View {
         album: String,
         duration: String,
         isCurrent: Bool = false,
-        isPlaying: Bool = false,
-        audioLevelProvider: (() -> Float)? = nil,
         onTap: @escaping () -> Void,
         onLongPress: (() -> Void)? = nil
     ) {
@@ -39,8 +35,6 @@ struct SongResultRow: View {
         self.album = album
         self.duration = duration
         self.isCurrent = isCurrent
-        self.isPlaying = isPlaying
-        self.audioLevelProvider = audioLevelProvider
         self.onTap = onTap
         self.onLongPress = onLongPress
     }
@@ -90,17 +84,13 @@ struct SongResultRow: View {
     }
 
     // MARK: - Navy-inverted variant (current track)
+    //
+    // Navy inversion alone marks the current track — no equalizer bars.
+    // Title starts at x=24 (same gutter as the regular variant) so rows
+    // don't reshape when they become current.
 
     private var navyInverted: some View {
         HStack(spacing: 0) {
-            EqualizerBars(
-                color: .ampWhite,
-                isAnimating: isPlaying,
-                levelProvider: audioLevelProvider
-            )
-            .frame(width: 18)
-            .padding(.leading, 24)
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.listTitle)
@@ -108,7 +98,7 @@ struct SongResultRow: View {
                     .lineLimit(1)
                 subtitle(artistColor: Color.ampInversionLabel, albumColor: Color.ampInversionLabel)
             }
-            .padding(.leading, 14)
+            .padding(.leading, 24)
 
             Spacer(minLength: 12)
             Text(duration)

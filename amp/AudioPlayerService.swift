@@ -47,22 +47,6 @@ class AudioPlayerService: ObservableObject {
         return queueManager.queueVersion
     }
 
-    // Audio metering — intended to be polled by animated UI (e.g. the
-    // current-track equalizer bars in Queue) at render rate. Returns 0..1;
-    // 0 when paused or silent.
-    var currentAudioLevel: Float {
-        playbackEngine.currentAudioLevel
-    }
-
-    // Per-band envelope-followed levels for EqualizerBars. Three bars
-    // read (low, mid, high) at render rate. Returns .zero when not
-    // playing so bars visibly flatten on pause. Phase 3 adds a
-    // bandLevelProvider closure to EqualizerBars that polls this.
-    var currentBandLevels: BandLevels {
-        guard playbackEngine.isPlaying else { return .zero }
-        return playbackEngine.bandLevels
-    }
-    
     private init() {
         // Set up delegates
         playbackEngine.delegate = self

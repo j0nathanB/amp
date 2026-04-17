@@ -2,53 +2,27 @@ import Foundation
 import AVFoundation
 import MediaPlayer
 import UIKit
-import Accelerate
-import os.lock
 
 protocol PlaybackEngineDelegate: AnyObject {
     func playbackDidFinish(successfully: Bool)
     func playbackTimeDidUpdate(_ time: TimeInterval)
 }
 
-// Three-band envelope for EqualizerBars. Band levels are 0..1 envelope-
-// followed FFT magnitudes at < 250 Hz (low), 250 Hz – 4 kHz (mid), and
-// > 4 kHz (high). Populated by the mixer tap at ~30 Hz (throttled);
-// consumed by the UI via AudioPlayerService.currentBandLevels.
-struct BandLevels: Equatable {
-    var low: Float
-    var mid: Float
-    var high: Float
-
-    static let zero = BandLevels(low: 0, mid: 0, high: 0)
-}
-
-// Phase 1 of the EqualizerBars migration (plan: magical-nibbling-pancake).
-// The audio source is now AVAudioEngine + AVAudioPlayerNode instead of
-// AVAudioPlayer. Public API and PlaybackEngineDelegate are unchanged —
-// `currentAudioLevel` stays a single 0..1 scalar so no UI change lands
-// with this commit. Per-band banding arrives in Phase 2 on top of the
-// same FFT tap installed here.
+// AVAudioEngine + AVAudioPlayerNode playback core. Public API and
+// PlaybackEngineDelegate preserve the AVAudioPlayer contract, so
+// AudioPlayerService and the UI layer see the same shape.
 //
 // Time math: AVAudioEngine's playerNode reports "sample time since the
 // most recent .play()" via `playerTime(forNodeTime:)`. We track the
 // offset in seconds at which the currently-scheduled segment starts
 // (`segmentStartOffset`) and add the node's elapsed time to get wall-
-// clock position in the track. Pause/resume without a new schedule keeps
-// sampleTime accumulating; seek requires stop()+scheduleSegment() which
-// resets sampleTime to 0, so we reset segmentStartOffset at the same
-// time.
-//
-// Tap callback runs on the audio IO thread. It MUST NOT allocate,
-// publish to SwiftUI, or block. It writes a single Float behind an
-// unfair lock; the UI polls `currentAudioLevel` via TimelineView.
+// clock position in the track. Pause/resume without a new schedule
+// keeps sampleTime accumulating; seek requires stop()+scheduleSegment()
+// which resets sampleTime to 0, so we reset segmentStartOffset at the
+// same time.
 
 class PlaybackEngineService: NSObject, ObservableObject {
     // MARK: - Public surface
-
-    var currentAudioLevel: Float {
-        guard playerNode.isPlaying else { return 0 }
-        return levelLock.withLock { tappedLevel }
-    }
 
     weak var delegate: PlaybackEngineDelegate?
 
@@ -58,7 +32,6 @@ class PlaybackEngineService: NSObject, ObservableObject {
     @Published var currentOutputName: String = ""
     @Published var isBluetoothRouteActive: Bool = false
     @Published var systemVolume: Float = 1.0
-    @Published var bandLevels: BandLevels = .zero
 
     var hasAudioReady: Bool {
         return file != nil
@@ -79,51 +52,6 @@ class PlaybackEngineService: NSObject, ObservableObject {
     // completion callbacks (from segments that got stop()'d on seek) can
     // be filtered out.
     private var currentScheduleToken = UUID()
-
-    // MARK: - FFT tap state (wideband in Phase 1, per-band in Phase 2)
-
-    private let fftLog2n: vDSP_Length = 10
-    private let fftSize = 1024
-    private lazy var fftSetup: vDSP.FFT<DSPSplitComplex> = {
-        vDSP.FFT(log2n: fftLog2n, radix: .radix2, ofType: DSPSplitComplex.self)!
-    }()
-    private lazy var hannWindow: [Float] = {
-        var w = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&w, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        return w
-    }()
-    private var windowedSamples = [Float](repeating: 0, count: 1024)
-    private var fftRealParts = [Float](repeating: 0, count: 512)
-    private var fftImagParts = [Float](repeating: 0, count: 512)
-    private var fftMagnitudes = [Float](repeating: 0, count: 512)
-    private let levelLock = OSAllocatedUnfairLock()
-    private var tappedLevel: Float = 0
-
-    // Band binning + envelope followers. Bin ranges are sample-rate
-    // dependent; recomputed whenever the tap (re)installs. Envelope
-    // coefficients are per-tap-callback (not per-sample); higher =
-    // faster. Asymmetric attack/release gives lows a slow, punchy feel
-    // and highs a twitchy, cymbal-like one.
-    private var lowBinRange: Range<Int> = 1..<6
-    private var midBinRange: Range<Int> = 6..<94
-    private var highBinRange: Range<Int> = 94..<512
-    private var envelopes = BandLevels.zero
-    private let lowAttack: Float = 0.15
-    private let lowRelease: Float = 0.03
-    private let midAttack: Float = 0.25
-    private let midRelease: Float = 0.06
-    private let highAttack: Float = 0.35
-    private let highRelease: Float = 0.10
-    // Empirical gain that lifts bin-averaged magnitudes into the visible
-    // 0..1 range for typical listening levels. Tunable in Phase 4.
-    private let bandGain: Float = 8
-
-    // Throttle band-level publishes to the main actor. Tap fires at
-    // ~43 Hz (44.1kHz) / ~47 Hz (48kHz); publishing every callback is
-    // fine performance-wise but 30 Hz is enough for SwiftUI animation
-    // and avoids gratuitous diffs.
-    private let bandPublishInterval: CFTimeInterval = 1.0 / 30.0
-    private var lastBandPublishTime: CFTimeInterval = 0
 
     // MARK: - Other state (carried over verbatim from the AVAudioPlayer version)
 
@@ -163,7 +91,6 @@ class PlaybackEngineService: NSObject, ObservableObject {
         volumeView?.removeFromSuperview()
         volumeObserver?.invalidate()
         teardownRemoteCommandCenter()
-        engine.mainMixerNode.removeTap(onBus: 0)
         if engine.isRunning {
             engine.stop()
         }
@@ -178,125 +105,6 @@ class PlaybackEngineService: NSObject, ObservableObject {
         // processingFormat when we actually play something; the mixer
         // adapts automatically.
         engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
-        installMixerTap()
-    }
-
-    private func installMixerTap() {
-        let mixer = engine.mainMixerNode
-        let format = mixer.outputFormat(forBus: 0)
-        // Guard against an uninitialized format (can happen before the
-        // session/engine is active on some devices). Reinstall later if so.
-        guard format.sampleRate > 0, format.channelCount > 0 else { return }
-
-        configureBandBinRanges(sampleRate: format.sampleRate)
-
-        mixer.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: format) { [weak self] buffer, _ in
-            self?.processTapBuffer(buffer)
-        }
-    }
-
-    // Bin index for a given target frequency under the current FFT size.
-    // Clamped so we never underflow bin 1 (bin 0 is DC, always excluded)
-    // or overflow past the Nyquist bin.
-    private func configureBandBinRanges(sampleRate: Double) {
-        let halfSize = fftSize / 2
-        let binsForFreq: (Double) -> Int = { freq in
-            let raw = Int((freq * Double(self.fftSize) / sampleRate).rounded())
-            return min(halfSize, max(1, raw))
-        }
-        let lowCut = binsForFreq(250)
-        let highCut = binsForFreq(4000)
-        lowBinRange = 1..<lowCut
-        midBinRange = lowCut..<highCut
-        highBinRange = highCut..<halfSize
-    }
-
-    private func processTapBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
-        let frameCount = Int(buffer.frameLength)
-        guard frameCount >= fftSize else { return }
-
-        // Copy first channel into scratch, applying Hann window in-place.
-        // vDSP_vmul is safe to call from the audio IO thread — no allocs.
-        let samples = channelData[0]
-        windowedSamples.withUnsafeMutableBufferPointer { out in
-            vDSP_vmul(samples, 1, hannWindow, 1, out.baseAddress!, 1, vDSP_Length(fftSize))
-        }
-
-        // Pack the windowed real signal into split-complex form, run the
-        // forward FFT in place, and take magnitudes. The reduce at the end
-        // produces a single wideband level; Phase 2 will instead bin the
-        // magnitudes array into low/mid/high ranges.
-        fftRealParts.withUnsafeMutableBufferPointer { realPtr in
-            fftImagParts.withUnsafeMutableBufferPointer { imagPtr in
-                var split = DSPSplitComplex(
-                    realp: realPtr.baseAddress!,
-                    imagp: imagPtr.baseAddress!
-                )
-
-                windowedSamples.withUnsafeBufferPointer { wPtr in
-                    wPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
-                        vDSP_ctoz(complexPtr, 2, &split, 1, vDSP_Length(fftSize / 2))
-                    }
-                }
-
-                fftSetup.forward(input: split, output: &split)
-
-                fftMagnitudes.withUnsafeMutableBufferPointer { magPtr in
-                    vDSP_zvabs(&split, 1, magPtr.baseAddress!, 1, vDSP_Length(fftSize / 2))
-                }
-            }
-        }
-
-        // Wideband scalar for the existing currentAudioLevel path.
-        var sum: Float = 0
-        vDSP_sve(fftMagnitudes, 1, &sum, vDSP_Length(fftSize / 2))
-        let normalized = max(0, min(1, sum / 400))
-
-        levelLock.withLock {
-            tappedLevel = normalized
-        }
-
-        // Per-band energy → bin averages → envelope followers.
-        let lowRaw = rawBandLevel(range: lowBinRange)
-        let midRaw = rawBandLevel(range: midBinRange)
-        let highRaw = rawBandLevel(range: highBinRange)
-
-        envelopes.low = envelopeFollow(current: envelopes.low, target: lowRaw, attack: lowAttack, release: lowRelease)
-        envelopes.mid = envelopeFollow(current: envelopes.mid, target: midRaw, attack: midAttack, release: midRelease)
-        envelopes.high = envelopeFollow(current: envelopes.high, target: highRaw, attack: highAttack, release: highRelease)
-
-        let snapshot = envelopes
-
-        // Throttle main-actor publishes. Tap fires ~43–47 Hz; 30 Hz is
-        // plenty for UI and avoids half the main-thread hops.
-        let now = CACurrentMediaTime()
-        if now - lastBandPublishTime >= bandPublishInterval {
-            lastBandPublishTime = now
-            DispatchQueue.main.async { [weak self] in
-                self?.bandLevels = snapshot
-            }
-        }
-    }
-
-    // Mean magnitude inside the band, scaled to 0..1. vDSP_sve + divide
-    // stays on the audio thread without allocating.
-    private func rawBandLevel(range: Range<Int>) -> Float {
-        guard !range.isEmpty else { return 0 }
-        var sum: Float = 0
-        fftMagnitudes.withUnsafeBufferPointer { ptr in
-            vDSP_sve(ptr.baseAddress!.advanced(by: range.lowerBound),
-                     1,
-                     &sum,
-                     vDSP_Length(range.count))
-        }
-        let avg = sum / Float(range.count)
-        return max(0, min(1, avg * bandGain))
-    }
-
-    private func envelopeFollow(current: Float, target: Float, attack: Float, release: Float) -> Float {
-        let coeff = target > current ? attack : release
-        return current + (target - current) * coeff
     }
 
     private func ensureEngineRunning() {
@@ -826,8 +634,6 @@ class PlaybackEngineService: NSObject, ObservableObject {
 
             // With the session active, start the engine (idempotent).
             ensureEngineRunning()
-            // If the tap couldn't attach earlier (format wasn't ready), try again.
-            reinstallMixerTapIfNeeded()
         } catch let error as NSError {
             print("❌ Failed to configure audio session: \(error) - Code: \(error.code)")
 
@@ -841,29 +647,11 @@ class PlaybackEngineService: NSObject, ObservableObject {
                 audioSessionConfigured = true
                 print("✅ Fallback audio session configured successfully - Now Playing should still work")
                 ensureEngineRunning()
-                reinstallMixerTapIfNeeded()
             } catch {
                 print("❌ Even fallback audio session setup failed: \(error)")
                 // Even if configuration fails, mark as configured to prevent infinite loops
                 audioSessionConfigured = true
             }
-        }
-    }
-
-    // If the tap couldn't attach at init time (e.g., mainMixerNode didn't
-    // have a format yet), attach it now.
-    private func reinstallMixerTapIfNeeded() {
-        let mixer = engine.mainMixerNode
-        let format = mixer.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { return }
-
-        configureBandBinRanges(sampleRate: format.sampleRate)
-
-        // The docs don't expose a way to query if a tap is installed; try
-        // removing then re-installing. removeTap is a no-op if none exists.
-        mixer.removeTap(onBus: 0)
-        mixer.installTap(onBus: 0, bufferSize: AVAudioFrameCount(fftSize), format: format) { [weak self] buffer, _ in
-            self?.processTapBuffer(buffer)
         }
     }
 

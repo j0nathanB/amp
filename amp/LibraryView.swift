@@ -344,10 +344,6 @@ struct SongsScrubbableList: View {
                                     album: entry.song.album,
                                     duration: "",
                                     isCurrent: audioPlayer.currentTrack?.persistentID == entry.song.persistentID,
-                                    isPlaying: audioPlayer.isPlaying,
-                                    audioLevelProvider: audioPlayer.currentTrack?.persistentID == entry.song.persistentID
-                                        ? { AudioPlayerService.shared.currentAudioLevel }
-                                        : nil,
                                     onTap: { onPlay(entry.originalIndex) },
                                     onLongPress: {
                                         NavigationService.shared.navigateToAlbum(forTrack: entry.song.persistentID)

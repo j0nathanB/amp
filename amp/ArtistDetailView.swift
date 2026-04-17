@@ -108,10 +108,6 @@ struct ArtistDetailView: View {
                     album: song.album,
                     duration: formatDuration(durations[song.persistentID] ?? 0),
                     isCurrent: audioPlayer.currentTrack?.persistentID == song.persistentID,
-                    isPlaying: audioPlayer.isPlaying,
-                    audioLevelProvider: audioPlayer.currentTrack?.persistentID == song.persistentID
-                        ? { AudioPlayerService.shared.currentAudioLevel }
-                        : nil,
                     onTap: { playFromIndex(index) }
                 )
             }

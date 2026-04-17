@@ -57,7 +57,7 @@ struct QueueView: View {
     private var trackCountLabel: String? {
         let count = audioPlayer.playbackQueue.trackIDs.count
         guard count > 0 else { return nil }
-        return "\(count) \(count == 1 ? "track" : "tracks")"
+        return "\(count) \(count == 1 ? "\ntrack" : "\ntracks")"
     }
 
     // MARK: - Track list area (scroll + pin + overflow overlays)
@@ -93,8 +93,7 @@ struct QueueView: View {
                         QueueRow(
                             index: index,
                             trackID: trackID,
-                            isCurrent: index == audioPlayer.currentIndex,
-                            isPlaying: audioPlayer.isPlaying
+                            isCurrent: index == audioPlayer.currentIndex
                         ) {
                             handleTap(at: index)
                         }
@@ -177,8 +176,7 @@ struct QueueView: View {
             QueueRow(
                 index: index,
                 trackID: trackID,
-                isCurrent: true,
-                isPlaying: audioPlayer.isPlaying
+                isCurrent: true
             ) {
                 handleTap(at: index)
             }
@@ -247,7 +245,6 @@ private struct QueueRow: View {
     let index: Int
     let trackID: MPMediaEntityPersistentID
     let isCurrent: Bool
-    let isPlaying: Bool
     let onTap: () -> Void
 
     @State private var song: Song?
@@ -260,9 +257,7 @@ private struct QueueRow: View {
             artist: song?.artist,
             duration: formatDuration(duration),
             isCurrent: isCurrent,
-            isPlaying: isPlaying,
             prominent: true,
-            audioLevelProvider: isCurrent ? { AudioPlayerService.shared.currentAudioLevel } : nil,
             onTap: onTap,
             onLongPress: {
                 NavigationService.shared.navigateToAlbum(forTrack: trackID)
