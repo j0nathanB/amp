@@ -150,18 +150,7 @@ struct LibraryView: View {
             if genres.isEmpty {
                 emptyState("No genres found.")
             } else {
-                List(genres, id: \.self) { genre in
-                    PlaylistListRow(name: genre) {
-                        nav.push(.genreDetail(genre))
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.ampWhite)
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color.ampWhite)
-                .overflowGradientBars()
+                GenresScrubbableList(genres: genres)
             }
         }
     }
@@ -409,6 +398,84 @@ private struct SongsScrubbableList: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.ampWhite)
             .listRowInsets(EdgeInsets())
+    }
+}
+
+// Genres list with the same alphabet-scrubber pattern as Artists / Songs.
+
+private struct GenresScrubbableList: View {
+    let genres: [String]
+
+    @ObservedObject private var nav = NavigationService.shared
+
+    @State private var draggedLetter: String?
+    @State private var indicatorDismissTask: Task<Void, Never>?
+
+    private var sections: [(letter: String, items: [String])] {
+        let grouped = Dictionary(grouping: genres) { AlphabetSectioning.key(for: $0) }
+        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
+            (letter: letter, items: (grouped[letter] ?? []).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
+        }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                List {
+                    ForEach(sections, id: \.letter) { section in
+                        Section {
+                            ForEach(section.items, id: \.self) { genre in
+                                PlaylistListRow(name: genre) {
+                                    nav.push(.genreDetail(genre))
+                                }
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.ampWhite)
+                            }
+                        } header: {
+                            Text(section.letter)
+                                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
+                                .foregroundStyle(Color.ampMutedText)
+                                .padding(.leading, 24)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.ampWhite)
+                                .listRowInsets(EdgeInsets())
+                        }
+                        .id(section.letter)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
+                .overflowGradientBars()
+
+                AlphabetScrubber(
+                    letters: sections.map { $0.letter },
+                    onLetterChanged: { letter in
+                        indicatorDismissTask?.cancel()
+                        draggedLetter = letter
+                        proxy.scrollTo(letter, anchor: .top)
+                    },
+                    onDragEnded: {
+                        indicatorDismissTask?.cancel()
+                        indicatorDismissTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            guard !Task.isCancelled else { return }
+                            draggedLetter = nil
+                        }
+                    }
+                )
+                .padding(.trailing, 4)
+
+                if let letter = draggedLetter {
+                    BigLetterIndicator(letter: letter)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.clear)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
     }
 }
 
