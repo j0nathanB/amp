@@ -1051,7 +1051,7 @@ class LibraryService {
 
     func getAllAlbums() -> [Album] {
         #if DEBUG
-        return MockLibraryService.shared.getAllAlbums()
+        return MockLibraryService.shared.getAllAlbums().sorted(by: albumTitleOrder)
         #else
         guard let collections = MPMediaQuery.albums().collections else { return [] }
         let albums = collections.compactMap { collection -> Album? in
@@ -1060,8 +1060,39 @@ class LibraryService {
             let artist = rep.albumArtist ?? rep.artist ?? ""
             return Album(id: rep.albumPersistentID, title: title, artist: artist)
         }
-        return albums.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        return albums.sorted(by: albumTitleOrder)
         #endif
+    }
+
+    // Apple Music-style album sort:
+    // 1. Strip leading non-alphanumeric characters when building the sort
+    //    key so titles like "#1" compare as "1" and "...And Justice for
+    //    All" compares as "And Justice for All".
+    // 2. Pure-punctuation titles ( "()" by Sigur Rós, etc.) sort first —
+    //    their stripped key is empty, which is always less than any
+    //    non-empty key.
+    // 3. Remaining titles compare with .numeric so "2" < "4" < "10" rather
+    //    than lexicographically. "4" < "4 Way Street" < "5 Minute
+    //    Meditations" < "9 to 5" < "10 000 Hz Legend" follows naturally.
+    // 4. Tie-break by the original title to keep ordering stable when
+    //    stripped keys collide (e.g. "!Hola" and "Hola").
+    private func albumTitleOrder(_ a: Album, _ b: Album) -> Bool {
+        let keyA = Self.sortKey(for: a.title)
+        let keyB = Self.sortKey(for: b.title)
+
+        if keyA.isEmpty != keyB.isEmpty {
+            return keyA.isEmpty
+        }
+
+        let result = keyA.compare(keyB, options: [.caseInsensitive, .numeric])
+        if result == .orderedSame {
+            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+        }
+        return result == .orderedAscending
+    }
+
+    private static func sortKey(for title: String) -> String {
+        String(title.drop(while: { !$0.isLetter && !$0.isNumber }))
     }
 
     func getAllArtists() -> [Artist] {
