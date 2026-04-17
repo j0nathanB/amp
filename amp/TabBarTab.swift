@@ -27,7 +27,7 @@ struct TabBarTab: View {
 private extension AmpTab {
     var systemIcon: String {
         switch self {
-        case .library: "line.3.horizontal"
+        case .library: "books.vertical.fill"
         case .search: "magnifyingglass"
         case .queue: "list.bullet"
         case .active: "playpause.fill"

@@ -7,7 +7,7 @@ import MediaPlayer
 // push Artist Detail; tap a playlist → push Playlist Detail; tap gear →
 // push Settings; tap search → switch to the Search tab.
 
-enum LibraryMode { case albums, artists, songs, playlists }
+enum LibraryMode { case albums, artists, songs, genres, playlists }
 
 struct LibraryView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
@@ -17,6 +17,7 @@ struct LibraryView: View {
     @State private var albums: [Album] = []
     @State private var artists: [Artist] = []
     @State private var songs: [Song] = []
+    @State private var genres: [String] = []
     @State private var playlists: [Playlist] = []
     @State private var artistAlbumCounts: [MPMediaEntityPersistentID: Int] = [:]
     @State private var isLoaded = false
@@ -58,8 +59,9 @@ struct LibraryView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 FilterChip(label: "Albums", systemIcon: "record.circle.fill", isSelected: mode == .albums) { mode = .albums }
-                FilterChip(label: "Artists", systemIcon: "person.fill", isSelected: mode == .artists) { mode = .artists }
-                FilterChip(label: "Songs", systemIcon: "music.pages", isSelected: mode == .songs) { mode = .songs }
+                FilterChip(label: "Artists", systemIcon: "person.3.sequence.fill", isSelected: mode == .artists) { mode = .artists }
+                FilterChip(label: "Songs", systemIcon: "music.quarternote.3", isSelected: mode == .songs) { mode = .songs }
+                FilterChip(label: "Genres", systemIcon: "guitars.fill", isSelected: mode == .genres) { mode = .genres }
                 FilterChip(label: "Playlists", systemIcon: "music.note.list", isSelected: mode == .playlists) { mode = .playlists }
             }
             .padding(.horizontal, 24)
@@ -76,6 +78,7 @@ struct LibraryView: View {
         case .albums: albumsGrid
         case .artists: artistsList
         case .songs: songsList
+        case .genres: genresList
         case .playlists: playlistsList
         }
     }
@@ -137,6 +140,27 @@ struct LibraryView: View {
         }
     }
 
+    private var genresList: some View {
+        Group {
+            if genres.isEmpty {
+                emptyState("No genres found.")
+            } else {
+                List(genres, id: \.self) { genre in
+                    PlaylistListRow(name: genre) {
+                        nav.push(.genreDetail(genre))
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.ampWhite)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.ampWhite)
+                .overflowGradientBars()
+            }
+        }
+    }
+
     private var playlistsList: some View {
         Group {
             if playlists.isEmpty {
@@ -188,6 +212,9 @@ struct LibraryView: View {
         self.songs = loaded.2
         self.playlists = loaded.3
         self.artistAlbumCounts = loaded.4
+
+        self.genres = await LibraryService.shared.getAllGenres()
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 }
 
