@@ -294,7 +294,6 @@ The search functionality now includes a comprehensive test-driven development fr
 - **Prefix Matching**: Band name scenarios ("def" → "Deftones", "my own" → "My Own Summer")
 
 #### **Test Framework Components**
-- **MockDataGenerator.swift**: 130+ realistic test songs with comprehensive edge cases
 - **SearchFunctionalityTests.swift**: Automated test suite with baseline establishment
 - **SearchTestRunner.swift**: TDD workflow management with iteration tracking
 - **PrefixMatchingTests.swift**: Specialized tests for band/song prefix scenarios
