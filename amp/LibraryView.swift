@@ -123,12 +123,39 @@ struct LibraryView: View {
 
     private var songsList: some View {
         tabContent(state: store.songsState, isEmpty: store.songs.isEmpty, emptyText: "No music found.") {
-            SongsScrubbableList(sections: store.songSections) { song in
-                let ids = store.songs.map { $0.persistentID }
-                guard let index = ids.firstIndex(of: song.persistentID) else { return }
-                audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
+            VStack(spacing: 0) {
+                PlayAllBar(
+                    title: "Play all",
+                    fillsWidth: false,
+                    onTap: playAllSongs,
+                    onShuffleLongPress: shufflePlayAllSongs
+                )
+                .padding(.vertical, 4)
+                .padding(.bottom, 16)
+                SongsScrubbableList(sections: store.songSections) { song in
+                    let ids = store.songs.map { $0.persistentID }
+                    guard let index = ids.firstIndex(of: song.persistentID) else { return }
+                    audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
+                }
             }
         }
+    }
+
+    // Shuffle-aware kickoff: when the queue's shuffle toggle is on, pick a
+    // random starting index so the first track is randomized too. If we
+    // used startingAt: 0, QueueManager's shuffle(keepCurrentFirst: true)
+    // would pin track 0 first and only randomize the tail.
+    private func playAllSongs() {
+        let ids = store.songs.map { $0.persistentID }
+        guard !ids.isEmpty else { return }
+        let start = audioPlayer.isShuffled ? Int.random(in: 0..<ids.count) : 0
+        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: start)
+    }
+
+    private func shufflePlayAllSongs() {
+        let ids = store.songs.map { $0.persistentID }.shuffled()
+        guard !ids.isEmpty else { return }
+        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0)
     }
 
     private var genresList: some View {
