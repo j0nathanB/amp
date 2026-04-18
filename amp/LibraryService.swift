@@ -88,6 +88,18 @@ class LibraryService {
     // Hybrid search index for fast diacritics-insensitive search
     private let searchIndex = HybridSearchIndex()
 
+    // Cache-only accessors. Return nil on miss without falling back to
+    // MPMediaQuery — for call sites that need a synchronous answer and
+    // have their own async fallback for the rare miss case (e.g. QueueRow
+    // rendering a track before the index has built on first launch).
+    func cachedSong(by id: MPMediaEntityPersistentID) -> Song? {
+        searchIndex.song(for: id)
+    }
+
+    func cachedDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval? {
+        searchIndex.duration(for: id)
+    }
+
     // Static character set to improve performance
     private static let wordSeparators = CharacterSet.whitespacesAndNewlines
         .union(.punctuationCharacters)
@@ -858,6 +870,13 @@ class LibraryService {
         #if DEBUG
         return MockLibraryService.shared.getSong(by: id)
         #else
+        // The in-memory search index already holds every Song from the
+        // last cached build. Hit it before reaching for MPMediaQuery —
+        // saves a predicate query per call. Returns nil during the brief
+        // window after first launch when the index hasn't built yet,
+        // and we fall through to the full query.
+        if let cached = searchIndex.song(for: id) { return cached }
+
         let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)
@@ -1205,6 +1224,10 @@ class LibraryService {
         #if DEBUG
         return 0
         #else
+        // Cache-first — same rationale as getSong(by:). Durations are
+        // captured alongside song metadata during the search index build.
+        if let cached = searchIndex.duration(for: id) { return cached }
+
         let predicate = MPMediaPropertyPredicate(value: NSNumber(value: id), forProperty: MPMediaItemPropertyPersistentID)
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(predicate)

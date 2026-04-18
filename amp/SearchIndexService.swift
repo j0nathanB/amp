@@ -24,10 +24,14 @@ struct PersistedSearchIndex: Codable {
     let songCache: [MPMediaEntityPersistentID: CodableSong]
     let artistCache: [MPMediaEntityPersistentID: CodableArtist]
     let albumCache: [MPMediaEntityPersistentID: CodableAlbum]
+    // Map from persistent ID to track duration in seconds. Populated from
+    // MPMediaItem.playbackDuration during index build so QueueRow doesn't
+    // run an MPMediaQuery per visible row just to get a track's length.
+    let durationCache: [MPMediaEntityPersistentID: TimeInterval]
     let libraryLastModified: Date
     let version: Int // For future compatibility
 
-    static let currentVersion = 1
+    static let currentVersion = 2
 }
 
 // Codable versions of data models (lightweight for persistence)
@@ -99,6 +103,7 @@ class HybridSearchIndex: @unchecked Sendable {
     private var _songCache: [MPMediaEntityPersistentID: Song] = [:]
     private var _artistCache: [MPMediaEntityPersistentID: Artist] = [:]
     private var _albumCache: [MPMediaEntityPersistentID: Album] = [:]
+    private var _durationCache: [MPMediaEntityPersistentID: TimeInterval] = [:]
 
     // Fallback data for partial matching
     private var allSongs: [MPMediaItem] = []
@@ -168,6 +173,19 @@ class HybridSearchIndex: @unchecked Sendable {
         indexQueue.sync { _albumCache }
     }
 
+    // O(1) lookup of a cached Song by persistent ID. Used by QueueRow to
+    // hydrate visible rows without spawning an MPMediaQuery per track —
+    // the on-disk search index is already in memory by the time the
+    // queue view appears, so this saves a predicate query per row.
+    func song(for id: MPMediaEntityPersistentID) -> Song? {
+        indexQueue.sync { _songCache[id] }
+    }
+
+    // Cached playback duration (seconds). Same rationale as song(for:).
+    func duration(for id: MPMediaEntityPersistentID) -> TimeInterval? {
+        indexQueue.sync { _durationCache[id] }
+    }
+
     // MARK: - Index Persistence
 
     /// Get the last modification date of the music library
@@ -219,6 +237,7 @@ class HybridSearchIndex: @unchecked Sendable {
                 self._songCache = cached.songCache.mapValues { $0.toSong() }
                 self._artistCache = cached.artistCache.mapValues { $0.toArtist() }
                 self._albumCache = cached.albumCache.mapValues { $0.toAlbum() }
+                self._durationCache = cached.durationCache
 
                 self._isIndexBuilt = true
 
@@ -246,6 +265,7 @@ class HybridSearchIndex: @unchecked Sendable {
             let songCache = self._songCache
             let artistCache = self._artistCache
             let albumCache = self._albumCache
+            let durationCache = self._durationCache
 
             // Perform encoding and writing off the queue
             Task.detached(priority: .utility) {
@@ -262,6 +282,7 @@ class HybridSearchIndex: @unchecked Sendable {
                         songCache: codableSongs,
                         artistCache: codableArtists,
                         albumCache: codableAlbums,
+                        durationCache: durationCache,
                         libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
                         version: PersistedSearchIndex.currentVersion
                     )
@@ -293,6 +314,7 @@ class HybridSearchIndex: @unchecked Sendable {
             // Build temporary indices locally (non-thread-safe during build)
             var tempSongWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]
             var tempSongCache: [MPMediaEntityPersistentID: Song] = [:]
+            var tempDurationCache: [MPMediaEntityPersistentID: TimeInterval] = [:]
 
             // Build song index
             let songsQuery = MPMediaQuery.songs()
@@ -311,12 +333,14 @@ class HybridSearchIndex: @unchecked Sendable {
                 }
 
                 tempSongCache[song.persistentID] = LibraryService.shared.song(from: song)
+                tempDurationCache[song.persistentID] = song.playbackDuration
             }
 
             // Commit song index atomically
             self.indexQueue.async(flags: .barrier) {
                 self._songWordIndex = tempSongWordIndex
                 self._songCache = tempSongCache
+                self._durationCache = tempDurationCache
             }
 
             // Build artist index from songs to ensure we capture all artists

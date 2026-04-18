@@ -37,6 +37,7 @@ class AudioPlayerService: ObservableObject {
     @Published var isLoopingSong = false
     @Published var currentIndex: Int = -1
     @Published var systemVolume: Float = 1.0
+    @Published var queueInitialLoadCompleted: Bool = false
     
     // Queue properties
     var playbackQueue: PlaybackQueue {
@@ -119,6 +120,9 @@ class AudioPlayerService: ObservableObject {
         queueManager.$playbackQueue
             .map { $0.currentIndex ?? -1 }
             .assign(to: &$currentIndex)
+
+        queueManager.$initialLoadCompleted
+            .assign(to: &$queueInitialLoadCompleted)
     }
     
     // MARK: - Public API (same as before)

@@ -70,7 +70,14 @@ struct QueueView: View {
     @ViewBuilder
     private var trackListArea: some View {
         if audioPlayer.playbackQueue.trackIDs.isEmpty {
-            emptyState
+            // Distinguish "still restoring from disk" from "genuinely
+            // empty queue" — the 489ms queue-restore window was flashing
+            // the "Queue is empty" message on every cold launch.
+            if audioPlayer.queueInitialLoadCompleted {
+                emptyState
+            } else {
+                loadingState
+            }
         } else {
             ZStack {
                 scrollingList
@@ -90,11 +97,21 @@ struct QueueView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var loadingState: some View {
+        EqualizerBars()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var scrollingList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(audioPlayer.playbackQueue.trackIDs.enumerated()), id: \.offset) { index, trackID in
+                    // Range<Int> directly — no Array(enumerated()) allocation.
+                    // The old form rebuilt a 23k-tuple array on every body
+                    // re-render, which fires on every audioPlayer.playbackTime
+                    // @Published tick during playback.
+                    ForEach(audioPlayer.playbackQueue.trackIDs.indices, id: \.self) { index in
+                        let trackID = audioPlayer.playbackQueue.trackIDs[index]
                         QueueRow(
                             index: index,
                             trackID: trackID,
@@ -250,8 +267,21 @@ private struct QueueRow: View {
     let isCurrent: Bool
     let onTap: () -> Void
 
-    @State private var song: Song?
-    @State private var duration: TimeInterval = 0
+    // Fallbacks populated only on cache miss (first launch before the
+    // search index has built). Steady-state rendering reads cachedSong /
+    // cachedDuration directly from the in-memory index — no state, no
+    // async, no spinner flash.
+    @State private var fallbackSong: Song?
+    @State private var fallbackDuration: TimeInterval?
+
+    private var song: Song? {
+        LibraryService.shared.cachedSong(by: trackID) ?? fallbackSong
+    }
+
+    private var duration: TimeInterval {
+        LibraryService.shared.cachedDuration(forTrack: trackID)
+            ?? fallbackDuration ?? 0
+    }
 
     var body: some View {
         TrackRow(
@@ -267,14 +297,19 @@ private struct QueueRow: View {
             }
         )
         .task(id: trackID) {
+            // Cache hit: nothing to do — the computed properties above
+            // already delivered real data on first render.
+            if LibraryService.shared.cachedSong(by: trackID) != nil { return }
+            // Cache miss (first launch window before index build finishes):
+            // async fallback via MPMediaQuery.
             let hydrated = await Task.detached(priority: .userInitiated) {
                 (
                     song: LibraryService.shared.getSong(by: trackID),
                     duration: LibraryService.shared.getDuration(forTrack: trackID)
                 )
             }.value
-            self.song = hydrated.song
-            self.duration = hydrated.duration
+            self.fallbackSong = hydrated.song
+            self.fallbackDuration = hydrated.duration
         }
     }
 

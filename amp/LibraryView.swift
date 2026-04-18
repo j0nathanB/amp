@@ -26,18 +26,19 @@ struct LibraryView: View {
         }
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: mode) {
-            await loadForMode(mode)
-        }
-    }
-
-    private func loadForMode(_ mode: LibraryMode) async {
-        switch mode {
-        case .albums: await store.ensureAlbums()
-        case .artists: await store.ensureArtists()
-        case .songs: await store.ensureSongs()
-        case .genres: await store.ensureGenres()
-        case .playlists: await store.ensurePlaylists()
+        .task {
+            // Warm every tab in parallel on the first Library appear.
+            // ensure* methods are idempotent and already run off main,
+            // so the cost is only paid once per library revision — and
+            // any chip the user taps afterward is already loaded or
+            // already loading. Chip taps no longer need their own
+            // .task; the store's @Published updates drive the view.
+            async let a: Void = store.ensureAlbums()
+            async let b: Void = store.ensureArtists()
+            async let c: Void = store.ensureSongs()
+            async let d: Void = store.ensureGenres()
+            async let e: Void = store.ensurePlaylists()
+            _ = await (a, b, c, d, e)
         }
     }
 

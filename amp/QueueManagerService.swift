@@ -12,6 +12,10 @@ class QueueManagerService: ObservableObject {
     
     @Published private(set) var playbackQueue = PlaybackQueue()
     @Published private(set) var queueVersion = 0
+    // Flips true once the initial persisted-queue restore has finished
+    // (whether anything was restored or not). QueueView reads this to
+    // distinguish "still loading from disk" from "genuinely empty".
+    @Published private(set) var initialLoadCompleted = false
     @Published var currentTrack: Song? {
         didSet {
             // Debug logging to track when currentTrack changes
@@ -361,6 +365,7 @@ class QueueManagerService: ObservableObject {
         }
         hasLoadedInitialQueue = true
         await loadQueue()
+        await MainActor.run { self.initialLoadCompleted = true }
     }
     
     internal func loadQueue() async {
