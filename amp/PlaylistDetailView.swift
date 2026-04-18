@@ -225,27 +225,28 @@ struct PlaylistDetailView: View {
     // via a tiny MPMediaQuery, then pull its artwork. Done off the main
     // thread so scroll stays smooth even with four art loads.
     private func loadCollageArt(fromRepresentativeTrackIDs trackIDs: [MPMediaEntityPersistentID]) async {
-        let art = await Task.detached(priority: .userInitiated) { () -> [UIImage?] in
-            var result: [UIImage?] = [nil, nil, nil, nil]
-            for (i, trackID) in trackIDs.prefix(4).enumerated() {
-                let albumID = albumPersistentID(forTrack: trackID)
-                if let albumID {
-                    result[i] = LibraryService.shared.getArtworkImage(
-                        forAlbum: albumID,
-                        size: CGSize(width: 400, height: 400)
-                    )
-                }
-            }
-            // Repeat covers to fill if fewer than 4 unique albums, per spec §7.8.
-            let available = result.compactMap { $0 }
-            if !available.isEmpty {
-                for i in 0..<4 where result[i] == nil {
-                    result[i] = available[i % available.count]
-                }
-            }
-            return result
+        // Resolve track IDs → album IDs in a single detached pass, then
+        // hand off to ArtworkCache so repeat playlist opens hit memory.
+        let albumIDs = await Task.detached(priority: .userInitiated) { () -> [MPMediaEntityPersistentID?] in
+            trackIDs.prefix(4).map { albumPersistentID(forTrack: $0) }
         }.value
-        self.collageArt = art
+
+        var result: [UIImage?] = [nil, nil, nil, nil]
+        for (i, albumID) in albumIDs.enumerated() {
+            guard let albumID else { continue }
+            result[i] = await ArtworkCache.shared.artwork(
+                forAlbum: albumID,
+                size: CGSize(width: 400, height: 400)
+            )
+        }
+        // Repeat covers to fill if fewer than 4 unique albums, per spec §7.8.
+        let available = result.compactMap { $0 }
+        if !available.isEmpty {
+            for i in 0..<4 where result[i] == nil {
+                result[i] = available[i % available.count]
+            }
+        }
+        self.collageArt = result
     }
 }
 

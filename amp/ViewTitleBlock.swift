@@ -24,6 +24,7 @@ struct ViewTitleBlock: View {
                 Text(trailing)
                     .font(.metadata)
                     .foregroundStyle(Color.ampBlack)
+                    .multilineTextAlignment(.trailing)
                     .padding(.trailing, 16)
             }
         }

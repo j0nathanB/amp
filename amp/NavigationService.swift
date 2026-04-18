@@ -13,7 +13,7 @@ final class NavigationService: ObservableObject {
     static let shared = NavigationService()
     private init() {}
 
-    @Published var selectedTab: AmpTab = .queue
+    @Published var selectedTab: AmpTab = .library
 
     @Published var libraryPath = NavigationPath()
     @Published var searchPath = NavigationPath()

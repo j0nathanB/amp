@@ -16,6 +16,24 @@ struct NowPlayingView: View {
     @ObservedObject private var settings = SettingsService.shared
 
     var body: some View {
+        Group {
+            // During the initial queue restore (~500ms on cold launch),
+            // currentTrack is nil and the placeholders flash "—" for
+            // title/artist before real data lands. Show the EqualizerBars
+            // loader until the restore has completed; once it has, either
+            // show the track or a genuine "nothing playing" empty state.
+            if audioPlayer.currentTrack == nil && !audioPlayer.queueInitialLoadCompleted {
+                EqualizerBars()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                nowPlayingContent
+            }
+        }
+        .background(Color.ampWhite)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var nowPlayingContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 VStack(spacing: 12) {
@@ -53,8 +71,6 @@ struct NowPlayingView: View {
                     .frame(height: geo.size.height, alignment: .bottom)
             }
         }
-        .background(Color.ampWhite)
-        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Info strip (§7.6, artist bumped to 75% of title)

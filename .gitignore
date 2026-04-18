@@ -1,0 +1,5 @@
+# Local Claude Code tooling config
+.claude/
+
+# Instruments profiling output
+*.trace/
