@@ -16,9 +16,12 @@ private let overflowBarHeight: CGFloat = 12
 private let overflowBarColorName = "AccentSkyBlue"
 
 struct OverflowGradientBars: ViewModifier {
-    @State private var scrollY: CGFloat = 0
-    @State private var viewportHeight: CGFloat = 0
-    @State private var contentHeight: CGFloat = 0
+    // Single Equatable @State so onScrollGeometryChange only triggers a
+    // re-render when the snapshot actually changes. Writing three separate
+    // @State vars per scroll frame reliably triggered SwiftUI's
+    // "OnScrollGeometryChange Modifier tried to update multiple times per
+    // frame" fault.
+    @State private var snapshot = ScrollSnapshot(offsetY: 0, viewport: 0, content: 0)
 
     func body(content: Content) -> some View {
         ZStack {
@@ -30,9 +33,7 @@ struct OverflowGradientBars: ViewModifier {
                         content: geo.contentSize.height
                     )
                 }, action: { _, snap in
-                    scrollY = snap.offsetY
-                    viewportHeight = snap.viewport
-                    contentHeight = snap.content
+                    snapshot = snap
                 })
 
             VStack(spacing: 0) {
@@ -49,11 +50,11 @@ struct OverflowGradientBars: ViewModifier {
     }
 
     private var showTopBar: Bool {
-        scrollY > 4
+        snapshot.offsetY > 4
     }
 
     private var showBottomBar: Bool {
-        contentHeight > 0 && (scrollY + viewportHeight + 4) < contentHeight
+        snapshot.content > 0 && (snapshot.offsetY + snapshot.viewport + 4) < snapshot.content
     }
 
     private var topBar: some View {

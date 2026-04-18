@@ -23,9 +23,14 @@ private let overflowBarHeight: CGFloat = 12
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
 
-    @State private var scrollY: CGFloat = 0
-    @State private var viewportHeight: CGFloat = 0
-    @State private var contentHeight: CGFloat = 0
+    // Single Equatable @State so onScrollGeometryChange only triggers a
+    // re-render when the snapshot actually changes — avoids SwiftUI's
+    // "OnScrollGeometryChange Modifier tried to update multiple times per
+    // frame" fault.
+    @State private var snapshot = ScrollSnapshot(offsetY: 0, viewport: 0, content: 0)
+    private var scrollY: CGFloat { snapshot.offsetY }
+    private var viewportHeight: CGFloat { snapshot.viewport }
+    private var contentHeight: CGFloat { snapshot.content }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,9 +113,7 @@ struct QueueView: View {
                     content: geo.contentSize.height
                 )
             }, action: { _, snap in
-                scrollY = snap.offsetY
-                viewportHeight = snap.viewport
-                contentHeight = snap.content
+                snapshot = snap
             })
             .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
             .onChange(of: audioPlayer.currentIndex) { _, _ in

@@ -1116,25 +1116,30 @@ class LibraryService {
             ($0, MockLibraryService.shared.getAlbums(forArtist: $0.id).count)
         }
         #else
-        let query = MPMediaQuery()
-        query.groupingType = .albumArtist
-        guard let collections = query.collections else { return [] }
-        // MPMediaQuery occasionally returns multiple collections that resolve
-        // to the same persistent ID (e.g. tracks with no albumArtist set all
-        // land in separate collections but fall back to the same
-        // artistPersistentID). Dedupe by resolved ID after building rows.
-        var seen: Set<MPMediaEntityPersistentID> = []
-        let rows: [(Artist, Int)] = collections.compactMap { collection in
-            guard let rep = collection.representativeItem else { return nil }
-            guard let name = rep.albumArtist ?? rep.artist, !name.isEmpty else { return nil }
-            let id = rep.albumArtistPersistentID != 0 ? rep.albumArtistPersistentID : rep.artistPersistentID
-            guard id != 0 else { return nil }
-            guard seen.insert(id).inserted else { return nil }
-            let artist = Artist(id: id, name: name)
-            let albumCount = Set(collection.items.map { $0.albumPersistentID }).count
-            return (artist, albumCount)
+        // Previous impl ran MPMediaQuery(groupingType: .albumArtist) then
+        // materialized `collection.items` per artist — N+1 access pattern
+        // that cost ~2.4s for 1200 artists on-device (profiled 2026-04-17).
+        // One pass over MPMediaQuery.songs().items gives us every artist's
+        // canonical ID, name, and distinct album set in a single iteration.
+        guard let items = MPMediaQuery.songs().items else { return [] }
+
+        var artistName: [MPMediaEntityPersistentID: String] = [:]
+        var artistAlbums: [MPMediaEntityPersistentID: Set<MPMediaEntityPersistentID>] = [:]
+
+        for item in items {
+            let id = item.albumArtistPersistentID != 0
+                ? item.albumArtistPersistentID
+                : item.artistPersistentID
+            guard id != 0 else { continue }
+            guard let name = item.albumArtist ?? item.artist, !name.isEmpty else { continue }
+            if artistName[id] == nil { artistName[id] = name }
+            artistAlbums[id, default: []].insert(item.albumPersistentID)
         }
-        return rows.sorted { Self.nameOrder($0.0.name, $1.0.name) }
+
+        return artistName.map { (id, name) in
+            (Artist(id: id, name: name), artistAlbums[id]?.count ?? 0)
+        }
+        .sorted { Self.nameOrder($0.0.name, $1.0.name) }
         #endif
     }
 

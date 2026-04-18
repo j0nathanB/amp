@@ -12,15 +12,9 @@ enum LibraryMode { case albums, artists, songs, genres, playlists }
 struct LibraryView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @ObservedObject private var nav = NavigationService.shared
+    @ObservedObject private var store = LibraryStore.shared
 
     @State private var mode: LibraryMode = .albums
-    @State private var albums: [Album] = []
-    @State private var artists: [Artist] = []
-    @State private var songs: [Song] = []
-    @State private var genres: [String] = []
-    @State private var playlists: [Playlist] = []
-    @State private var artistAlbumCounts: [MPMediaEntityPersistentID: Int] = [:]
-    @State private var isLoaded = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,10 +26,18 @@ struct LibraryView: View {
         }
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            guard !isLoaded else { return }
-            await loadData()
-            isLoaded = true
+        .task(id: mode) {
+            await loadForMode(mode)
+        }
+    }
+
+    private func loadForMode(_ mode: LibraryMode) async {
+        switch mode {
+        case .albums: await store.ensureAlbums()
+        case .artists: await store.ensureArtists()
+        case .songs: await store.ensureSongs()
+        case .genres: await store.ensureGenres()
+        case .playlists: await store.ensurePlaylists()
         }
     }
 
@@ -104,72 +106,72 @@ struct LibraryView: View {
     }
 
     private var albumsGrid: some View {
-        Group {
-            if albums.isEmpty {
-                emptyState("No music found.")
-            } else {
-                AlbumsScrubbableGrid(albums: albums)
-            }
+        tabContent(state: store.albumsState, isEmpty: store.albums.isEmpty, emptyText: "No music found.") {
+            AlbumsScrubbableGrid(sections: store.albumSections)
         }
     }
 
-    // List gives us iOS-native row virtualization with stable sizing (and the
-    // hook for §8.5's alphabetic scrubber later). Default list chrome is
-    // suppressed so the rows render exactly as the brutalist row primitives
-    // define them.
     private var artistsList: some View {
-        Group {
-            if artists.isEmpty {
-                emptyState("No music found.")
-            } else {
-                ArtistsScrubbableList(
-                    artists: artists,
-                    albumCounts: artistAlbumCounts
-                )
-            }
+        tabContent(state: store.artistsState, isEmpty: store.artists.isEmpty, emptyText: "No music found.") {
+            ArtistsScrubbableList(
+                sections: store.artistSections,
+                albumCounts: store.artistAlbumCounts
+            )
         }
     }
 
     private var songsList: some View {
-        Group {
-            if songs.isEmpty {
-                emptyState("No music found.")
-            } else {
-                SongsScrubbableList(songs: songs) { index in
-                    let ids = songs.map { $0.persistentID }
-                    audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
-                }
+        tabContent(state: store.songsState, isEmpty: store.songs.isEmpty, emptyText: "No music found.") {
+            SongsScrubbableList(sections: store.songSections) { song in
+                let ids = store.songs.map { $0.persistentID }
+                guard let index = ids.firstIndex(of: song.persistentID) else { return }
+                audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
             }
         }
     }
 
     private var genresList: some View {
-        Group {
-            if genres.isEmpty {
-                emptyState("No genres found.")
-            } else {
-                GenresScrubbableList(genres: genres)
-            }
+        tabContent(state: store.genresState, isEmpty: store.genres.isEmpty, emptyText: "No genres found.") {
+            GenresScrubbableList(sections: store.genreSections)
         }
     }
 
     private var playlistsList: some View {
-        Group {
-            if playlists.isEmpty {
-                emptyState("No playlists found.")
-            } else {
-                List(playlists) { playlist in
-                    PlaylistListRow(name: playlist.name) {
-                        nav.push(.playlistDetail(playlist.id))
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.ampWhite)
+        tabContent(state: store.playlistsState, isEmpty: store.playlists.isEmpty, emptyText: "No playlists found.") {
+            List(store.playlists) { playlist in
+                PlaylistListRow(name: playlist.name) {
+                    nav.push(.playlistDetail(playlist.id))
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color.ampWhite)
-                .overflowGradientBars()
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.ampWhite)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.ampWhite)
+            .overflowGradientBars()
+        }
+    }
+
+    // Distinguish "still loading" from "loaded but empty" so the brief
+    // background-load window doesn't flash the misleading "No music found"
+    // message. Shows a ProgressView during load.
+    @ViewBuilder
+    private func tabContent<Content: View>(
+        state: LibraryStore.LoadState,
+        isEmpty: Bool,
+        emptyText: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        switch state {
+        case .idle, .loading:
+            EqualizerBars()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loaded:
+            if isEmpty {
+                emptyState(emptyText)
+            } else {
+                content()
             }
         }
     }
@@ -182,32 +184,6 @@ struct LibraryView: View {
             .padding(.top, 80)
     }
 
-    // MARK: - Data loading
-
-    private func loadData() async {
-        let loaded = await Task.detached(priority: .userInitiated) {
-            let albums = LibraryService.shared.getAllAlbums()
-            let artistRows = LibraryService.shared.getAllArtistsWithAlbumCounts()
-            let songs = LibraryService.shared.getAllSongs()
-            let playlists = LibraryService.shared.getPlaylists()
-
-            let artists = artistRows.map { $0.artist }
-            var counts: [MPMediaEntityPersistentID: Int] = [:]
-            for row in artistRows {
-                counts[row.artist.id] = row.albumCount
-            }
-            return (albums, artists, songs, playlists, counts)
-        }.value
-
-        self.albums = loaded.0
-        self.artists = loaded.1
-        self.songs = loaded.2
-        self.playlists = loaded.3
-        self.artistAlbumCounts = loaded.4
-
-        self.genres = await LibraryService.shared.getAllGenres()
-            .sorted(by: LibraryService.nameOrder)
-    }
 }
 
 // MARK: - Private components
@@ -218,7 +194,7 @@ struct LibraryView: View {
 // Reused by GenreDetailView.
 
 struct ArtistsScrubbableList: View {
-    let artists: [Artist]
+    let sections: [LetterSection<Artist>]
     let albumCounts: [MPMediaEntityPersistentID: Int]
 
     @ObservedObject private var nav = NavigationService.shared
@@ -226,45 +202,39 @@ struct ArtistsScrubbableList: View {
     @State private var draggedLetter: String?
     @State private var indicatorDismissTask: Task<Void, Never>?
 
-    private var sections: [(letter: String, artists: [Artist])] {
-        let grouped = Dictionary(grouping: artists) { AlphabetSectioning.key(for: $0.name) }
-        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
-            (letter: letter, artists: grouped[letter] ?? [])
-        }
-    }
-
     var body: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
-                List {
-                    ForEach(sections, id: \.letter) { section in
-                        Section {
-                            ForEach(section.artists) { artist in
-                                ArtistRow(
-                                    name: artist.name,
-                                    albumCount: albumCounts[artist.id] ?? 0
-                                ) {
-                                    nav.push(.artistDetail(artist.id))
+                // ScrollView+LazyVStack instead of List: List eagerly builds
+                // an identity map over every row on first display, which
+                // stalled the main thread for ~1s when 1400+ artists arrived
+                // in one @Published update (profiled 2026-04-17). LazyVStack
+                // only materializes rows that enter the viewport.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        ForEach(sections) { section in
+                            Section {
+                                ForEach(section.items) { artist in
+                                    ArtistRow(
+                                        name: artist.name,
+                                        albumCount: albumCounts[artist.id] ?? 0
+                                    ) {
+                                        nav.push(.artistDetail(artist.id))
+                                    }
                                 }
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.ampWhite)
+                            } header: {
+                                Text(section.letter)
+                                    .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
+                                    .foregroundStyle(Color.ampMutedText)
+                                    .padding(.leading, 24)
+                                    .padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.ampWhite)
                             }
-                        } header: {
-                            Text(section.letter)
-                                .font(.custom("AtkinsonHyperlegibleMono-Bold", size: 14))
-                                .foregroundStyle(Color.ampMutedText)
-                                .padding(.leading, 24)
-                                .padding(.vertical, 4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.ampWhite)
-                                .listRowInsets(EdgeInsets())
+                            .id(section.letter)
                         }
-                        .id(section.letter)
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
                 .background(Color.ampWhite)
                 .overflowGradientBars()
 
@@ -309,58 +279,49 @@ struct ArtistsScrubbableList: View {
 // (GenreDetail).
 
 struct SongsScrubbableList: View {
-    let songs: [Song]
-    let onPlay: (Int) -> Void
+    // Sections are pre-sorted + pre-grouped upstream (LibraryStore /
+    // GenreDetailView). The callback receives the tapped Song so callers
+    // decide how to map back to a queue position — avoids passing the
+    // full songs array through just for index accounting.
+    let sections: [LetterSection<Song>]
+    let onPlay: (Song) -> Void
 
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @State private var draggedLetter: String?
     @State private var indicatorDismissTask: Task<Void, Never>?
 
-    // Pre-sorted and flattened with original indices so the tap callback
-    // still plays from the same queue position the list displays.
-    private var sortedSongs: [(originalIndex: Int, song: Song)] {
-        songs.enumerated()
-            .map { ($0.offset, $0.element) }
-            .sorted { LibraryService.nameOrder($0.song.title, $1.song.title) }
-    }
-
-    private var sections: [(letter: String, items: [(originalIndex: Int, song: Song)])] {
-        let grouped = Dictionary(grouping: sortedSongs) { AlphabetSectioning.key(for: $0.song.title) }
-        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
-            (letter: letter, items: grouped[letter] ?? [])
-        }
-    }
-
     var body: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
-                List {
-                    ForEach(sections, id: \.letter) { section in
-                        Section {
-                            ForEach(section.items, id: \.originalIndex) { entry in
-                                SongResultRow(
-                                    title: entry.song.title,
-                                    artist: entry.song.artist,
-                                    album: entry.song.album,
-                                    duration: "",
-                                    isCurrent: audioPlayer.currentTrack?.persistentID == entry.song.persistentID,
-                                    onTap: { onPlay(entry.originalIndex) },
-                                    onLongPress: {
-                                        NavigationService.shared.navigateToAlbum(forTrack: entry.song.persistentID)
-                                    }
-                                )
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.ampWhite)
+                // ScrollView+LazyVStack instead of List for the same reason
+                // as ArtistsScrubbableList: List builds its identity map
+                // eagerly on first display, and the 23k songs made the tab
+                // take seconds to appear. LazyVStack materializes only the
+                // rows entering the viewport.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        ForEach(sections) { section in
+                            Section {
+                                ForEach(section.items) { song in
+                                    SongResultRow(
+                                        title: song.title,
+                                        artist: song.artist,
+                                        album: song.album,
+                                        duration: "",
+                                        isCurrent: audioPlayer.currentTrack?.persistentID == song.persistentID,
+                                        onTap: { onPlay(song) },
+                                        onLongPress: {
+                                            NavigationService.shared.navigateToAlbum(forTrack: song.persistentID)
+                                        }
+                                    )
+                                }
+                            } header: {
+                                sectionHeader(section.letter)
                             }
-                        } header: {
-                            sectionHeader(section.letter)
+                            .id(section.letter)
                         }
-                        .id(section.letter)
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
                 .background(Color.ampWhite)
                 .overflowGradientBars()
 
@@ -400,32 +361,24 @@ struct SongsScrubbableList: View {
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.ampWhite)
-            .listRowInsets(EdgeInsets())
     }
 }
 
 // Genres list with the same alphabet-scrubber pattern as Artists / Songs.
 
 private struct GenresScrubbableList: View {
-    let genres: [String]
+    let sections: [LetterSection<String>]
 
     @ObservedObject private var nav = NavigationService.shared
 
     @State private var draggedLetter: String?
     @State private var indicatorDismissTask: Task<Void, Never>?
 
-    private var sections: [(letter: String, items: [String])] {
-        let grouped = Dictionary(grouping: genres) { AlphabetSectioning.key(for: $0) }
-        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
-            (letter: letter, items: (grouped[letter] ?? []).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending })
-        }
-    }
-
     var body: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 List {
-                    ForEach(sections, id: \.letter) { section in
+                    ForEach(sections) { section in
                         Section {
                             ForEach(section.items, id: \.self) { genre in
                                 PlaylistListRow(name: genre) {
@@ -490,26 +443,19 @@ private struct GenresScrubbableList: View {
 // Reused by GenreDetailView.
 
 struct AlbumsScrubbableGrid: View {
-    let albums: [Album]
+    let sections: [LetterSection<Album>]
 
     @ObservedObject private var nav = NavigationService.shared
 
     @State private var draggedLetter: String?
     @State private var indicatorDismissTask: Task<Void, Never>?
 
-    private var sections: [(letter: String, albums: [Album])] {
-        let grouped = Dictionary(grouping: albums) { AlphabetSectioning.key(for: $0.title) }
-        return AlphabetSectioning.sortedKeys(grouped.keys).map { letter in
-            (letter: letter, albums: grouped[letter] ?? [])
-        }
-    }
-
     var body: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .trailing) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(sections, id: \.letter) { section in
+                        ForEach(sections) { section in
                             sectionHeader(section.letter)
                                 .id(section.letter)
 
@@ -520,7 +466,7 @@ struct AlbumsScrubbableGrid: View {
                                 ],
                                 spacing: 24
                             ) {
-                                ForEach(section.albums) { album in
+                                ForEach(section.items) { album in
                                     AlbumGridCell(album: album) {
                                         nav.push(.albumDetail(album.id))
                                     }
@@ -638,14 +584,14 @@ private struct AlbumGridCell: View {
     }
 
     private func loadArtwork() async {
-        let id = album.id
-        let image = await Task.detached(priority: .userInitiated) {
-            LibraryService.shared.getArtworkImage(
-                forAlbum: id,
-                size: CGSize(width: 300, height: 300)
-            )
-        }.value
-        self.artwork = image
+        // 300pt is not arbitrary: MPMediaItemArtwork appears to cache
+        // thumbnails at a handful of stock sizes, and 300pt hits one
+        // while 200pt forces on-the-fly downscaling from the master
+        // (profiled on-device: 200pt → ~580ms, 300pt → ~200ms).
+        self.artwork = await ArtworkCache.shared.artwork(
+            forAlbum: album.id,
+            size: CGSize(width: 300, height: 300)
+        )
     }
 }
 

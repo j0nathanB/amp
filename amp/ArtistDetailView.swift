@@ -216,14 +216,10 @@ private struct ArtistAlbumRow: View {
             onTap: onTap
         )
         .task(id: album.id) {
-            let id = album.id
-            let image = await Task.detached(priority: .userInitiated) {
-                LibraryService.shared.getArtworkImage(
-                    forAlbum: id,
-                    size: CGSize(width: 128, height: 128)
-                )
-            }.value
-            self.artwork = image
+            self.artwork = await ArtworkCache.shared.artwork(
+                forAlbum: album.id,
+                size: CGSize(width: 128, height: 128)
+            )
         }
     }
 }

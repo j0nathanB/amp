@@ -22,6 +22,9 @@ struct GenreDetailView: View {
     @State private var albums: [Album] = []
     @State private var artists: [Artist] = []
     @State private var artistAlbumCounts: [MPMediaEntityPersistentID: Int] = [:]
+    @State private var songSections: [LetterSection<Song>] = []
+    @State private var albumSections: [LetterSection<Album>] = []
+    @State private var artistSections: [LetterSection<Artist>] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,7 +117,7 @@ struct GenreDetailView: View {
         if albums.isEmpty {
             emptyState("No albums in this genre.")
         } else {
-            AlbumsScrubbableGrid(albums: albums)
+            AlbumsScrubbableGrid(sections: albumSections)
         }
     }
 
@@ -123,7 +126,7 @@ struct GenreDetailView: View {
         if artists.isEmpty {
             emptyState("No artists in this genre.")
         } else {
-            ArtistsScrubbableList(artists: artists, albumCounts: artistAlbumCounts)
+            ArtistsScrubbableList(sections: artistSections, albumCounts: artistAlbumCounts)
         }
     }
 
@@ -132,8 +135,8 @@ struct GenreDetailView: View {
         if songs.isEmpty {
             emptyState("No songs in this genre.")
         } else {
-            SongsScrubbableList(songs: songs) { index in
-                playFromIndex(index)
+            SongsScrubbableList(sections: songSections) { song in
+                playFromSong(song)
             }
         }
     }
@@ -164,14 +167,13 @@ struct GenreDetailView: View {
         audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0, navigateToNowPlaying: false)
     }
 
-    private func playFromIndex(_ index: Int) {
-        guard index >= 0, index < songs.count else { return }
-        let tappedID = songs[index].persistentID
-        if audioPlayer.currentTrack?.persistentID == tappedID {
+    private func playFromSong(_ song: Song) {
+        if audioPlayer.currentTrack?.persistentID == song.persistentID {
             audioPlayer.playPause()
             return
         }
         let ids = songs.map { $0.persistentID }
+        guard let index = ids.firstIndex(of: song.persistentID) else { return }
         audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index, navigateToNowPlaying: false)
     }
 
@@ -184,8 +186,6 @@ struct GenreDetailView: View {
     private func loadData() async {
         let captured = genre
         let loaded = await Task.detached(priority: .userInitiated) {
-            () -> (songs: [Song], albums: [Album], artists: [Artist], artistAlbumCounts: [MPMediaEntityPersistentID: Int]) in
-
             let predicate = MPMediaPropertyPredicate(
                 value: captured,
                 forProperty: MPMediaItemPropertyGenre,
@@ -229,12 +229,19 @@ struct GenreDetailView: View {
             let sortedArtists = Array(artistMap.values).sorted { LibraryService.nameOrder($0.name, $1.name) }
             let counts = artistAlbums.mapValues { $0.count }
 
-            return (sortedSongs, sortedAlbums, sortedArtists, counts)
+            let songSections = LetterSection.bucket(sortedSongs) { $0.title }
+            let albumSections = LetterSection.bucket(sortedAlbums) { $0.title }
+            let artistSections = LetterSection.bucket(sortedArtists) { $0.name }
+
+            return (sortedSongs, sortedAlbums, sortedArtists, counts, songSections, albumSections, artistSections)
         }.value
 
-        self.songs = loaded.songs
-        self.albums = loaded.albums
-        self.artists = loaded.artists
-        self.artistAlbumCounts = loaded.artistAlbumCounts
+        self.songs = loaded.0
+        self.albums = loaded.1
+        self.artists = loaded.2
+        self.artistAlbumCounts = loaded.3
+        self.songSections = loaded.4
+        self.albumSections = loaded.5
+        self.artistSections = loaded.6
     }
 }
