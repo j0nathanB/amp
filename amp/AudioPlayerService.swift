@@ -61,6 +61,51 @@ class AudioPlayerService: ObservableObject {
 
         // Load song loop state
         isLoopingSong = UserDefaults.standard.bool(forKey: "songLoopEnabled")
+
+        // Eager current-track restoration.
+        //
+        // Reads a ~500-byte sidecar file synchronously, opens the AVAudioFile
+        // with the cached asset URL (bypassing MPMediaQuery), and applies the
+        // track to QueueManager — all before the full queue restore fires via
+        // QueueManager.loadQueueOnce. Net effect: play button works within
+        // ~30-50ms of cold launch instead of waiting for the full queue
+        // pipeline (disk decode + song batch-fetch + mutate + delegate +
+        // AVAudioFile open).
+        //
+        // Order matters: must run AFTER queueManager.init() (so the instance
+        // exists and Task { await loadQueueOnce() } has been scheduled) but
+        // BEFORE that task actually executes on the runloop. Sync file read +
+        // sync PlaybackEngine.loadWithURL satisfies this — both complete
+        // before the awaiting queue-restore task gets a turn.
+        //
+        // Failure modes (all one-line-logged so device testing can grep for
+        // the hit-vs-miss ratio):
+        //   - no snapshot file (fresh install / first launch) → normal flow
+        //   - snapshot decode fails → normal flow (file self-heals on next save)
+        //   - AVAudioFile open fails (stale URL from library edit, or iCloud
+        //     Music Library item that isn't locally downloaded) → don't apply
+        //     snapshot to QueueManager, let normal restore handle it
+        //
+        // Watch the hit rate on device. If <~70% on typical libraries, the
+        // assetURL is probably stale too often (cloud-heavy libraries, iTunes
+        // Match) and the eager path's complexity cost isn't paid back. Mitigation
+        // would be storing a per-track mtime/checksum alongside the URL — but
+        // don't add that unless the ratio data says so.
+        if let snapshot = CurrentTrackSnapshot.loadFromDisk() {
+            let audioReady = playbackEngine.loadWithURL(
+                song: snapshot.song,
+                url: snapshot.assetURL,
+                seekTo: snapshot.playbackPosition
+            )
+            if audioReady {
+                queueManager.applyEagerTrackSnapshot(snapshot)
+                print("[PERF] eager.hit track=\(snapshot.song.title)")
+            } else {
+                print("[PERF] eager.miss reason=av-file-open-failed track=\(snapshot.song.title)")
+            }
+        } else {
+            print("[PERF] eager.miss reason=no-valid-snapshot")
+        }
     }
     
     private func setupBindings() {

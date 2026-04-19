@@ -313,6 +313,69 @@ class PlaybackEngineService: NSObject, ObservableObject {
         updateNowPlayingInfo(for: song)
     }
 
+    // Cold-launch fast path. Opens AVAudioFile directly with a pre-known
+    // URL (from CurrentTrackSnapshot), bypassing the MPMediaQuery that
+    // loadWithoutPlaying does. Returns false if the file open fails — the
+    // caller uses that signal to skip applying the snapshot to the queue
+    // manager, letting the normal restore path handle it.
+    //
+    // Only intended to be called once at init, before any playback state
+    // exists. Post-init code paths should go through play() / loadWithoutPlaying().
+    @discardableResult
+    func loadWithURL(song: Song, url: URL, seekTo: TimeInterval = 0) -> Bool {
+        ensureAudioSessionConfigured()
+        ensureEngineRunning()
+
+        do {
+            let audioFile = try AVAudioFile(forReading: url)
+            file = audioFile
+
+            let sampleRate = audioFile.processingFormat.sampleRate
+            let totalFrames = audioFile.length
+            songDuration = Double(totalFrames) / sampleRate
+
+            let clampedStart = max(0, min(songDuration, seekTo))
+            let startFrame = AVAudioFramePosition(clampedStart * sampleRate)
+            let framesRemaining = AVAudioFrameCount(max(0, totalFrames - startFrame))
+
+            guard framesRemaining > 0 else {
+                print("⚡ Eager load: requested seek past end of track — discarding")
+                file = nil
+                return false
+            }
+
+            playerNode.stop()
+            segmentStartOffset = clampedStart
+            playbackTime = clampedStart
+            pausedAt = clampedStart
+
+            let myToken = UUID()
+            currentScheduleToken = myToken
+
+            playerNode.scheduleSegment(
+                audioFile,
+                startingFrame: startFrame,
+                frameCount: framesRemaining,
+                at: nil,
+                completionCallbackType: .dataPlayedBack
+            ) { [weak self] _ in
+                self?.handleScheduleCompletion(token: myToken)
+            }
+
+            isPlaying = false
+            lastPlayedSong = song
+            updateNowPlayingInfo(for: song)
+            print(String(format: "⚡ Eager load: ready — %@ at %.3fs", song.title, clampedStart))
+            return true
+        } catch {
+            // Stale URL (track deleted from library) or other open failure.
+            // Don't propagate an error state — caller falls through to the
+            // normal queue-restore path.
+            print("⚡ Eager load: AVAudioFile open failed for \(song.title) — \(error). Falling through.")
+            return false
+        }
+    }
+
     // MARK: - Scheduling
 
     // Central scheduling routine. Opens the file (if URL differs or no

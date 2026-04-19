@@ -38,8 +38,7 @@ struct AlbumArtView: View {
             isFlipped = false
         }
         .task(id: song?.persistentID) {
-            await loadArtwork()
-            await loadAlbumArtist()
+            await loadMetadata()
         }
         .accessibilityElement()
         .accessibilityLabel(isFlipped ? "Album details" : "Album artwork")
@@ -176,31 +175,20 @@ struct AlbumArtView: View {
 
     // MARK: - Loading
 
-    private func loadArtwork() async {
+    // One MPMediaQuery by track ID returns both the albumPersistentID and
+    // the albumArtist; artwork then goes through ArtworkCache keyed by
+    // albumID, so skipping to another track on the same album (or viewing
+    // the same album next session, via the disk thumbnail cache) is a hit.
+    // Replaces an older split-loader that ran two identical queries.
+    private func loadMetadata() async {
         guard let song else {
             artwork = nil
-            return
-        }
-        let id = song.persistentID
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            let predicate = MPMediaPropertyPredicate(
-                value: NSNumber(value: id),
-                forProperty: MPMediaItemPropertyPersistentID
-            )
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(predicate)
-            return query.items?.first?.artwork?.image(at: CGSize(width: 800, height: 800))
-        }.value
-        self.artwork = image
-    }
-
-    private func loadAlbumArtist() async {
-        guard let song else {
             albumArtist = nil
             return
         }
         let id = song.persistentID
-        let name = await Task.detached(priority: .userInitiated) { () -> String? in
+
+        let result = await Task.detached(priority: .userInitiated) { () -> (albumID: MPMediaEntityPersistentID, albumArtist: String?)? in
             let predicate = MPMediaPropertyPredicate(
                 value: NSNumber(value: id),
                 forProperty: MPMediaItemPropertyPersistentID
@@ -208,9 +196,19 @@ struct AlbumArtView: View {
             let query = MPMediaQuery.songs()
             query.addFilterPredicate(predicate)
             guard let item = query.items?.first else { return nil }
-            return item.albumArtist ?? item.artist
+            return (item.albumPersistentID, item.albumArtist ?? item.artist)
         }.value
-        self.albumArtist = name
+
+        albumArtist = result?.albumArtist
+
+        if let albumID = result?.albumID {
+            artwork = await ArtworkCache.shared.artwork(
+                forAlbum: albumID,
+                size: CGSize(width: 800, height: 800)
+            )
+        } else {
+            artwork = nil
+        }
     }
 }
 

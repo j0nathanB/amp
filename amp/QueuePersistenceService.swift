@@ -4,30 +4,48 @@ import CryptoKit
 
 class QueuePersistenceService {
     static let shared = QueuePersistenceService()
-    
+
     // MARK: - Properties
-    
+
     private let fileManager = FileManager.default
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
-    
-    // Storage locations
+
+    // Storage locations.
+    //
+    // Primary format is binary PropertyList — replaces JSON to cut
+    // cold-launch queue-restore from ~489ms to single-digit ms on large
+    // libraries (two UInt64 arrays of up to 23k each dominate the decode
+    // cost; binary plist reads them near-memcpy-speed vs. JSON's char-by-
+    // char number parsing).
+    //
+    // Legacy JSON URLs remain as read-only fallbacks for users upgrading
+    // from the old format. After a successful plist save, the sibling
+    // .json file is removed (see performSave). History has no legacy
+    // fallback — losing one rotation on upgrade is acceptable.
     private var cacheURL: URL? {
+        fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("queue_cache.plist")
+    }
+
+    private var legacyCacheURL: URL? {
         fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("queue_cache.json")
     }
-    
+
     private var backupDirectory: URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("QueueData")
     }
-    
+
     private var backupURL: URL? {
+        backupDirectory?.appendingPathComponent("queue_backup.plist")
+    }
+
+    private var legacyBackupURL: URL? {
         backupDirectory?.appendingPathComponent("queue_backup.json")
     }
-    
+
     private var historyURL: URL? {
-        backupDirectory?.appendingPathComponent("queue_history.json")
+        backupDirectory?.appendingPathComponent("queue_history.plist")
     }
     
     // Debouncing properties
@@ -46,16 +64,12 @@ class QueuePersistenceService {
     // MARK: - Initialization
     
     private init() {
-        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
-        encoder.dateEncodingStrategy = .iso8601
-        decoder.dateDecodingStrategy = .iso8601
-        
         // Create directories if needed
         createDirectoriesIfNeeded()
-        
+
         // Clean up orphaned temp files on launch
         cleanupTempFiles()
-        
+
         print("[QUEUE-PERSIST] [Init] [\(Date().ISO8601Format())]: Service initialized - Cache: \(cacheURL?.path ?? "nil"), Backup: \(backupURL?.path ?? "nil")")
     }
     
@@ -148,24 +162,40 @@ class QueuePersistenceService {
     
     private func performSave(_ queue: PersistedQueue) async {
         let startTime = Date()
-        
+
         // Always write to cache
         let cacheSuccess = await writeToCache(queue)
-        
+
+        // After a successful plist save, remove the sibling legacy JSON if
+        // it still exists. Fire-and-forget; `removeItem` on a nonexistent
+        // file is a silent no-op so there's no gate needed.
+        if cacheSuccess, let legacy = legacyCacheURL {
+            Task.detached(priority: .background) { [fileManager] in
+                try? fileManager.removeItem(at: legacy)
+            }
+        }
+
         // Determine if we should also write to backup
         let shouldBackup = changeCount >= backupChangeThreshold ||
                           Date().timeIntervalSince(lastBackupTime) >= backupInterval
-        
+
         if shouldBackup {
             let backupSuccess = await writeToBackup(queue)
             if backupSuccess {
                 changeCount = 0
                 lastBackupTime = Date()
-                
+
+                // Clean up legacy backup JSON for the same reason.
+                if let legacy = legacyBackupURL {
+                    Task.detached(priority: .background) { [fileManager] in
+                        try? fileManager.removeItem(at: legacy)
+                    }
+                }
+
                 // Also update history
                 await updateHistory(queue)
             }
-            
+
             let saveTime = Date().timeIntervalSince(startTime) * 1000
             print("[QUEUE-PERSIST] [Save] [\(Date().ISO8601Format())]: Saved to cache: \(cacheSuccess), backup: \(backupSuccess) - \(queue.trackIDs.count) tracks in \(Int(saveTime))ms")
         } else {
@@ -187,33 +217,33 @@ class QueuePersistenceService {
     private func writeToFile(_ queue: PersistedQueue, at url: URL, description: String) async -> Bool {
         return await Task.detached(priority: .background) {
             do {
-                let data = try self.encoder.encode(queue)
+                let data = try QueueBinaryCoder.encode(queue)
                 let tempURL = url.appendingPathExtension("tmp")
-                
-                // Write to temp file first
+
+                // Write to temp file first (atomic at filesystem level)
                 try data.write(to: tempURL, options: .atomic)
-                
-                // Verify written data
+
+                // Verify: read back and decode
                 let verifyData = try Data(contentsOf: tempURL)
-                let verified = try self.decoder.decode(PersistedQueue.self, from: verifyData)
-                
+                let verified = try QueueBinaryCoder.decode(verifyData)
+
                 guard self.validateChecksum(verified) else {
                     try? self.fileManager.removeItem(at: tempURL)
                     print("[QUEUE-PERSIST] [Write] [\(Date().ISO8601Format())]: Failed to verify \(description) - checksum mismatch")
                     return false
                 }
-                
+
                 // Atomically replace the real file
                 if self.fileManager.fileExists(atPath: url.path) {
                     _ = try self.fileManager.replaceItem(at: url, withItemAt: tempURL, backupItemName: nil, resultingItemURL: nil)
                 } else {
                     try self.fileManager.moveItem(at: tempURL, to: url)
                 }
-                
+
                 let fileSize = (try? self.fileManager.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
                 print("[QUEUE-PERSIST] [Write] [\(Date().ISO8601Format())]: Successfully wrote \(description) - \(fileSize) bytes")
                 return true
-                
+
             } catch {
                 print("[QUEUE-PERSIST] [Write] [\(Date().ISO8601Format())]: Failed to write \(description) - \(error.localizedDescription)")
                 return false
@@ -223,26 +253,43 @@ class QueuePersistenceService {
     
     private func loadFromCache() async -> PersistedQueue? {
         guard let url = cacheURL else { return nil }
-        return await loadFromFile(at: url, description: "cache")
+        return await loadFromFile(plistURL: url, legacyJSONURL: legacyCacheURL, description: "cache")
     }
-    
+
     private func loadFromBackup() async -> PersistedQueue? {
         guard let url = backupURL else { return nil }
-        return await loadFromFile(at: url, description: "backup")
+        return await loadFromFile(plistURL: url, legacyJSONURL: legacyBackupURL, description: "backup")
     }
-    
-    private func loadFromFile(at url: URL, description: String) async -> PersistedQueue? {
+
+    // Tries the new binary plist first, falls back to reading the legacy
+    // JSON file for users upgrading. A successful legacy read is not
+    // migrated inline — the next saveQueue writes the new format and
+    // deletes the legacy sibling (see performSave).
+    private func loadFromFile(plistURL: URL, legacyJSONURL: URL?, description: String) async -> PersistedQueue? {
         return await Task.detached(priority: .userInitiated) {
-            do {
-                let data = try Data(contentsOf: url)
-                let queue = try self.decoder.decode(PersistedQueue.self, from: data)
-                let fileSize = data.count
-                print("[QUEUE-PERSIST] [Read] [\(Date().ISO8601Format())]: Successfully read \(description) - \(fileSize) bytes, \(queue.trackIDs.count) tracks")
-                return queue
-            } catch {
-                print("[QUEUE-PERSIST] [Read] [\(Date().ISO8601Format())]: Failed to read \(description) - \(error.localizedDescription)")
-                return nil
+            // Fast path: binary plist.
+            if let data = try? Data(contentsOf: plistURL) {
+                do {
+                    let queue = try QueueBinaryCoder.decode(data)
+                    print("[QUEUE-PERSIST] [Read] [\(Date().ISO8601Format())]: Successfully read \(description) plist - \(data.count) bytes, \(queue.trackIDs.count) tracks")
+                    return queue
+                } catch {
+                    print("[QUEUE-PERSIST] [Read] [\(Date().ISO8601Format())]: Plist decode failed for \(description) - \(error.localizedDescription); trying legacy")
+                }
             }
+
+            // Legacy path: JSON from an earlier version of the app.
+            if let legacyURL = legacyJSONURL, let data = try? Data(contentsOf: legacyURL) {
+                do {
+                    let queue = try QueueBinaryCoder.decodeLegacyJSON(data)
+                    print("[QUEUE-PERSIST] [Read] [\(Date().ISO8601Format())]: Read \(description) legacy JSON - \(queue.trackIDs.count) tracks (will migrate on next save)")
+                    return queue
+                } catch {
+                    print("[QUEUE-PERSIST] [Read] [\(Date().ISO8601Format())]: Legacy JSON decode failed for \(description) - \(error.localizedDescription)")
+                }
+            }
+
+            return nil
         }.value
     }
     
@@ -283,26 +330,27 @@ class QueuePersistenceService {
     
     private func updateHistory(_ queue: PersistedQueue) async {
         guard let url = historyURL else { return }
-        
+
         await Task.detached(priority: .background) {
             var history: [PersistedQueue] = []
-            
-            // Load existing history
+
+            // Load existing history (plist only — no JSON fallback here;
+            // losing one rotation on upgrade is acceptable).
             if let data = try? Data(contentsOf: url),
-               let existingHistory = try? self.decoder.decode([PersistedQueue].self, from: data) {
+               let existingHistory = try? QueueBinaryCoder.decodeHistory(data) {
                 history = existingHistory
             }
-            
+
             // Add new entry at beginning
             history.insert(queue, at: 0)
-            
+
             // Keep only last N entries
             if history.count > self.maxHistoryCount {
                 history = Array(history.prefix(self.maxHistoryCount))
             }
-            
-            // Save updated history
-            if let data = try? self.encoder.encode(history) {
+
+            // Save updated history atomically.
+            if let data = try? QueueBinaryCoder.encodeHistory(history) {
                 try? data.write(to: url, options: .atomic)
                 print("[QUEUE-PERSIST] [History] [\(Date().ISO8601Format())]: Updated history - \(history.count) entries")
             }
@@ -360,6 +408,53 @@ class QueuePersistenceService {
                 // Ignore errors during cleanup
             }
         }
+    }
+}
+
+// MARK: - Binary PropertyList coder
+//
+// Pure encode/decode helpers — no service state, no file I/O. Lives at
+// file scope so tests can round-trip PersistedQueue payloads without
+// spinning up the singleton or touching real disk locations.
+//
+// Binary plist replaces JSON as the primary wire format:
+//   - Two UInt64 arrays of up to ~23k each (trackIDs + originalOrder)
+//     drive the 489ms JSON decode baseline on cold launch. Binary plist
+//     reads integer arrays ~10-50x faster (no char-by-char number parse).
+//   - Date is a native plist type — no .iso8601 strategy needed.
+//
+// decodeLegacyJSON exists solely for upgrade-path reads of cache/backup
+// files written by the pre-plist build. Successful legacy decode is not
+// persisted in place; the next saveQueue rewrites in plist and
+// performSave deletes the legacy sibling.
+enum QueueBinaryCoder {
+    static func encode(_ queue: PersistedQueue) throws -> Data {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        return try encoder.encode(queue)
+    }
+
+    static func decode(_ data: Data) throws -> PersistedQueue {
+        try PropertyListDecoder().decode(PersistedQueue.self, from: data)
+    }
+
+    static func encodeHistory(_ history: [PersistedQueue]) throws -> Data {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        return try encoder.encode(history)
+    }
+
+    static func decodeHistory(_ data: Data) throws -> [PersistedQueue] {
+        try PropertyListDecoder().decode([PersistedQueue].self, from: data)
+    }
+
+    // Legacy-format read path — kept only for one-time upgrade reads.
+    // Once every cache/backup pair has been rewritten in plist, no code
+    // path in the app still calls this at runtime (only tests do).
+    static func decodeLegacyJSON(_ data: Data) throws -> PersistedQueue {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(PersistedQueue.self, from: data)
     }
 }
 

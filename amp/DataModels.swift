@@ -38,7 +38,7 @@ struct Song: Identifiable, Hashable, Codable {
 }
 
 
-struct Artist: Identifiable, Hashable {
+struct Artist: Identifiable, Hashable, Codable {
     let id: MPMediaEntityPersistentID
     let name: String
 
@@ -46,7 +46,7 @@ struct Artist: Identifiable, Hashable {
     static func == (lhs: Artist, rhs: Artist) -> Bool { lhs.name == rhs.name }
 }
 
-struct Album: Identifiable, Hashable {
+struct Album: Identifiable, Hashable, Codable {
     let id: MPMediaEntityPersistentID
     let title: String
     let artist: String
@@ -61,7 +61,7 @@ struct SearchResults {
     var songs: [Song]
 }
 
-struct Playlist: Identifiable {
+struct Playlist: Identifiable, Codable {
     let id: MPMediaEntityPersistentID
     let name: String
 }

@@ -22,11 +22,14 @@ class QueueManagerService: ObservableObject {
             if let old = oldValue, let new = currentTrack {
                 if old.persistentID != new.persistentID {
                     print("🎵 [QueueManager] currentTrack changed: '\(old.title)' → '\(new.title)'")
+                    refreshCurrentTrackSnapshot()
                 }
             } else if let new = currentTrack {
                 print("🎵 [QueueManager] currentTrack set: '\(new.title)'")
+                refreshCurrentTrackSnapshot()
             } else {
                 print("🎵 [QueueManager] currentTrack cleared")
+                CurrentTrackSnapshot.removeFromDisk()
             }
         }
     }
@@ -40,6 +43,26 @@ class QueueManagerService: ObservableObject {
     // Flags to prevent recursive loading
     private var isPerformingOperation = false
     private var hasLoadedInitialQueue = false
+
+    // True iff currentTrack was populated by CurrentTrackSnapshot eager
+    // load and the full queue restore hasn't yet reconciled. When set,
+    // loadQueue's "currentTrack != nil" protection is relaxed — otherwise
+    // eager load would permanently block queue restoration. Cleared by:
+    //   - successful queue restore (reconciled in loadQueue)
+    //   - any user interaction (startPlayback / playTrack / etc.)
+    // If you see loadQueue blocking restoration on an eager track, check
+    // that you're only setting this in applyEagerTrackSnapshot and only
+    // clearing it in the three places above.
+    private var isEagerLoad = false
+
+    // Trailing-edge debouncer for current-track snapshot saves. Rapid
+    // track skips (scrubbing through a queue) otherwise fire N × (MPMedia-
+    // Query + atomic write), all for a snapshot that only matters on next
+    // cold launch. 500ms coalesces a burst into a single write at the
+    // user's resting state. Flushed explicitly on enterBackground /
+    // endSession so a device-lock-mid-burst still persists fresh state.
+    private var snapshotSaveWorkItem: DispatchWorkItem?
+    private static let snapshotSaveDebounce: TimeInterval = 0.5
 
     // Playback position tracking for persistence
     var currentPlaybackPosition: TimeInterval = 0
@@ -80,6 +103,8 @@ class QueueManagerService: ObservableObject {
     // MARK: - Queue Management
     
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
+        // User interaction supersedes any eager-load state.
+        isEagerLoad = false
         // Mark session as active
         sessionState = .active
         hasActiveSession = true
@@ -104,6 +129,7 @@ class QueueManagerService: ObservableObject {
 
     func startPlayback(fromTrackIDs trackIDs: [MPMediaEntityPersistentID],
                        startingAt index: Int) {
+        isEagerLoad = false
         sessionState = .active
         hasActiveSession = true
         sessionStartTime = Date()
@@ -125,6 +151,7 @@ class QueueManagerService: ObservableObject {
     }
     
     func playTrack(at index: Int) -> Song? {
+        isEagerLoad = false
         // Mark session as active
         hasActiveSession = true
         sessionState = .active
@@ -280,13 +307,20 @@ class QueueManagerService: ObservableObject {
         sessionStartTime = nil
         print("[QueueManager] Session ended")
         saveQueue()
+        // Flush any pending debounced snapshot save — the app may be
+        // quitting and we don't want to lose resting-state position.
+        flushPendingSnapshotSave()
     }
-    
+
     func enterBackground() {
         stateBeforeBackground = sessionState
         sessionState = .background
         print("[QueueManager] Entered background - saved previous state: \(stateBeforeBackground?.description ?? "nil")")
         saveQueue()
+        // Same rationale: iOS may terminate a backgrounded app at any
+        // time, so commit the snapshot immediately rather than waiting
+        // for the debounce window.
+        flushPendingSnapshotSave()
     }
     
     func enterForeground() {
@@ -347,6 +381,112 @@ class QueueManagerService: ObservableObject {
             await persistenceService.saveQueue(persisted)
             print("[QueueManager] Queue saved successfully - index: \(persisted.currentIndex ?? -1)")
         }
+
+        // Refresh the current-track snapshot whenever the main queue saves.
+        // Picks up position updates (saveQueue is called on pause, background,
+        // track change, seek, etc.) without adding a separate debouncer.
+        refreshCurrentTrackSnapshot()
+    }
+
+    // Populates currentTrack from a cold-launch CurrentTrackSnapshot so the
+    // Now Playing UI shows something immediately. The full queue restore
+    // runs separately (see loadQueueOnce) and is reconciled in loadQueue.
+    //
+    // Does NOT fire the delegate — AudioPlayerService calls PlaybackEngine
+    // directly at eager-load time since the URL is already known from the
+    // snapshot; routing through currentTrackDidChange would re-query
+    // MediaPlayer and defeat the point.
+    //
+    // Bails on active session — if the user has already started something,
+    // eager load is moot.
+    func applyEagerTrackSnapshot(_ snapshot: CurrentTrackSnapshot) {
+        guard !hasActiveSession else {
+            print("⚡ [QueueManager] Eager snapshot skipped — session already active")
+            return
+        }
+        guard currentTrack == nil else {
+            print("⚡ [QueueManager] Eager snapshot skipped — currentTrack already set")
+            return
+        }
+        isEagerLoad = true
+        currentTrack = snapshot.song
+        restoredPlaybackPosition = snapshot.playbackPosition
+        // Seed currentPlaybackPosition to match the snapshot. Without this,
+        // the debounced snapshot save that fires 500ms after applyEager…
+        // (via currentTrack.didSet → refreshCurrentTrackSnapshot) reads
+        // currentPlaybackPosition=0 (default) and writes position 0,
+        // overwriting the snapshot we just loaded. User opening the app
+        // without interacting would lose their position. playbackTimeDid-
+        // Update will take over once playback actually starts.
+        currentPlaybackPosition = snapshot.playbackPosition
+        print("⚡ [QueueManager] Eager snapshot applied — \(snapshot.song.title) at \(snapshot.playbackPosition)s")
+    }
+
+    // Schedules a debounced snapshot write for the current track. Called
+    // from currentTrack.didSet (track change) and saveQueue (position-
+    // relevant events). Removal (track cleared) is immediate — we don't
+    // want a killed-within-debounce app to resurrect a dismissed track.
+    private func refreshCurrentTrackSnapshot() {
+        guard currentTrack != nil else {
+            // Immediate removal — a pending debounced save would otherwise
+            // race with the removal and re-create the file post-clear.
+            snapshotSaveWorkItem?.cancel()
+            snapshotSaveWorkItem = nil
+            CurrentTrackSnapshot.removeFromDisk()
+            return
+        }
+
+        snapshotSaveWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performSnapshotSave()
+        }
+        snapshotSaveWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.snapshotSaveDebounce,
+            execute: workItem
+        )
+    }
+
+    // Forces any pending debounced snapshot save to run immediately.
+    // Invoked on lifecycle transitions (enterBackground, endSession) where
+    // the app might be terminated before the debounce fires.
+    private func flushPendingSnapshotSave() {
+        guard let item = snapshotSaveWorkItem, !item.isCancelled else { return }
+        item.cancel()
+        snapshotSaveWorkItem = nil
+        performSnapshotSave()
+    }
+
+    // The actual MPMediaQuery + atomic write, off-main via Task.detached.
+    // Captures state at call time so the debounced snapshot reflects the
+    // most recent track, not an earlier one from a skip burst.
+    private func performSnapshotSave() {
+        guard let track = currentTrack else { return }
+        let position = currentPlaybackPosition
+        let index = playbackQueue.currentIndex
+
+        Task.detached(priority: .background) {
+            let predicate = MPMediaPropertyPredicate(
+                value: NSNumber(value: track.persistentID),
+                forProperty: MPMediaItemPropertyPersistentID
+            )
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(predicate)
+            guard let url = query.items?.first?.assetURL else {
+                print("⚡ Snapshot refresh: no assetURL for \(track.title)")
+                return
+            }
+
+            let snapshot = CurrentTrackSnapshot(
+                version: CurrentTrackSnapshot.currentVersion,
+                savedAt: Date(),
+                song: track,
+                assetURL: url,
+                playbackPosition: position,
+                currentIndex: index
+            )
+            CurrentTrackSnapshot.saveToDisk(snapshot)
+        }
     }
     
     private func generateChecksum() -> String {
@@ -370,13 +510,16 @@ class QueueManagerService: ObservableObject {
     
     internal func loadQueue() async {
         // Log entry to loadQueue with current state
-        print("⚠️ [QueueManager] loadQueue() ENTERED - currentTrack: \(currentTrack?.title ?? "nil"), queueSize: \(playbackQueue.count), hasActiveSession: \(hasActiveSession)")
+        print("⚠️ [QueueManager] loadQueue() ENTERED - currentTrack: \(currentTrack?.title ?? "nil"), queueSize: \(playbackQueue.count), hasActiveSession: \(hasActiveSession), isEagerLoad: \(isEagerLoad)")
 
         // CRITICAL SAFETY CHECK: Never load queue if there's ANY sign of active playback
 
-        // Check 1: Never load if we have a current track
-        if currentTrack != nil {
-            print("[QueueManager] 🛡️ PROTECTION 1: Refusing load - current track exists: \(currentTrack?.title ?? "unknown")")
+        // Check 1: Never load if we have a current track — UNLESS that track
+        // came from the eager-load snapshot. Eager state is *expected* to
+        // coexist with a pending queue restore; otherwise the eager
+        // optimization permanently blocks restoration.
+        if currentTrack != nil && !isEagerLoad {
+            print("[QueueManager] 🛡️ PROTECTION 1: Refusing load - current track exists (user-driven): \(currentTrack?.title ?? "unknown")")
             return
         }
 
@@ -416,8 +559,9 @@ class QueueManagerService: ObservableObject {
         // The existing session state and current track protections below are sufficient
         
         // Don't load if we have a current track (active or paused playback)
-        guard currentTrack == nil else {
-            print("[QueueManager] ⛔ BLOCKED: Not loading - track is active: \(currentTrack?.title ?? "unknown")")
+        // — again, eager-load state is exempt.
+        guard currentTrack == nil || isEagerLoad else {
+            print("[QueueManager] ⛔ BLOCKED: Not loading - track is active (user-driven): \(currentTrack?.title ?? "unknown")")
             return
         }
         
@@ -466,10 +610,12 @@ class QueueManagerService: ObservableObject {
             let currentIndex = persisted.currentIndex
             
             await MainActor.run {
-                // CRITICAL FAIL-SAFE: Check state again before mutating queue
-                // State might have changed during the async load operation
-                if self.currentTrack != nil {
-                    print("[QueueManager] 🛡️ FAIL-SAFE 1: State changed during load - currentTrack now exists: \(self.currentTrack!.title)")
+                // CRITICAL FAIL-SAFE: Check state again before mutating queue.
+                // State might have changed during the async load operation —
+                // except "currentTrack from eager snapshot" is expected state
+                // and must NOT trip the fail-safe.
+                if self.currentTrack != nil && !self.isEagerLoad {
+                    print("[QueueManager] 🛡️ FAIL-SAFE 1: State changed during load - currentTrack now exists (user-driven): \(self.currentTrack!.title)")
                     return
                 }
 
@@ -483,26 +629,70 @@ class QueueManagerService: ObservableObject {
                     return
                 }
 
-                // Restore the queue state
+                // Reconcile with eager-load state. Four cases:
+                //   (a) No eager track  → set queue's current index as current track, fire delegate.
+                //   (b) Eager track IS in restored queue, index matches      → keep it, just populate queue.
+                //   (c) Eager track IS in restored queue, index differs      → keep it, align queue index to it.
+                //   (d) Eager track NOT in restored queue (library edit)     → drop eager, use queue's current, fire delegate.
+                let eagerTrack: Song? = self.isEagerLoad ? self.currentTrack : nil
+                let eagerIndexInRestored: Int? = eagerTrack.flatMap { et in
+                    validTrackIDs.firstIndex(of: et.persistentID)
+                }
+
+                // Build the queue. If eager track is in the restored queue,
+                // anchor currentIndex to its position rather than the stored
+                // one (handles the case where the snapshot was written after
+                // the queue file).
+                let anchorIndex = eagerIndexInRestored ?? currentIndex
+
                 playbackQueue = PlaybackQueue()
-                playbackQueue.setTrackIDs(validTrackIDs, startingIndex: currentIndex)
+                playbackQueue.setTrackIDs(validTrackIDs, startingIndex: anchorIndex)
                 playbackQueue.originalOrder = validOriginalOrder
                 playbackQueue.isShuffled = shuffled
 
-                // Update published properties
                 self.isShuffled = shuffled
                 self.isLooped = persisted.isLooped
 
-                // Set current track if we have a valid index
-                if let index = currentIndex,
-                   index < songs.count {
-                    self.currentTrack = songs[index]
-                    // Restore playback position for resume
+                if let eager = eagerTrack, eagerIndexInRestored != nil {
+                    // Cases (b) and (c): keep eager track, queue index aligned.
+                    // Audio is already loaded via the eager path; no delegate call.
+                    print("[QueueManager] ✅ Reconciled eager track with restored queue: \(eager.title) at index \(anchorIndex ?? -1)")
+                    // restoredPlaybackPosition was already set during eager apply.
+                } else if let index = anchorIndex, index < songs.count {
+                    // Case (a) or (d): fall back to the queue's stored current.
+                    // If there was an eager track (case d), we're dropping it
+                    // and switching to the queue's current — fire delegate so
+                    // audio engine picks up the new track.
+                    //
+                    // NOTE on case (d): the usual trigger is a legitimate
+                    // save-race, not a bug. Snapshot writes are 500ms-
+                    // debounced and fast-committed; the main queue save is
+                    // debounced ~1s inside QueuePersistenceService. If the
+                    // app is killed in the gap between those two commits,
+                    // snapshot reflects a newer queue than the persisted
+                    // one, so on next launch the eager track isn't in the
+                    // restored (older) queue. Reconciliation drops eager,
+                    // uses the queue's current — user sees a slightly
+                    // older track but nothing's broken.
+                    //
+                    // The other case (d) trigger — library edit deleting
+                    // the eager track — also takes this path and is also
+                    // handled cleanly. Look at the log pattern across a
+                    // session: a single hit is almost always save-race; a
+                    // repeating pattern might indicate something worse.
+                    let restored = songs[index]
+                    if eagerTrack != nil {
+                        print("[QueueManager] ⓘ Eager track not in restored queue — expected on save-race or library edit. Using queue's current: \(restored.title)")
+                    }
+                    self.currentTrack = restored
                     self.restoredPlaybackPosition = persisted.playbackPosition
-                    // Notify delegate so audio player can prepare the track
-                    self.delegate?.currentTrackDidChange(songs[index])
-                    print("[QueueManager] ✅ Restored current track from persisted queue: \(songs[index].title) at position \(persisted.playbackPosition ?? 0)s")
+                    self.delegate?.currentTrackDidChange(restored)
+                    print("[QueueManager] ✅ Restored current track from persisted queue: \(restored.title) at position \(persisted.playbackPosition ?? 0)s")
                 }
+
+                // Eager state is now reconciled — future loadQueue calls go
+                // back to the strict guards.
+                self.isEagerLoad = false
 
                 // Trigger @Published update by reassigning the struct
                 playbackQueue = playbackQueue
