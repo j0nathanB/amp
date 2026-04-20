@@ -31,6 +31,7 @@ class PlaybackEngineService: NSObject, ObservableObject {
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
     @Published var isBluetoothRouteActive: Bool = false
+    @Published var isWiredRouteActive: Bool = false
     @Published var systemVolume: Float = 1.0
 
     var hasAudioReady: Bool {
@@ -854,32 +855,45 @@ class PlaybackEngineService: NSObject, ObservableObject {
     }
 
     private func handleBluetoothDisconnection() {
-        print("🎧 Handling Bluetooth disconnection")
+        print("🎧 Handling old-device-unavailable route change")
 
-        // Always pause playback when Bluetooth disconnects
+        // If another output is still available (e.g. a Lightning cable was
+        // plugged in while BT was active), iOS has already routed audio to
+        // it. Don't pause — that would give the user a jarring stop instead
+        // of a seamless handoff. Only pause when no output remains, which
+        // is the "BT walked away" / headphones-unplugged-to-silence case.
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        if !outputs.isEmpty && isPlaying {
+            print("🎧 \(outputs.count) output(s) remain — continuing seamlessly on new route")
+            ensureEngineRunning()
+            // iOS may have paused the node internally while swapping routes;
+            // re-issue play() so sample rendering resumes on the new device.
+            if !playerNode.isPlaying {
+                playerNode.play()
+            }
+            updateCurrentOutputName()
+            updateSystemVolume()
+            return
+        }
+
+        // No remaining output — pause as before.
         if playerNode.isPlaying {
-            print("⏸️ Pausing playback due to Bluetooth disconnection")
+            print("⏸️ Pausing playback — no output route remains")
             pausedAt = currentPlaybackTime()
             playerNode.pause()
         }
 
-        // Sync player state if inconsistent
         if playerNode.isPlaying != isPlaying {
             print("🔧 Syncing player state - node.isPlaying: \(playerNode.isPlaying), UI isPlaying: \(isPlaying)")
         }
 
-        // Update UI state
         isPlaying = false
         stopTimer()
-
-        // Update Now Playing info to reflect paused state
         updateNowPlayingInfoTime()
-
-        // Update output name and volume for the new route
         updateCurrentOutputName()
         updateSystemVolume()
 
-        print("✅ Bluetooth disconnection handled - playback paused, UI updated")
+        print("✅ Route change handled - playback paused, UI updated")
     }
 
     private func routeChangeReasonDescription(_ reason: AVAudioSession.RouteChangeReason) -> String {
@@ -932,6 +946,11 @@ class PlaybackEngineService: NSObject, ObservableObject {
         }
         let btPortTypes: Set<AVAudioSession.Port> = [.bluetoothA2DP, .bluetoothLE, .bluetoothHFP]
         isBluetoothRouteActive = outputs.contains { btPortTypes.contains($0.portType) }
+        // iOS reports Lightning and 3.5mm headphones identically as
+        // .headphones — we can't distinguish the two. .usbAudio covers
+        // some Lightning/USB-C audio interfaces.
+        let wiredPortTypes: Set<AVAudioSession.Port> = [.headphones, .headsetMic, .usbAudio]
+        isWiredRouteActive = outputs.contains { wiredPortTypes.contains($0.portType) }
     }
 
     // MARK: - Remote Command Center

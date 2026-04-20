@@ -147,27 +147,35 @@ struct NowPlayingView: View {
     }
 
     // Route indicator button:
-    // - BT audio active → white bluetooth glyph on a #0693E3 blue fill
-    // - BT not in use  → speaker.wave.3.fill in black on white (audio
-    //   routed to the iPhone speaker, which is what you fall back to
-    //   when BT is disabled or no BT device is connected)
-    // 4px shadow in both states — no navy inversion.
+    // - BT audio active  → white bluetooth glyph on #0693E3 blue fill
+    // - Wired active     → blue (#0693E3) bolt.fill on #F6C400 yellow fill
+    // - Neither (speaker) → speaker.wave.3.fill in black on white
+    // BT takes priority if both flags happen to be set (iOS should only
+    // route to one at a time).
+    // 4px shadow in all states — no navy inversion.
     // AirPlayButton overlay handles the tap and presents the system
     // output picker; BrutalistButtonStyle still gets the press event so
     // the shadow-retract animation plays.
     private var bluetoothButton: some View {
         let btBlue = Color(red: 0x06 / 255, green: 0x93 / 255, blue: 0xE3 / 255)
-        let isActive = audioPlayer.isBluetoothRouteActive
+        let wiredYellow = Color(red: 0xF6 / 255, green: 0xC4 / 255, blue: 0x00 / 255)
+        let isBT = audioPlayer.isBluetoothRouteActive
+        let isWired = !isBT && audioPlayer.isWiredRouteActive
+        let fillColor: Color = isBT ? btBlue : (isWired ? wiredYellow : .ampWhite)
         return ZStack {
             Button(action: {}) {
                 Group {
-                    if isActive {
+                    if isBT {
                         BluetoothShape()
                             .stroke(
                                 Color.ampWhite,
                                 style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                             )
                             .frame(width: 14, height: 22)
+                    } else if isWired {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(btBlue)
                     } else {
                         Image(systemName: "speaker.wave.3.fill")
                             .font(.system(size: 20, weight: .semibold))
@@ -176,7 +184,7 @@ struct NowPlayingView: View {
                 }
                 .frame(width: 44, height: 44)
             }
-            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: isActive ? btBlue : .ampWhite))
+            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: fillColor))
 
             AirPlayButton()
                 .frame(width: 44, height: 44)

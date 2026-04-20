@@ -32,6 +32,7 @@ class AudioPlayerService: ObservableObject {
     @Published var playbackTime: TimeInterval = 0.0
     @Published var currentOutputName: String = ""
     @Published var isBluetoothRouteActive: Bool = false
+    @Published var isWiredRouteActive: Bool = false
     @Published var isShuffled = false
     @Published var isLooped = false
     @Published var isLoopingSong = false
@@ -124,6 +125,9 @@ class AudioPlayerService: ObservableObject {
 
         playbackEngine.$isBluetoothRouteActive
             .assign(to: &$isBluetoothRouteActive)
+
+        playbackEngine.$isWiredRouteActive
+            .assign(to: &$isWiredRouteActive)
         
         playbackEngine.$systemVolume
             .assign(to: &$systemVolume)
