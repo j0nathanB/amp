@@ -12,6 +12,10 @@ class NotificationService: NSObject, ObservableObject {
     private let notificationIdentifier = "track-change-notification"
     private var lastNotificationTime: TimeInterval = 0
     private let debounceInterval: TimeInterval = 2.0
+
+    // Auto-dismiss so delivered notifications don't accumulate on the lock screen / in Notification Center
+    private let autoDismissDelay: TimeInterval = 5.0
+    private var autoDismissTask: Task<Void, Never>?
     
     // App lifecycle tracking to prevent inappropriate notifications
     private var isResumingFromBackground = false
@@ -31,6 +35,10 @@ class NotificationService: NSObject, ObservableObject {
     
     override init() {
         super.init()
+        // Install the UNUserNotificationCenter delegate so willPresent can hard-suppress
+        // notifications while the app is foregrounded, regardless of any race between
+        // scheduleTrackChangeNotification's checks and iOS's 0.1s trigger.
+        UNUserNotificationCenter.current().delegate = self
         setupNotificationCategories()
         checkAuthorizationStatus()
         setupAppLifecycleObservers()
@@ -221,35 +229,27 @@ class NotificationService: NSObject, ObservableObject {
             return false
         }
         
-        // Check app state and current view - ensure UI API calls are on main thread
+        // App-state check. Foregrounded-and-visible means the user can already see what's
+        // playing (either in-app or via the iOS Now Playing widget on the lock screen), so
+        // we only fire when the app is backgrounded.
         var appState: UIApplication.State = .active
-        var selectedTab: AmpTab = .active
-
         if Thread.isMainThread {
             appState = UIApplication.shared.applicationState
-            selectedTab = NavigationService.shared.selectedTab
         } else {
-            // Use MainActor to safely access UI APIs
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor in
                 appState = UIApplication.shared.applicationState
-                selectedTab = NavigationService.shared.selectedTab
                 semaphore.signal()
             }
             semaphore.wait()
         }
 
-        // Send notification if app is backgrounded OR user is not on Now Playing view
-        if appState == .background {
-            print("🔔 Will send notification - app is backgrounded")
-            return true
-        } else if appState == .active && selectedTab != .active {
-            print("🔔 Will send notification - app active but not on Now Playing view (current: \(selectedTab))")
-            return true
-        } else {
-            print("🔔 Skipping notification - app active and on Now Playing view")
+        guard appState == .background else {
+            print("🔔 Skipping notification - app is foregrounded")
             return false
         }
+        print("🔔 Will send notification - app is backgrounded")
+        return true
     }
     
     private func sendTrackChangeNotification(song: Song, artwork: UIImage?) async {
@@ -291,16 +291,32 @@ class NotificationService: NSObject, ObservableObject {
         
         print("🔔 [DEBUG] Created notification request with identifier: \(notificationIdentifier)")
         
+        // A new notification resets the auto-dismiss timer; cancel any prior task so it
+        // doesn't remove the newer delivered notification early.
+        autoDismissTask?.cancel()
+
         do {
             try await UNUserNotificationCenter.current().add(request)
             print("🔔 Track change notification sent: \(song.title) by \(song.artist)")
-            
+
             // Verify the notification was added
             let pendingRequests = await UNUserNotificationCenter.current().pendingNotificationRequests()
             print("🔔 [DEBUG] Pending requests after adding: \(pendingRequests.count)")
-            
+
+            scheduleAutoDismiss()
         } catch {
             print("❌ Failed to send track change notification: \(error)")
+        }
+    }
+
+    private func scheduleAutoDismiss() {
+        let identifier = notificationIdentifier
+        let delayNanos = UInt64(autoDismissDelay * 1_000_000_000)
+        autoDismissTask = Task {
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard !Task.isCancelled else { return }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
+            print("🔔 Auto-dismissed delivered notification: \(identifier)")
         }
     }
     
@@ -382,6 +398,21 @@ class NotificationService: NSObject, ObservableObject {
         )
         
         UNUserNotificationCenter.current().setNotificationCategories([trackChangeCategory])
+    }
+}
+
+// MARK: - UNUserNotificationCenterDelegate
+
+extension NotificationService: UNUserNotificationCenterDelegate {
+    // Called when a notification is about to be presented while the app is foregrounded.
+    // Returning empty options suppresses the banner, sound, list entry, and badge —
+    // closing the race between shouldSendNotification's check and iOS's trigger delay.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([])
     }
 }
 
