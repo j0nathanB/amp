@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#FF2D55"/>
+  <!-- shadow -->
+  <rect x="130" y="270" width="800" height="540" fill="#000"/>
+  <!-- cassette body -->
+  <rect x="100" y="240" width="800" height="540" fill="#FFD400" stroke="#000" stroke-width="20"/>
+  <!-- label -->
+  <rect x="160" y="300" width="680" height="220" fill="#FFFFFF" stroke="#000" stroke-width="16"/>
+  <text x="500" y="445" font-family="Impact, 'Arial Black', sans-serif" font-weight="900" font-size="140" fill="#000" text-anchor="middle">amp</text>
+  <!-- reels -->
+  <circle cx="320" cy="650" r="90" fill="#FFF" stroke="#000" stroke-width="16"/>
+  <circle cx="320" cy="650" r="30" fill="#000"/>
+  <circle cx="680" cy="650" r="90" fill="#FFF" stroke="#000" stroke-width="16"/>
+  <circle cx="680" cy="650" r="30" fill="#000"/>
+  <!-- tape line -->
+  <rect x="320" y="740" width="360" height="20" fill="#000"/>
+</svg>

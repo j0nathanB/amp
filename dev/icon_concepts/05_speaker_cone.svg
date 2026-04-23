@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#111111"/>
+  <!-- outer ring shadow -->
+  <circle cx="540" cy="540" r="380" fill="#000"/>
+  <!-- speaker frame -->
+  <circle cx="512" cy="512" r="380" fill="#FFD400" stroke="#000" stroke-width="24"/>
+  <!-- outer cone -->
+  <circle cx="512" cy="512" r="300" fill="#FF2D55" stroke="#000" stroke-width="20"/>
+  <!-- inner cone -->
+  <circle cx="512" cy="512" r="200" fill="#00C2FF" stroke="#000" stroke-width="20"/>
+  <!-- dust cap -->
+  <circle cx="512" cy="512" r="90" fill="#000"/>
+  <circle cx="485" cy="485" r="25" fill="#FFF"/>
+  <!-- mounting screws -->
+  <circle cx="200" cy="200" r="28" fill="#000"/>
+  <circle cx="824" cy="200" r="28" fill="#000"/>
+  <circle cx="200" cy="824" r="28" fill="#000"/>
+  <circle cx="824" cy="824" r="28" fill="#000"/>
+</svg>

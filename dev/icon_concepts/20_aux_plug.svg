@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#FFD400"/>
+  <!-- cable shadow -->
+  <path d="M 510 880 Q 300 880 240 620" fill="none" stroke="#000" stroke-width="70" stroke-linecap="square"/>
+  <!-- cable -->
+  <path d="M 490 860 Q 280 860 220 600" fill="none" stroke="#FF2D55" stroke-width="54" stroke-linecap="square"/>
+  <path d="M 490 860 Q 280 860 220 600" fill="none" stroke="#000" stroke-width="60" stroke-linecap="square" stroke-opacity="0"/>
+  <!-- plug shadow -->
+  <rect x="370" y="110" width="260" height="460" fill="#000"/>
+  <!-- plug body (1/4" jack) -->
+  <rect x="340" y="80" width="260" height="460" fill="#111" stroke="#000" stroke-width="20"/>
+  <!-- metal tip -->
+  <rect x="370" y="40" width="200" height="200" fill="#BFC1C2" stroke="#000" stroke-width="18"/>
+  <!-- insulator rings -->
+  <rect x="370" y="200" width="200" height="30" fill="#000"/>
+  <rect x="370" y="280" width="200" height="30" fill="#000"/>
+  <!-- base strain relief -->
+  <rect x="360" y="540" width="220" height="80" rx="18" fill="#FF2D55" stroke="#000" stroke-width="18"/>
+</svg>

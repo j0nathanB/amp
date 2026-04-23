@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#111111"/>
+  <!-- shadow -->
+  <circle cx="540" cy="540" r="400" fill="#000"/>
+  <!-- outer ring -->
+  <circle cx="512" cy="512" r="400" fill="#FFD400" stroke="#000" stroke-width="22"/>
+  <!-- tape wound -->
+  <circle cx="512" cy="512" r="340" fill="#3a2610" stroke="#000" stroke-width="10"/>
+  <circle cx="512" cy="512" r="335" fill="none" stroke="#5a3a20" stroke-width="3"/>
+  <circle cx="512" cy="512" r="320" fill="none" stroke="#5a3a20" stroke-width="3"/>
+  <!-- hub -->
+  <circle cx="512" cy="512" r="170" fill="#FF2D55" stroke="#000" stroke-width="18"/>
+  <!-- 3 cutouts in hub -->
+  <g fill="#111" stroke="#000" stroke-width="10">
+    <circle cx="512" cy="380" r="48"/>
+    <circle cx="397" cy="580" r="48"/>
+    <circle cx="627" cy="580" r="48"/>
+  </g>
+  <!-- center spindle -->
+  <circle cx="512" cy="512" r="30" fill="#000"/>
+</svg>

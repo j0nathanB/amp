@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 12 bars ordered white → rainbow (red→purple) → neutrals → black -->
+  <rect x="0"      y="0" width="85.34" height="720" fill="#ffffff"/>
+  <rect x="85.34"  y="0" width="85.34" height="720" fill="#f78da7"/>
+  <rect x="170.67" y="0" width="85.34" height="720" fill="#cf2e2e"/>
+  <rect x="256"    y="0" width="85.34" height="720" fill="#ff6900"/>
+  <rect x="341.34" y="0" width="85.34" height="720" fill="#fcb900"/>
+  <rect x="426.67" y="0" width="85.34" height="720" fill="#7bdcb5"/>
+  <rect x="512"    y="0" width="85.34" height="720" fill="#00d084"/>
+  <rect x="597.34" y="0" width="85.34" height="720" fill="#8ed1fc"/>
+  <rect x="682.67" y="0" width="85.34" height="720" fill="#0693e3"/>
+  <rect x="768"    y="0" width="85.34" height="720" fill="#9b51e0"/>
+  <rect x="853.34" y="0" width="85.34" height="720" fill="#abb8c3"/>
+  <rect x="938.67" y="0" width="85.34" height="720" fill="#000000"/>
+  <!-- Black band -->
+  <rect x="0" y="720" width="1024" height="304" fill="#000000"/>
+  <!-- Wordmark — Atkinson Hyperlegible Next Bold, amber -->
+  <text x="512" y="920"
+        font-family="'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', 'Helvetica Neue', sans-serif"
+        font-weight="700"
+        font-size="220"
+        fill="#fcb900"
+        text-anchor="middle">amp</text>
+</svg>

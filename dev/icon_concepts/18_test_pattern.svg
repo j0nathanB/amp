@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- SMPTE-style bars, brutalist -->
+  <rect x="0"   y="0" width="146" height="720" fill="#FFFFFF"/>
+  <rect x="146" y="0" width="146" height="720" fill="#FFD400"/>
+  <rect x="292" y="0" width="146" height="720" fill="#00C2FF"/>
+  <rect x="438" y="0" width="146" height="720" fill="#2ECC40"/>
+  <rect x="584" y="0" width="146" height="720" fill="#FF2D55"/>
+  <rect x="730" y="0" width="146" height="720" fill="#9B59B6"/>
+  <rect x="876" y="0" width="148" height="720" fill="#111111"/>
+  <!-- black band -->
+  <rect x="0" y="720" width="1024" height="304" fill="#000"/>
+  <!-- amp label -->
+  <text x="512" y="920" font-family="Impact, 'Arial Black', sans-serif" font-weight="900" font-size="220" fill="#FFD400" text-anchor="middle">amp</text>
+</svg>

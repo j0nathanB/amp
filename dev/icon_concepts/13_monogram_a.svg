@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#111111"/>
+  <!-- stencil A with cut-out crossbar -->
+  <!-- shadow -->
+  <polygon points="550,120 920,920 180,920" fill="#000"/>
+  <!-- main A fill -->
+  <polygon points="512,90 900,890 124,890" fill="#FFD400" stroke="#000" stroke-width="24"/>
+  <!-- inner triangle (negative) -->
+  <polygon points="512,320 740,790 284,790" fill="#111111" stroke="#000" stroke-width="24"/>
+  <!-- crossbar (red) -->
+  <rect x="320" y="620" width="384" height="70" fill="#FF2D55" stroke="#000" stroke-width="18"/>
+</svg>

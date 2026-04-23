@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#FFD400"/>
+  <!-- stand base -->
+  <rect x="300" y="900" width="424" height="40" fill="#000"/>
+  <rect x="488" y="760" width="48" height="150" fill="#000"/>
+  <!-- mic body shadow -->
+  <rect x="290" y="130" width="460" height="620" rx="230" fill="#000"/>
+  <!-- mic body -->
+  <rect x="260" y="100" width="460" height="620" rx="230" fill="#FF2D55" stroke="#000" stroke-width="22"/>
+  <!-- grille head -->
+  <circle cx="490" cy="330" r="200" fill="#111" stroke="#000" stroke-width="18"/>
+  <!-- grille lines -->
+  <g stroke="#FFD400" stroke-width="10" stroke-linecap="square">
+    <line x1="310" y1="260" x2="670" y2="260"/>
+    <line x1="310" y1="330" x2="670" y2="330"/>
+    <line x1="310" y1="400" x2="670" y2="400"/>
+  </g>
+  <!-- body divider -->
+  <rect x="280" y="540" width="420" height="16" fill="#000"/>
+  <!-- switch -->
+  <rect x="460" y="600" width="60" height="90" fill="#FFFFFF" stroke="#000" stroke-width="12"/>
+</svg>

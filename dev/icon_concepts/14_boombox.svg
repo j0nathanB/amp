@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#FF2D55"/>
+  <!-- handle -->
+  <path d="M 340 180 Q 512 80 684 180" fill="none" stroke="#000" stroke-width="28" stroke-linecap="square"/>
+  <!-- body shadow -->
+  <rect x="110" y="230" width="820" height="600" fill="#000"/>
+  <!-- body -->
+  <rect x="80" y="200" width="820" height="600" fill="#FFD400" stroke="#000" stroke-width="22"/>
+  <!-- cassette deck -->
+  <rect x="340" y="240" width="300" height="140" fill="#111" stroke="#000" stroke-width="14"/>
+  <circle cx="400" cy="310" r="28" fill="#FFF"/>
+  <circle cx="580" cy="310" r="28" fill="#FFF"/>
+  <!-- left speaker -->
+  <circle cx="240" cy="560" r="170" fill="#00C2FF" stroke="#000" stroke-width="18"/>
+  <circle cx="240" cy="560" r="90" fill="#111" stroke="#000" stroke-width="14"/>
+  <circle cx="240" cy="560" r="30" fill="#FFD400"/>
+  <!-- right speaker -->
+  <circle cx="740" cy="560" r="170" fill="#00C2FF" stroke="#000" stroke-width="18"/>
+  <circle cx="740" cy="560" r="90" fill="#111" stroke="#000" stroke-width="14"/>
+  <circle cx="740" cy="560" r="30" fill="#FFD400"/>
+  <!-- buttons -->
+  <rect x="370" y="720" width="50" height="60" fill="#FF2D55" stroke="#000" stroke-width="10"/>
+  <rect x="440" y="720" width="50" height="60" fill="#FF2D55" stroke="#000" stroke-width="10"/>
+  <rect x="510" y="720" width="50" height="60" fill="#FF2D55" stroke="#000" stroke-width="10"/>
+  <rect x="580" y="720" width="50" height="60" fill="#FF2D55" stroke="#000" stroke-width="10"/>
+</svg>

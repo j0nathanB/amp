@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#00C2FF"/>
+  <!-- head unit shadow -->
+  <rect x="160" y="180" width="720" height="160" fill="#000"/>
+  <!-- head unit -->
+  <rect x="130" y="150" width="720" height="160" fill="#FFD400" stroke="#000" stroke-width="20"/>
+  <!-- knobs on head -->
+  <circle cx="230" cy="230" r="40" fill="#FF2D55" stroke="#000" stroke-width="14"/>
+  <circle cx="360" cy="230" r="40" fill="#FF2D55" stroke="#000" stroke-width="14"/>
+  <circle cx="490" cy="230" r="40" fill="#FF2D55" stroke="#000" stroke-width="14"/>
+  <circle cx="620" cy="230" r="40" fill="#FF2D55" stroke="#000" stroke-width="14"/>
+  <!-- power light -->
+  <circle cx="770" cy="230" r="22" fill="#FFF" stroke="#000" stroke-width="10"/>
+  <!-- cabinet shadow -->
+  <rect x="160" y="390" width="720" height="530" fill="#000"/>
+  <!-- cabinet -->
+  <rect x="130" y="360" width="720" height="530" fill="#111" stroke="#000" stroke-width="20"/>
+  <!-- speakers (4x) -->
+  <g stroke="#000" stroke-width="14">
+    <circle cx="310" cy="540" r="110" fill="#FFD400"/>
+    <circle cx="310" cy="540" r="40" fill="#000"/>
+    <circle cx="670" cy="540" r="110" fill="#FFD400"/>
+    <circle cx="670" cy="540" r="40" fill="#000"/>
+    <circle cx="310" cy="770" r="110" fill="#FFD400"/>
+    <circle cx="310" cy="770" r="40" fill="#000"/>
+    <circle cx="670" cy="770" r="110" fill="#FFD400"/>
+    <circle cx="670" cy="770" r="40" fill="#000"/>
+  </g>
+</svg>

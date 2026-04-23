@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#FFD400"/>
+  <!-- band shadow -->
+  <path d="M 210 590 A 310 310 0 0 1 830 590 L 830 510 A 310 310 0 0 0 210 510 Z" fill="#000"/>
+  <!-- band -->
+  <path d="M 180 560 A 310 310 0 0 1 800 560 L 800 480 A 310 310 0 0 0 180 480 Z" fill="#FF2D55" stroke="#000" stroke-width="20"/>
+  <!-- ear cup shadows -->
+  <rect x="110" y="560" width="220" height="280" rx="20" fill="#000"/>
+  <rect x="650" y="560" width="220" height="280" rx="20" fill="#000"/>
+  <!-- ear cups -->
+  <rect x="80"  y="530" width="220" height="280" rx="20" fill="#111" stroke="#000" stroke-width="20"/>
+  <rect x="620" y="530" width="220" height="280" rx="20" fill="#111" stroke="#000" stroke-width="20"/>
+  <!-- pads -->
+  <circle cx="190" cy="670" r="70" fill="#00C2FF" stroke="#000" stroke-width="16"/>
+  <circle cx="730" cy="670" r="70" fill="#00C2FF" stroke="#000" stroke-width="16"/>
+  <!-- cable -->
+  <path d="M 190 810 Q 200 920 320 930" fill="none" stroke="#000" stroke-width="22"/>
+</svg>

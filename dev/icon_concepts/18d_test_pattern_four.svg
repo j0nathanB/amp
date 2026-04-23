@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 4 bars: red, amber, green, blue -->
+  <rect x="0"   y="0" width="256" height="720" fill="#cf2e2e"/>
+  <rect x="256" y="0" width="256" height="720" fill="#fcb900"/>
+  <rect x="512" y="0" width="256" height="720" fill="#00d084"/>
+  <rect x="768" y="0" width="256" height="720" fill="#0693e3"/>
+  <!-- Black band -->
+  <rect x="0" y="720" width="1024" height="304" fill="#000000"/>
+  <!-- Wordmark -->
+  <text x="512" y="950"
+        font-family="'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', 'Helvetica Neue', sans-serif"
+        font-weight="700"
+        font-size="220"
+        fill="#ffffff"
+        stroke="#ffffff"
+        stroke-width="10"
+        paint-order="stroke"
+        text-anchor="middle">A  M  P</text>
+</svg>

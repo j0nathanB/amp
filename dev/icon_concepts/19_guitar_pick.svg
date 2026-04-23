@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#00C2FF"/>
+  <!-- pick shadow -->
+  <path d="M 542 150 Q 872 180 792 590 Q 712 870 542 900 Q 372 870 292 590 Q 212 180 542 150 Z" fill="#000"/>
+  <!-- pick body -->
+  <path d="M 512 120 Q 842 150 762 560 Q 682 840 512 870 Q 342 840 262 560 Q 182 150 512 120 Z" fill="#FF2D55" stroke="#000" stroke-width="24"/>
+  <!-- amp wordmark on pick -->
+  <text x="512" y="560" font-family="Impact, 'Arial Black', sans-serif" font-weight="900" font-size="220" fill="#FFD400" stroke="#000" stroke-width="8" text-anchor="middle">amp</text>
+</svg>

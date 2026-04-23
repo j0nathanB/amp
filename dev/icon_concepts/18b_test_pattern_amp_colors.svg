@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Bars ordered light → dark, using amp's asset-catalog palette -->
+  <rect x="0"   y="0" width="146" height="720" fill="#FFFFFF"/>
+  <rect x="146" y="0" width="146" height="720" fill="#F5F3EC"/>
+  <rect x="292" y="0" width="146" height="720" fill="#FBDC3D"/>
+  <rect x="438" y="0" width="146" height="720" fill="#52DE79"/>
+  <rect x="584" y="0" width="146" height="720" fill="#57D7FF"/>
+  <rect x="730" y="0" width="146" height="720" fill="#004D70"/>
+  <rect x="876" y="0" width="148" height="720" fill="#000000"/>
+  <!-- Black band -->
+  <rect x="0" y="720" width="1024" height="304" fill="#000000"/>
+  <!-- Wordmark -->
+  <text x="512" y="920"
+        font-family="'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', 'Helvetica Neue', sans-serif"
+        font-weight="700"
+        font-size="220"
+        fill="#FBDC3D"
+        text-anchor="middle">amp</text>
+</svg>

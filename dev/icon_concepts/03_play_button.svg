@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#FF2D55"/>
+  <!-- shadow -->
+  <polygon points="300,220 820,540 300,860" fill="#000"/>
+  <!-- play triangle -->
+  <polygon points="260,180 780,500 260,820" fill="#FFD400" stroke="#000" stroke-width="28"/>
+</svg>
