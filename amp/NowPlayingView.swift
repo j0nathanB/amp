@@ -148,7 +148,7 @@ struct NowPlayingView: View {
 
     // Route indicator button:
     // - BT audio active  → white bluetooth glyph on #0693E3 blue fill
-    // - Wired active     → blue (#0693E3) bolt.fill on #F6C400 yellow fill
+    // - Wired active     → white bolt.fill on #F6C400 yellow fill
     // - Neither (speaker) → speaker.wave.3.fill in black on white
     // BT takes priority if both flags happen to be set (iOS should only
     // route to one at a time).
@@ -175,7 +175,7 @@ struct NowPlayingView: View {
                     } else if isWired {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(btBlue)
+                            .foregroundStyle(Color.ampWhite)
                     } else {
                         Image(systemName: "speaker.wave.3.fill")
                             .font(.system(size: 20, weight: .semibold))

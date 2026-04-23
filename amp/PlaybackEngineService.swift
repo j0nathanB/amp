@@ -734,6 +734,17 @@ class PlaybackEngineService: NSObject, ObservableObject {
             object: nil
         )
 
+        // The engine stops rendering when its configuration changes
+        // (e.g. Lightning plugged in while BT is playing). Route-change
+        // notifications alone aren't enough — this is the signal Apple
+        // documents for knowing the graph needs to be restarted.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEngineConfigurationChange(notification:)),
+            name: .AVAudioEngineConfigurationChange,
+            object: engine
+        )
+
         // Set up volume monitoring using multiple approaches
         setupVolumeMonitoring()
         setupKVOVolumeMonitoring()
@@ -798,6 +809,21 @@ class PlaybackEngineService: NSObject, ObservableObject {
             print("🔄 Other route change - updating audio state")
             updateCurrentOutputName()
             updateSystemVolume()
+        }
+    }
+
+    @objc private func handleEngineConfigurationChange(notification: Notification) {
+        print("🎛️ AVAudioEngine configuration changed")
+        guard isPlaying else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isPlaying else { return }
+            self.ensureEngineRunning()
+            if !self.playerNode.isPlaying {
+                print("🎛️ Re-issuing playerNode.play() after config change")
+                self.playerNode.play()
+            }
+            self.updateCurrentOutputName()
+            self.updateSystemVolume()
         }
     }
 
