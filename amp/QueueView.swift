@@ -5,12 +5,19 @@ import MediaPlayer
 // pinning and blue-gradient overflow bars.
 //
 // Pin states (§8.4):
-// - .none         current row is visible in the viewport; blue bars show
-//                 at either edge when content is clipped
-// - .pinnedTop    scrolled past the current row — it sticks to the top of
-//                 the viewport; top blue bar is suppressed in its place
-// - .pinnedBottom scrolled before the current row — it sticks to the
-//                 bottom; bottom blue bar is suppressed in its place
+// - .none         current row is fully inside the viewport; blue bars
+//                 show at either edge when content is clipped
+// - .pinnedTop    current row's top edge has reached the viewport top —
+//                 it sticks to the top edge while the queue scrolls
+//                 behind it; top blue bar is suppressed in its place
+// - .pinnedBottom current row's bottom edge has reached the viewport
+//                 bottom — it sticks to the bottom; bottom blue bar is
+//                 suppressed in its place
+//
+// Pinning engages the moment the row would otherwise start to clip at
+// the edge — not when it's fully off-screen. Engaging late produced a
+// visible jank: the in-list row would clip away, then the pin would
+// snap in at the edge as a full row.
 //
 // Geometry: rows before/after current are rowHeight tall, the navy-
 // inverted current row is currentRowHeight tall. `onScrollGeometryChange`
@@ -22,6 +29,7 @@ private let overflowBarHeight: CGFloat = 12
 
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
+    @ObservedObject private var settings = SettingsService.shared
 
     // Single Equatable @State so onScrollGeometryChange only triggers a
     // re-render when the snapshot actually changes — avoids SwiftUI's
@@ -112,14 +120,27 @@ struct QueueView: View {
                     // @Published tick during playback.
                     ForEach(audioPlayer.playbackQueue.trackIDs.indices, id: \.self) { index in
                         let trackID = audioPlayer.playbackQueue.trackIDs[index]
-                        QueueRow(
-                            index: index,
-                            trackID: trackID,
-                            isCurrent: index == audioPlayer.currentIndex
-                        ) {
-                            handleTap(at: index)
+                        let isCurrent = index == audioPlayer.currentIndex
+
+                        if isCurrent && pinState != .none {
+                            // Pin overlay is rendering this row at the
+                            // viewport edge. Reserve vertical space so
+                            // surrounding rows don't shift, but don't
+                            // paint navy here — there must only ever be
+                            // one highlighted row visible at a time.
+                            Color.clear
+                                .frame(maxWidth: .infinity, minHeight: currentRowHeight, maxHeight: currentRowHeight)
+                                .id(index)
+                        } else {
+                            QueueRow(
+                                index: index,
+                                trackID: trackID,
+                                isCurrent: isCurrent
+                            ) {
+                                handleTap(at: index)
+                            }
+                            .id(index)
                         }
-                        .id(index)
                     }
                 }
             }
@@ -174,8 +195,8 @@ struct QueueView: View {
         guard viewportHeight > 0 else { return .none }
         let startY = CGFloat(i) * rowHeight
         let endY = startY + currentRowHeight
-        if endY <= scrollY { return .pinnedTop }
-        if startY >= scrollY + viewportHeight { return .pinnedBottom }
+        if startY <= scrollY { return .pinnedTop }
+        if endY >= scrollY + viewportHeight { return .pinnedBottom }
         return .none
     }
 
@@ -235,12 +256,13 @@ struct QueueView: View {
 
     private func scrollToCurrent(proxy: ScrollViewProxy, animated: Bool) {
         guard let index = audioPlayer.playbackQueue.currentIndex else { return }
+        let anchor: UnitPoint = settings.queuePinDefaultTop ? .top : .bottom
         if animated {
             withAnimation(.easeInOut(duration: 0.25)) {
-                proxy.scrollTo(index, anchor: .top)
+                proxy.scrollTo(index, anchor: anchor)
             }
         } else {
-            proxy.scrollTo(index, anchor: .top)
+            proxy.scrollTo(index, anchor: anchor)
         }
     }
 }
@@ -262,6 +284,8 @@ private extension Array {
 // MARK: - QueueRow (wraps TrackRow with async song + duration hydration)
 
 private struct QueueRow: View {
+    @EnvironmentObject var audioPlayer: AudioPlayerService
+
     let index: Int
     let trackID: MPMediaEntityPersistentID
     let isCurrent: Bool
@@ -291,6 +315,10 @@ private struct QueueRow: View {
             duration: formatDuration(duration),
             isCurrent: isCurrent,
             prominent: true,
+            playbackState: isCurrent ? TrackRow.PlaybackState(
+                isPlaying: audioPlayer.isPlaying,
+                elapsed: audioPlayer.playbackTime
+            ) : nil,
             onTap: onTap,
             onLongPress: {
                 NavigationService.shared.navigateToAlbum(forTrack: trackID)

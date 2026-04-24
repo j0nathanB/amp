@@ -23,8 +23,14 @@ struct TrackRow: View {
     let duration: String
     let isCurrent: Bool
     let prominent: Bool
+    let playbackState: PlaybackState?
     let onTap: () -> Void
     let onLongPress: (() -> Void)?
+
+    struct PlaybackState {
+        let isPlaying: Bool
+        let elapsed: TimeInterval
+    }
 
     init(
         position: String,
@@ -33,6 +39,7 @@ struct TrackRow: View {
         duration: String,
         isCurrent: Bool,
         prominent: Bool = false,
+        playbackState: PlaybackState? = nil,
         onTap: @escaping () -> Void,
         onLongPress: (() -> Void)? = nil
     ) {
@@ -42,6 +49,7 @@ struct TrackRow: View {
         self.duration = duration
         self.isCurrent = isCurrent
         self.prominent = prominent
+        self.playbackState = playbackState
         self.onTap = onTap
         self.onLongPress = onLongPress
     }
@@ -124,13 +132,45 @@ struct TrackRow: View {
             titleStack(titleColor: Color.ampWhite, artistColor: Color.ampInversionLabel, boldTitle: true)
                 .padding(.leading, prominent ? 24 : 16)
             Spacer(minLength: 12)
-            Text(duration)
-                .font(.timestamp)
-                .foregroundStyle(Color.ampWhite)
-                .padding(.trailing, 24)
+            if let state = playbackState {
+                playPauseButton(isPlaying: state.isPlaying)
+                    .padding(.trailing, 12)
+                Text(timeLabel(elapsed: state.elapsed))
+                    .font(.timestamp)
+                    .foregroundStyle(Color.ampWhite)
+                    .padding(.trailing, 24)
+                    .monospacedDigit()
+            } else {
+                Text(duration)
+                    .font(.timestamp)
+                    .foregroundStyle(Color.ampWhite)
+                    .padding(.trailing, 24)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: navyHeight, maxHeight: navyHeight)
         .background(Color.ampNavy)
+    }
+
+    @ViewBuilder
+    private func playPauseButton(isPlaying: Bool) -> some View {
+        Button {
+            onTap()
+        } label: {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color.ampWhite)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func timeLabel(elapsed: TimeInterval) -> String {
+        if elapsed > 0 {
+            let total = Int(elapsed.rounded())
+            return String(format: "%d:%02d", total / 60, total % 60)
+        }
+        return duration
     }
 
     // MARK: - Shared title+artist stack

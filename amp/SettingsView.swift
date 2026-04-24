@@ -9,6 +9,7 @@ final class SettingsService: ObservableObject {
     static let shared = SettingsService()
 
     @AppStorage("showLyrics") var showLyrics: Bool = true
+    @AppStorage("queuePinDefaultTop") var queuePinDefaultTop: Bool = false
 
     private init() {}
 }
@@ -70,6 +71,10 @@ struct SettingsView: View {
             BrutalistToggle(
                 label: "Show lyrics button when available",
                 isOn: $settings.showLyrics
+            )
+            BrutalistToggle(
+                label: "Pin currently playing track to top",
+                isOn: $settings.queuePinDefaultTop
             )
         }
         .padding(.horizontal, 24)
