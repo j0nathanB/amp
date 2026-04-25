@@ -69,11 +69,14 @@ struct SettingsView: View {
     private var settingsSection: some View {
         VStack(spacing: 16) {
             BrutalistToggle(
-                label: "Show lyrics button when available",
+                label: "Lyrics button",
                 isOn: $settings.showLyrics
             )
             BrutalistToggle(
-                label: "Pin currently playing track to top",
+                label: "Miniplayer",
+                onLabel: "TOP",
+                offLabel: "BOTTOM",
+                isInvertible: false,
                 isOn: $settings.queuePinDefaultTop
             )
         }
@@ -164,28 +167,53 @@ struct SettingsView: View {
 
 struct BrutalistToggle: View {
     let label: String
+    let onLabel: String
+    let offLabel: String
+    let isInvertible: Bool
     @Binding var isOn: Bool
 
+    init(
+        label: String,
+        onLabel: String = "ON",
+        offLabel: String = "OFF",
+        isInvertible: Bool = true,
+        isOn: Binding<Bool>
+    ) {
+        self.label = label
+        self.onLabel = onLabel
+        self.offLabel = offLabel
+        self.isInvertible = isInvertible
+        self._isOn = isOn
+    }
+
     var body: some View {
+        // Non-invertible toggles never enter the navy "active" treatment —
+        // both sides of the binding are equally valid choices (e.g.
+        // TOP/BOTTOM), so neither should read as the highlighted option.
+        let active = isInvertible && isOn
+        let labelColor: Color = active ? Color.ampWhite : Color.ampBlack
+        let valueColor: Color = isInvertible
+            ? (isOn ? Color.ampInversionLabel : Color.ampMutedText)
+            : Color.ampBlack
         HStack(spacing: 0) {
             Text(label)
                 .font(.listTitle)
-                .foregroundStyle(isOn ? Color.ampWhite : Color.ampBlack)
+                .foregroundStyle(labelColor)
                 .lineLimit(2)
                 .padding(.leading, 16)
             Spacer(minLength: 12)
-            Text(isOn ? "ON" : "OFF")
+            Text(isOn ? onLabel : offLabel)
                 .font(.inversionLabel)
-                .foregroundStyle(isOn ? Color.ampInversionLabel : Color.ampMutedText)
+                .foregroundStyle(valueColor)
                 .padding(.trailing, 16)
         }
         .animation(.easeInOut(duration: 0.25), value: isOn)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .brutalistInvertible(isActive: isOn)
+        .brutalistInvertible(isActive: active)
         .contentShape(Rectangle())
         .onTapGesture { isOn.toggle() }
         .accessibilityLabel(label)
-        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityValue(isOn ? onLabel : offLabel)
         .accessibilityAddTraits(.isButton)
     }
 }

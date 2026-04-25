@@ -148,7 +148,7 @@ struct NowPlayingView: View {
 
     // Route indicator button:
     // - BT audio active  → white bluetooth glyph on #0693E3 blue fill
-    // - Wired active     → white bolt.fill on #F6C400 yellow fill
+    // - Wired active     → white bolt.fill on the same #0693E3 blue fill
     // - Neither (speaker) → speaker.wave.3.fill in black on white
     // BT takes priority if both flags happen to be set (iOS should only
     // route to one at a time).
@@ -157,11 +157,10 @@ struct NowPlayingView: View {
     // output picker; BrutalistButtonStyle still gets the press event so
     // the shadow-retract animation plays.
     private var bluetoothButton: some View {
-        let btBlue = Color(red: 0x06 / 255, green: 0x93 / 255, blue: 0xE3 / 255)
-        let wiredYellow = Color(red: 0xF6 / 255, green: 0xC4 / 255, blue: 0x00 / 255)
+        let routeBlue = Color(red: 0x06 / 255, green: 0x93 / 255, blue: 0xE3 / 255)
         let isBT = audioPlayer.isBluetoothRouteActive
         let isWired = !isBT && audioPlayer.isWiredRouteActive
-        let fillColor: Color = isBT ? btBlue : (isWired ? wiredYellow : .ampWhite)
+        let fillColor: Color = (isBT || isWired) ? routeBlue : .ampWhite
         return ZStack {
             Button(action: {}) {
                 Group {

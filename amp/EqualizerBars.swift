@@ -1,37 +1,58 @@
 import SwiftUI
 
-// Three vertical bars whose heights oscillate on a staggered sine wave
-// (different phase per bar, ~1.2s period). Originally spec §8.3's
-// current-track indicator; removed in commit 5af1405 when the FFT audio
-// metering work was reverted. Now reused as the Library tab loading
-// indicator — same bars, no audio tap, just a decorative animation.
+// Loading indicator: a small replica of the app icon (four colored
+// bars over a black AMP wordmark band) that pulses in and out.
+// Used as the placeholder while async data hydrates (queue, library,
+// now playing).
+//
+// Colors and proportions sampled from
+// Assets.xcassets/AppIcon.appiconset/ItunesArtwork@2x.png.
+//
+// Struct name kept as `EqualizerBars` to avoid touching call sites; the
+// implementation has evolved past the literal three-bar EQ.
 struct EqualizerBars: View {
-    var color: Color = .ampBlack
-    var barWidth: CGFloat = 4
-    var gap: CGFloat = 3
-    var maxHeight: CGFloat = 28
+    var size: CGFloat = 96
+
+    @State private var pulsed: Bool = false
+
+    private static let barColors: [Color] = [
+        Color(red: 191/255, green:  61/255, blue:  55/255), // #BF3D37 red
+        Color(red: 242/255, green: 188/255, blue:  64/255), // #F2BC40 yellow
+        Color(red:  94/255, green: 205/255, blue: 138/255), // #5ECD8A green
+        Color(red:  65/255, green: 145/255, blue: 221/255)  // #4191DD blue
+    ]
+
+    // Icon proportions: bars take 70.31% of the height, AMP band 29.69%.
+    private var barsHeight: CGFloat { size * 0.7031 }
+    private var bandHeight: CGFloat { size * 0.2969 }
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let heights = [0.00, 0.33, 0.66].map { sineHeight(t: t, phase: $0) }
-            HStack(alignment: .center, spacing: gap) {
-                ForEach(Array(heights.enumerated()), id: \.offset) { _, h in
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(0..<4, id: \.self) { i in
                     Rectangle()
-                        .fill(color)
-                        .frame(width: barWidth, height: h)
+                        .fill(EqualizerBars.barColors[i])
                 }
             }
-        }
-        .frame(width: barWidth * 3 + gap * 2, height: maxHeight)
-        .accessibilityHidden(true)
-    }
+            .frame(height: barsHeight)
 
-    private func sineHeight(t: TimeInterval, phase: Double) -> CGFloat {
-        let period: Double = 1.2
-        let x = (t / period + phase) * 2 * .pi
-        let sine = (sin(x) + 1) / 2
-        return 8 + CGFloat(sine) * (maxHeight - 8)
+            ZStack {
+                Color.ampBlack
+                Text("AMP")
+                    .font(.system(size: bandHeight * 0.62, weight: .heavy))
+                    .foregroundStyle(Color.ampWhite)
+                    .tracking(bandHeight * 0.18)
+            }
+            .frame(height: bandHeight)
+        }
+        .frame(width: size, height: size)
+        .scaleEffect(pulsed ? 1.06 : 0.94)
+        .animation(
+            .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+            value: pulsed
+        )
+        .onAppear { pulsed = true }
+        .accessibilityHidden(true)
     }
 }
 

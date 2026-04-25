@@ -30,12 +30,27 @@ private let overflowBarHeight: CGFloat = 12
 struct QueueView: View {
     @EnvironmentObject var audioPlayer: AudioPlayerService
     @ObservedObject private var settings = SettingsService.shared
+    @ObservedObject private var nav = NavigationService.shared
 
     // Single Equatable @State so onScrollGeometryChange only triggers a
     // re-render when the snapshot actually changes — avoids SwiftUI's
     // "OnScrollGeometryChange Modifier tried to update multiple times per
     // frame" fault.
     @State private var snapshot = ScrollSnapshot(offsetY: 0, viewport: 0, content: 0)
+
+    // MainTabView keeps every tab mounted (ZStack + opacity), so
+    // proxy.scrollTo on a hidden tab is a no-op. When the pin-default
+    // setting flips while we're not visible, stash the request and
+    // replay it the moment the Queue tab becomes active.
+    @State private var pendingPinReset: Bool = false
+
+    // Temporarily forces pinState to .none so the in-list current row
+    // renders as a real navy QueueRow (not the Color.clear placeholder).
+    // proxy.scrollTo targets the view with .id(index) — when that view
+    // is Color.clear, scrollTo doesn't reliably reposition. We flip this
+    // on, scroll, wait for the snapshot to update, then flip it off so
+    // the overlay re-engages from the new scroll position.
+    @State private var bypassPin: Bool = false
     private var scrollY: CGFloat { snapshot.offsetY }
     private var viewportHeight: CGFloat { snapshot.viewport }
     private var contentHeight: CGFloat { snapshot.content }
@@ -157,6 +172,21 @@ struct QueueView: View {
             .onChange(of: audioPlayer.currentIndex) { _, _ in
                 scrollToCurrent(proxy: proxy, animated: true)
             }
+            .onChange(of: settings.queuePinDefaultTop) { _, _ in
+                if nav.selectedTab == .queue {
+                    performPinReset(proxy: proxy)
+                } else {
+                    // Tab is hidden — proxy.scrollTo would silently fail.
+                    // Stash and replay when the user comes back.
+                    pendingPinReset = true
+                }
+            }
+            .onChange(of: nav.selectedTab) { _, newTab in
+                if newTab == .queue && pendingPinReset {
+                    performPinReset(proxy: proxy)
+                    pendingPinReset = false
+                }
+            }
         }
     }
 
@@ -190,6 +220,7 @@ struct QueueView: View {
     private enum PinState { case none, pinnedTop, pinnedBottom }
 
     private var pinState: PinState {
+        if bypassPin { return .none }
         let i = audioPlayer.currentIndex
         guard i >= 0 else { return .none }
         guard viewportHeight > 0 else { return .none }
@@ -251,6 +282,21 @@ struct QueueView: View {
             audioPlayer.playPause()
         } else {
             audioPlayer.playTrack(at: index)
+        }
+    }
+
+    // Destroy the pin overlay, scroll, then regenerate. The in-list
+    // current row needs to be a real QueueRow (not Color.clear) for
+    // proxy.scrollTo to reliably anchor it; once the scroll settles
+    // and snapshot.offsetY catches up, the overlay re-engages from
+    // the new pinState.
+    private func performPinReset(proxy: ScrollViewProxy) {
+        bypassPin = true
+        DispatchQueue.main.async {
+            scrollToCurrent(proxy: proxy, animated: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                bypassPin = false
+            }
         }
     }
 
