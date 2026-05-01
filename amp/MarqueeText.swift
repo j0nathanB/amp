@@ -61,7 +61,14 @@ struct MarqueeText: View {
                 restart()
             }
             .onChange(of: text) { _, _ in
-                restart()
+                // Don't restart with the stale textWidth from the previous
+                // string — that misclassifies a short new text as overflowing
+                // and starts a scroll that only stops once onPreferenceChange
+                // delivers the new measurement. Invalidate the width and let
+                // onPreferenceChange drive the restart.
+                cancel()
+                offset = 0
+                textWidth = 0
             }
             .onDisappear {
                 cancel()
@@ -75,6 +82,10 @@ struct MarqueeText: View {
 
     // When text fits, center it. When overflowing, apply the animated offset.
     private func displayOffset(containerWidth: CGFloat) -> CGFloat {
+        // textWidth==0 means "not yet measured" (initial frame, or just-changed
+        // text before the new preference fires). Render at the leading edge so
+        // we don't flash text into the container's center.
+        guard textWidth > 0 else { return 0 }
         if overflow > 0 {
             return offset
         }

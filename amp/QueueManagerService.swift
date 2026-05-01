@@ -410,7 +410,13 @@ class QueueManagerService: ObservableObject {
         }
         isEagerLoad = true
         currentTrack = snapshot.song
-        restoredPlaybackPosition = snapshot.playbackPosition
+        // Do NOT seed restoredPlaybackPosition here. The eager path already
+        // applied the seek directly to AVAudioPlayer via loadWithURL(seekTo:),
+        // and the success-reconcile path in loadQueueOnce doesn't fire the
+        // delegate, so a value set here is never consumed for its intended
+        // track. It would just sit waiting and get applied to whatever next
+        // track the user navigates to (Next/Prev) before pressing Play —
+        // which is exactly the "next track starts at 1:23" bug.
         // Seed currentPlaybackPosition to match the snapshot. Without this,
         // the debounced snapshot save that fires 500ms after applyEager…
         // (via currentTrack.didSet → refreshCurrentTrackSnapshot) reads
