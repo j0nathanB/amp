@@ -46,7 +46,7 @@ struct EqualizerBars: View {
             .frame(height: bandHeight)
         }
         .frame(width: size, height: size)
-        .scaleEffect(pulsed ? 1.06 : 0.94)
+        .opacity(pulsed ? 1.0 : 0.35)
         .animation(
             .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
             value: pulsed
