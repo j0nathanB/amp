@@ -14,12 +14,19 @@ class AudioPlayerService: ObservableObject {
     // Track whether we're auto-advancing after track completion
     private var isAutoAdvancing = false
 
-    // Playback transition state to prevent delegate double-play
-    private enum PlaybackTransition {
-        case none
-        case transitioning(to: Song)
+    // Tracks the user's most recent navigation intent across the
+    // synchronous queueManager → delegate → playbackEngine call chain.
+    // Set in the public wrapper (startPlayback / playTrack / nextTrack /
+    // previousTrack), read by currentTrackDidChange (force-play vs
+    // preserve-paused, suppress notification) and by playbackDidFinish
+    // (recovery direction). Reset via defer when the wrapper returns.
+    private enum UserAction {
+        case none           // auto-advance, eager load, queue restore
+        case selectTrack    // explicit play (queue tap, startPlayback)
+        case nextTrack      // user pressed next
+        case previousTrack  // user pressed prev
     }
-    private var transitionState: PlaybackTransition = .none
+    private var pendingUserAction: UserAction = .none
 
     // Combine cancellables
     private var cancellables = Set<AnyCancellable>()
@@ -179,22 +186,13 @@ class AudioPlayerService: ObservableObject {
     func startPlayback(from songs: [Song], startingWith startSong: Song) {
         print("🎵 [AudioPlayerService] startPlayback called with \(songs.count) songs, starting with: \(startSong.title)")
 
-        // Set transition state to prevent delegate from also starting playback
-        transitionState = .transitioning(to: startSong)
+        pendingUserAction = .selectTrack
+        defer { pendingUserAction = .none }
 
         queueManager.startPlayback(from: songs, startingWith: startSong)
         navigation.navigateToNowPlaying()
-
-        // Get the track directly from queueManager to avoid Combine binding race condition
-        if let track = queueManager.currentTrack {
-            print("✅ [AudioPlayerService] Current track set, calling playbackEngine.play() for: \(track.title)")
-            playbackEngine.play(song: track, isManualSelection: true)
-        } else {
-            print("❌ [AudioPlayerService] ERROR: Current track is nil after startPlayback!")
-        }
-
-        // Clear transition state immediately after manual playback
-        transitionState = .none
+        // queueManager.startPlayback fires currentTrackDidChange synchronously;
+        // the delegate handles playback (sees .selectTrack → play with isManualSelection=true).
     }
 
     // `navigateToNowPlaying` is an opt-out for detail views (Album /
@@ -210,45 +208,36 @@ class AudioPlayerService: ObservableObject {
             return
         }
 
-        // Pre-hydrate the starting track so transitionState can be set before
-        // queueManager.startPlayback fires currentTrackDidChange through the delegate.
-        guard let startSong = LibraryService.shared.getSong(by: trackIDs[index]) else {
+        // Sanity-check: confirm the starting track ID is in the library.
+        // queueManager.startPlayback would fail less gracefully without this.
+        guard LibraryService.shared.getSong(by: trackIDs[index]) != nil else {
             print("❌ [AudioPlayerService] Could not hydrate starting track \(trackIDs[index])")
             return
         }
 
-        print("🎵 [AudioPlayerService] startPlayback (IDs) \(trackIDs.count) tracks, starting with: \(startSong.title)")
+        print("🎵 [AudioPlayerService] startPlayback (IDs) \(trackIDs.count) tracks, starting at index \(index)")
 
-        transitionState = .transitioning(to: startSong)
+        pendingUserAction = .selectTrack
+        defer { pendingUserAction = .none }
 
         queueManager.startPlayback(fromTrackIDs: trackIDs, startingAt: index)
         if navigateToNowPlaying {
             navigation.navigateToNowPlaying()
         }
-
-        if let track = queueManager.currentTrack {
-            playbackEngine.play(song: track, isManualSelection: true)
-        } else {
-            print("❌ [AudioPlayerService] ERROR: Current track is nil after IDs startPlayback!")
-        }
-
-        transitionState = .none
+        // Delegate handles playback (sees .selectTrack → play with isManualSelection=true).
     }
     
     func playTrack(at index: Int) {
-        if let track = queueManager.playTrack(at: index) {
-            // Set transition state to prevent delegate from also starting playback
-            transitionState = .transitioning(to: track)
+        pendingUserAction = .selectTrack
+        defer { pendingUserAction = .none }
 
-            playbackEngine.play(song: track, isManualSelection: true)
-            // No navigateToNowPlaying() here — Queue taps keep the user on
-            // Queue so they can play/pause and jump around without losing
-            // context. "Start playback from Library / Search" still routes
-            // to Now Playing via the startPlayback(...) variants.
-
-            // Clear transition state immediately after manual playback
-            transitionState = .none
-        }
+        // queueManager.playTrack fires currentTrackDidChange synchronously;
+        // the delegate plays the track (sees .selectTrack → force play).
+        // No navigateToNowPlaying() here — Queue taps keep the user on
+        // Queue so they can play/pause and jump around without losing
+        // context. "Start playback from Library / Search" still routes
+        // to Now Playing via the startPlayback(...) variants.
+        _ = queueManager.playTrack(at: index)
     }
     
     func playPause() {
@@ -264,30 +253,27 @@ class AudioPlayerService: ObservableObject {
     }
     
     func nextTrack() {
-        if let track = queueManager.nextTrack() {
-            if isPlaying {
-                playbackEngine.play(song: track, isManualSelection: true)
-            } else {
-                // If paused, just load the track without playing
-                playbackEngine.loadWithoutPlaying(song: track)
-            }
-        }
+        pendingUserAction = .nextTrack
+        defer { pendingUserAction = .none }
+        // Delegate handles playback. Sees .nextTrack → preserves current
+        // play/pause state. Failure recovery in playbackDidFinish reads
+        // .nextTrack → forward direction.
+        _ = queueManager.nextTrack()
     }
-    
+
     func previousTrack() {
-        // If more than 4 seconds into the track, restart current track
+        // If more than 4 seconds into the track, restart current track.
         if playbackTime > 4.0 {
             playbackEngine.seek(to: 0)
             return
         }
-        // Otherwise, go to previous track
-        if let track = queueManager.previousTrack() {
-            if isPlaying {
-                playbackEngine.play(song: track, isManualSelection: true)
-            } else {
-                playbackEngine.loadWithoutPlaying(song: track)
-            }
-        }
+
+        pendingUserAction = .previousTrack
+        defer { pendingUserAction = .none }
+        // Delegate handles playback. Sees .previousTrack → preserves current
+        // play/pause state. Failure recovery reads .previousTrack → backward
+        // direction (skip a broken track in the user's intended direction).
+        _ = queueManager.previousTrack()
     }
     
     func seek(to time: TimeInterval) {
@@ -391,24 +377,29 @@ extension AudioPlayerService: PlaybackEngineDelegate {
                 isAutoAdvancing = false
             }
         } else {
-            // ⚠️ Track failed to finish - this indicates an error
-            print("❌ [AudioPlayerService] Track failed to finish properly!")
-            print("❌ [AudioPlayerService] This could be due to:")
-            print("   - Audio session interruption (phone call, alarm, notification)")
-            print("   - Audio hardware error")
-            print("   - File read error")
-            print("   - Memory pressure")
-            print("❌ [AudioPlayerService] Current track: \(currentTrack?.title ?? "Unknown")")
+            print("❌ [AudioPlayerService] Track failed to load — \(currentTrack?.title ?? "Unknown")")
+            guard queueManager.playbackQueue.trackIDs.count > 1 else {
+                print("⚠️ [AudioPlayerService] No more tracks in queue — playback stopped")
+                return
+            }
 
-            // Attempt recovery by trying to continue to next track
-            // This prevents the player from getting stuck
-            if queueManager.playbackQueue.trackIDs.count > 1 {
-                print("🔄 [AudioPlayerService] Attempting recovery - advancing to next track")
-                isAutoAdvancing = true
-                _ = queueManager.nextTrack()
-                isAutoAdvancing = false
+            isAutoAdvancing = true
+            defer { isAutoAdvancing = false }
+
+            // Direction-aware recovery: skip the broken track in the
+            // direction the user was navigating. previousTrack failures
+            // recover backward; everything else (next, tap, auto-advance)
+            // recovers forward. If backward recovery hits the start of
+            // the queue, we don't fall back to forward — that would
+            // unexpectedly jump the user past their intended destination.
+            // The consecutiveLoadFailures cap (5, in PlaybackEngineService)
+            // bounds any cascade if multiple adjacent tracks fail.
+            if case .previousTrack = pendingUserAction {
+                print("🔄 [AudioPlayerService] Recovering backward (user was going prev)")
+                _ = queueManager.previousTrack()
             } else {
-                print("⚠️ [AudioPlayerService] No more tracks in queue - playback stopped")
+                print("🔄 [AudioPlayerService] Recovering forward")
+                _ = queueManager.nextTrack()
             }
         }
     }
@@ -428,29 +419,40 @@ extension AudioPlayerService: QueueManagerDelegate {
     }
 
     func currentTrackDidChange(_ track: Song?) {
-        // Skip delegate-triggered playback if we're in a manual transition
-        // Check if the incoming track matches the target of our transition
-        if case .transitioning(let targetSong) = transitionState, track?.id == targetSong.id {
-            print("[AudioPlayerService] Skipping delegate playback - manual transition in progress for: \(targetSong.title)")
-            return
+        guard let track = track else { return }
+
+        // Single decision point for what to do when the current track
+        // changes. Driven by pendingUserAction (set by the public wrappers)
+        // and isAutoAdvancing (set during recovery / track-end advance).
+        let isManual: Bool
+        let shouldPlay: Bool
+
+        switch pendingUserAction {
+        case .selectTrack:
+            // Explicit play (queue tap, startPlayback) — force play, suppress notification.
+            isManual = true
+            shouldPlay = true
+        case .nextTrack, .previousTrack:
+            // User-driven nav — preserve current play/pause state.
+            // isAutoAdvancing covers the in-cascade recovery case
+            // (a recovered track keeps playing).
+            isManual = true
+            shouldPlay = isAutoAdvancing || isPlaying
+        case .none:
+            // Auto-advance from track-end, queue restore, eager-load reconcile.
+            isManual = false
+            shouldPlay = isAutoAdvancing || isPlaying
         }
 
-        // This is called when the current track changes (manual or automatic)
-        if let track = track {
-            // If we're auto-advancing (track finished), continue playing
-            // Otherwise, respect the current play/pause state
-            if isAutoAdvancing {
-                playbackEngine.play(song: track, isManualSelection: false)
-            } else if isPlaying {
-                playbackEngine.play(song: track, isManualSelection: false)
-            } else {
-                playbackEngine.loadWithoutPlaying(song: track)
-                // Restore persisted playback position if available (e.g., after app restart)
-                if let position = queueManager.restoredPlaybackPosition, position > 0 {
-                    playbackEngine.seek(to: position)
-                    print("[AudioPlayerService] ✅ Restored playback position: \(position)s")
-                    queueManager.restoredPlaybackPosition = nil
-                }
+        if shouldPlay {
+            playbackEngine.play(song: track, isManualSelection: isManual)
+        } else {
+            playbackEngine.loadWithoutPlaying(song: track)
+            // Restore persisted playback position if available (post-launch).
+            if let position = queueManager.restoredPlaybackPosition, position > 0 {
+                playbackEngine.seek(to: position)
+                print("[AudioPlayerService] ✅ Restored playback position: \(position)s")
+                queueManager.restoredPlaybackPosition = nil
             }
         }
     }
