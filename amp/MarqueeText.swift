@@ -4,9 +4,16 @@ import SwiftUI
 // container. Scroll pattern: pause → scroll to end → pause → scroll back
 // → pause → repeat.
 //
-// Implementation uses a single Task scoped to the view's identity.
-// Every state transition (text change, container resize, view disappear)
-// cancels the Task and starts a fresh one. Every await checks
+// MarqueeText is a thin wrapper that gives MarqueeContent a fresh identity
+// per text via .id(text). On every text change SwiftUI tears down the old
+// MarqueeContent (firing onDisappear → cancel) and brings up a new one with
+// reset @State. This sidesteps the rapid prev/next bugs where stale
+// measurement or animation state from a prior title would leak into the
+// next one — including the dedupe case where bouncing back to a recently
+// shown title would fail to refire onPreferenceChange and leave the
+// scroller stuck.
+//
+// The scroll is driven by a single Task. Every await checks
 // Task.isCancelled so no stale animation fires after cancellation —
 // which is what caused the bugs in the legacy asyncAfter-chain version.
 
@@ -15,10 +22,30 @@ struct MarqueeText: View {
     let font: Font
     let color: Color
 
-    // Speed and pauses are tunable; defaults feel iTunes-ish.
     var pixelsPerSecond: CGFloat = 30
     var pauseSeconds: Double = 1.5
     var edgePadding: CGFloat = 20
+
+    var body: some View {
+        MarqueeContent(
+            text: text,
+            font: font,
+            color: color,
+            pixelsPerSecond: pixelsPerSecond,
+            pauseSeconds: pauseSeconds,
+            edgePadding: edgePadding
+        )
+        .id(text)
+    }
+}
+
+private struct MarqueeContent: View {
+    let text: String
+    let font: Font
+    let color: Color
+    let pixelsPerSecond: CGFloat
+    let pauseSeconds: Double
+    let edgePadding: CGFloat
 
     @State private var textWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
@@ -60,16 +87,6 @@ struct MarqueeText: View {
                 containerWidth = geo.size.width
                 restart()
             }
-            .onChange(of: text) { _, _ in
-                // Don't restart with the stale textWidth from the previous
-                // string — that misclassifies a short new text as overflowing
-                // and starts a scroll that only stops once onPreferenceChange
-                // delivers the new measurement. Invalidate the width and let
-                // onPreferenceChange drive the restart.
-                cancel()
-                offset = 0
-                textWidth = 0
-            }
             .onDisappear {
                 cancel()
             }
@@ -82,9 +99,9 @@ struct MarqueeText: View {
 
     // When text fits, center it. When overflowing, apply the animated offset.
     private func displayOffset(containerWidth: CGFloat) -> CGFloat {
-        // textWidth==0 means "not yet measured" (initial frame, or just-changed
-        // text before the new preference fires). Render at the leading edge so
-        // we don't flash text into the container's center.
+        // textWidth==0 is the pre-measurement frame: render at the leading
+        // edge so we don't briefly flash text into the container's center
+        // before snapping it back once the real width arrives.
         guard textWidth > 0 else { return 0 }
         if overflow > 0 {
             return offset
