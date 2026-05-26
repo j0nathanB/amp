@@ -158,7 +158,12 @@ struct GenreDetailView: View {
     private func playAll() {
         let ids = songs.map { $0.persistentID }
         guard !ids.isEmpty else { return }
-        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: 0, navigateToNowPlaying: false)
+        // Shuffle-aware kickoff: with the queue's shuffle toggle on, start at
+        // a random index so the first track is randomized too — otherwise
+        // QueueManager's shuffle(keepCurrentFirst: true) pins track 0 and
+        // only shuffles the tail. Mirrors LibraryView.playAllSongs.
+        let start = audioPlayer.isShuffled ? Int.random(in: 0..<ids.count) : 0
+        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: start, navigateToNowPlaying: false)
     }
 
     private func shufflePlayAll() {
