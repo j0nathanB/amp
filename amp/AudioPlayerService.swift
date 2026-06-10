@@ -327,10 +327,20 @@ class AudioPlayerService: ObservableObject {
             name: Notification.Name("PlayPreviousTrack"),
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePlayNextTrack),
+            name: Notification.Name("PlayNextTrack"),
+            object: nil
+        )
     }
-    
+
     @objc private func handlePlayPreviousTrack() {
         previousTrack()
+    }
+
+    @objc private func handlePlayNextTrack() {
+        nextTrack()
     }
 }
 

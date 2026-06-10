@@ -135,9 +135,14 @@ struct PlaylistDetailView: View {
 
     // MARK: - Track list — per spec §7.8 each row carries the artist line
 
+    // LazyVStack + indices, same pattern as QueueView's list: a plain
+    // VStack built every TrackRow eagerly before first paint, and
+    // Array(enumerated()) re-allocated the tuple array on every body
+    // re-render (which fires on every audioPlayer playback tick).
     private var trackList: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(songs.enumerated()), id: \.offset) { index, song in
+        LazyVStack(spacing: 0) {
+            ForEach(songs.indices, id: \.self) { index in
+                let song = songs[index]
                 TrackRow(
                     position: "\(index + 1)",
                     title: song.title,
@@ -186,59 +191,50 @@ struct PlaylistDetailView: View {
 
     // MARK: - Loading
 
+    // Single MPMediaQuery via getPlaylistDetail — name, songs, durations,
+    // and collage album IDs all come off the same item set. The previous
+    // flow materialized every playlist for the name plus one query per
+    // track for duration (seconds on big playlists when the search-index
+    // duration cache was cold).
     private func loadData() async {
         let pid = playlistID
-        let loaded = await Task.detached(priority: .userInitiated) { () -> (String, [Song], [MPMediaEntityPersistentID: TimeInterval], TimeInterval, [MPMediaEntityPersistentID]) in
-            let name = LibraryService.shared.getPlaylists().first { $0.id == pid }?.name ?? ""
-            let songs = LibraryService.shared.getSongs(forPlaylist: pid)
+        let t0 = Date()
+        let loaded = await Task.detached(priority: .userInitiated) { () -> (String, [Song], [MPMediaEntityPersistentID: TimeInterval], TimeInterval, [MPMediaEntityPersistentID])? in
+            guard let detail = LibraryService.shared.getPlaylistDetail(for: pid) else { return nil }
 
             var durations: [MPMediaEntityPersistentID: TimeInterval] = [:]
+            durations.reserveCapacity(detail.tracks.count)
             var total: TimeInterval = 0
-            for song in songs {
-                let d = LibraryService.shared.getDuration(forTrack: song.persistentID)
-                durations[song.persistentID] = d
-                total += d
-            }
 
             // First four unique album IDs from the track list (preserving order).
-            var seenAlbums: Set<String> = []
-            var uniqueAlbumKeys: [String] = []
-            for song in songs {
-                let key = "\(song.artist)::\(song.album)"
-                if seenAlbums.insert(key).inserted {
-                    uniqueAlbumKeys.append(key)
-                    if uniqueAlbumKeys.count == 4 { break }
+            var seenAlbums: Set<MPMediaEntityPersistentID> = []
+            var albumIDs: [MPMediaEntityPersistentID] = []
+
+            for track in detail.tracks {
+                durations[track.song.persistentID] = track.duration
+                total += track.duration
+                if track.albumID != 0, albumIDs.count < 4, seenAlbums.insert(track.albumID).inserted {
+                    albumIDs.append(track.albumID)
                 }
             }
-            // We need MPMediaEntityPersistentIDs to fetch artwork; look up
-            // via album title on representative tracks.
-            let albumIDs: [MPMediaEntityPersistentID] = uniqueAlbumKeys.compactMap { key in
-                songs.first { "\($0.artist)::\($0.album)" == key }?.persistentID
-            }
-            return (name, songs, durations, total, albumIDs)
+            return (detail.name, detail.tracks.map(\.song), durations, total, albumIDs)
         }.value
 
+        guard let loaded else { return }
         self.name = loaded.0
         self.songs = loaded.1
         self.durations = loaded.2
         self.totalDuration = loaded.3
+        print("[PERF] playlistDetail tracks=\(loaded.1.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
-        await loadCollageArt(fromRepresentativeTrackIDs: loaded.4)
+        await loadCollageArt(albumIDs: loaded.4)
     }
 
-    // For each representative track ID we resolve the album persistent ID
-    // via a tiny MPMediaQuery, then pull its artwork. Done off the main
-    // thread so scroll stays smooth even with four art loads.
-    private func loadCollageArt(fromRepresentativeTrackIDs trackIDs: [MPMediaEntityPersistentID]) async {
-        // Resolve track IDs → album IDs in a single detached pass, then
-        // hand off to ArtworkCache so repeat playlist opens hit memory.
-        let albumIDs = await Task.detached(priority: .userInitiated) { () -> [MPMediaEntityPersistentID?] in
-            trackIDs.prefix(4).map { albumPersistentID(forTrack: $0) }
-        }.value
-
+    // Album IDs come straight off the playlist query items; ArtworkCache
+    // keeps repeat playlist opens hitting memory.
+    private func loadCollageArt(albumIDs: [MPMediaEntityPersistentID]) async {
         var result: [UIImage?] = [nil, nil, nil, nil]
-        for (i, albumID) in albumIDs.enumerated() {
-            guard let albumID else { continue }
+        for (i, albumID) in albumIDs.prefix(4).enumerated() {
             result[i] = await ArtworkCache.shared.artwork(
                 forAlbum: albumID,
                 size: CGSize(width: 400, height: 400)
@@ -253,22 +249,6 @@ struct PlaylistDetailView: View {
         }
         self.collageArt = result
     }
-}
-
-// Helper that lives outside the type because we need it inside a
-// Task.detached closure without capturing self.
-private func albumPersistentID(forTrack trackID: MPMediaEntityPersistentID) -> MPMediaEntityPersistentID? {
-    #if DEBUG
-    return nil
-    #else
-    let predicate = MPMediaPropertyPredicate(
-        value: NSNumber(value: trackID),
-        forProperty: MPMediaItemPropertyPersistentID
-    )
-    let query = MPMediaQuery.songs()
-    query.addFilterPredicate(predicate)
-    return query.items?.first?.albumPersistentID
-    #endif
 }
 
 private func formatDuration(_ t: TimeInterval) -> String {

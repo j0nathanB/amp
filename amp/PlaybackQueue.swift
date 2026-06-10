@@ -149,9 +149,10 @@ struct PlaybackQueue {
         
         // Load from library
         if let song = LibraryService.shared.getSong(by: trackID) {
-            // Add to cache, managing size
+            // Add to cache, managing size. Dictionary keys are unordered,
+            // so this evicts an ARBITRARY entry, not the oldest — fine for
+            // a 50-entry cache where any eviction choice is cheap to refill.
             if songCache.count >= maxCacheSize {
-                // Remove oldest entry (simple FIFO)
                 if let firstKey = songCache.keys.first {
                     songCache.removeValue(forKey: firstKey)
                 }

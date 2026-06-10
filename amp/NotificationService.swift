@@ -110,7 +110,15 @@ class NotificationService: NSObject, ObservableObject {
     
     @objc private func appWillEnterForeground() {
         print("🔔 [Lifecycle] App will enter foreground")
-        isResumingFromBackground = true
+        // Only meaningful when actually returning from background.
+        // willEnterForeground ALSO fires on cold launch, where
+        // appDidBecomeActive's clearing task never runs (appWasInBackground
+        // is false) — setting the flag unconditionally left it stuck true
+        // until the first real background cycle, suppressing every
+        // track-change notification after a cold launch.
+        if appWasInBackground {
+            isResumingFromBackground = true
+        }
     }
     
     // MARK: - Permission Management
@@ -137,12 +145,14 @@ class NotificationService: NSObject, ObservableObject {
     
     // MARK: - Notification Scheduling
     
+    // Called from the playback path (main thread, per track change). The
+    // cheap state checks run synchronously; the system queries that used to
+    // block the caller behind DispatchSemaphore.wait() (notification
+    // settings fetch, app state) now run in a detached continuation — the
+    // playback path never waits on UNUserNotificationCenter again.
     func scheduleTrackChangeNotification(song: Song, artwork: UIImage? = nil, isManualSelection: Bool = false) {
         print("🔔 [DEBUG] scheduleTrackChangeNotification called for: \(song.title)")
-        print("🔔 [DEBUG] isEnabled: \(isEnabled), isAuthorized: \(isAuthorized)")
-        print("🔔 [DEBUG] authorizationStatus: \(authorizationStatus)")
-        print("🔔 [DEBUG] isManualSelection: \(isManualSelection)")
-        print("🔔 [DEBUG] isResumingFromBackground: \(isResumingFromBackground)")
+        print("🔔 [DEBUG] isEnabled: \(isEnabled), isManualSelection: \(isManualSelection), isResumingFromBackground: \(isResumingFromBackground)")
         print("🔔 [DEBUG] lastNotificationSongID: \(lastNotificationSongID ?? 0), current song ID: \(song.persistentID)")
 
         // CRITICAL: Don't send notification for the same song twice
@@ -152,26 +162,27 @@ class NotificationService: NSObject, ObservableObject {
             return
         }
 
-        // CRITICAL: Don't send notification when resuming from background
-        // Check this BEFORE other checks to prevent lock screen unlock notifications
-        if isResumingFromBackground {
-            print("🔔 Skipping notification - resuming from background, updating lastNotificationSongID anyway")
-            // Update tracking even when blocked to prevent notification after resumption window
-            lastNotificationSongID = song.persistentID
-            return
-        }
-
-        // Check if notifications should be sent
-        guard shouldSendNotification(isManualSelection: isManualSelection) else {
-            print("🔔 [DEBUG] shouldSendNotification returned false")
-            // Update tracking even when blocked
-            lastNotificationSongID = song.persistentID
-            return
-        }
-
-        // Update last notification tracking
+        // Tracking updates even on blocked paths below, to prevent a late
+        // notification once the blocking condition clears.
         lastNotificationSongID = song.persistentID
-        
+
+        // CRITICAL: Don't send notification when resuming from background
+        if isResumingFromBackground {
+            print("🔔 Skipping notification - resuming from background")
+            return
+        }
+
+        guard isEnabled else {
+            print("🔔 Notifications disabled by user")
+            return
+        }
+
+        // Don't send for manual selections (user-initiated track changes)
+        if isManualSelection {
+            print("🔔 Skipping notification for manual track selection")
+            return
+        }
+
         // Debounce rapid track changes
         let currentTime = Date().timeIntervalSince1970
         if currentTime - lastNotificationTime < debounceInterval {
@@ -179,77 +190,28 @@ class NotificationService: NSObject, ObservableObject {
             return
         }
         lastNotificationTime = currentTime
-        
-        print("🔔 [DEBUG] Proceeding to send notification")
-        Task {
-            await sendTrackChangeNotification(song: song, artwork: artwork)
-        }
-    }
-    
-    private func shouldSendNotification(isManualSelection: Bool) -> Bool {
-        // Don't send if disabled by user
-        guard isEnabled else {
-            print("🔔 Notifications disabled by user")
-            return false
-        }
 
-        // Verify actual system authorization status in real-time
-        // This prevents stale state issues if user changes permissions in Settings
-        var actualAuthStatus: UNAuthorizationStatus = .notDetermined
-        let semaphore = DispatchSemaphore(value: 0)
-        Task {
+        Task { @MainActor in
+            // App-state check. Foregrounded-and-visible means the user can
+            // already see what's playing, so we only fire when backgrounded.
+            guard UIApplication.shared.applicationState == .background else {
+                print("🔔 Skipping notification - app is foregrounded")
+                return
+            }
+
+            // Verify actual system authorization in real-time — prevents
+            // stale state if the user changed permissions in Settings.
             let settings = await UNUserNotificationCenter.current().notificationSettings()
-            actualAuthStatus = settings.authorizationStatus
-            semaphore.signal()
-        }
-        semaphore.wait()
-
-        // Don't send if not actually authorized according to system
-        guard actualAuthStatus == .authorized else {
-            print("🔔 Notifications not authorized (system status: \(actualAuthStatus.rawValue))")
-            // Update cached state if desynchronized
-            if isAuthorized != (actualAuthStatus == .authorized) {
-                Task { @MainActor in
-                    self.isAuthorized = (actualAuthStatus == .authorized)
-                    self.authorizationStatus = actualAuthStatus
-                }
+            self.authorizationStatus = settings.authorizationStatus
+            self.isAuthorized = settings.authorizationStatus == .authorized
+            guard settings.authorizationStatus == .authorized else {
+                print("🔔 Notifications not authorized (system status: \(settings.authorizationStatus.rawValue))")
+                return
             }
-            return false
-        }
-        
-        // Don't send for manual selections (user-initiated track changes)
-        if isManualSelection {
-            print("🔔 Skipping notification for manual track selection")
-            return false
-        }
-        
-        // CRITICAL FIX: Don't send if resuming from background
-        if isResumingFromBackground {
-            print("🔔 Skipping notification - resuming from background")
-            return false
-        }
-        
-        // App-state check. Foregrounded-and-visible means the user can already see what's
-        // playing (either in-app or via the iOS Now Playing widget on the lock screen), so
-        // we only fire when the app is backgrounded.
-        var appState: UIApplication.State = .active
-        if Thread.isMainThread {
-            appState = UIApplication.shared.applicationState
-        } else {
-            let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor in
-                appState = UIApplication.shared.applicationState
-                semaphore.signal()
-            }
-            semaphore.wait()
-        }
 
-        guard appState == .background else {
-            print("🔔 Skipping notification - app is foregrounded")
-            return false
+            print("🔔 Will send notification - app is backgrounded")
+            await self.sendTrackChangeNotification(song: song, artwork: artwork)
         }
-        print("🔔 Will send notification - app is backgrounded")
-        return true
     }
     
     private func sendTrackChangeNotification(song: Song, artwork: UIImage?) async {

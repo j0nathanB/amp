@@ -1,6 +1,5 @@
 import Foundation
 import MediaPlayer
-import CryptoKit
 
 protocol QueueManagerDelegate: AnyObject {
     func queueDidChange()
@@ -112,6 +111,13 @@ class QueueManagerService: ObservableObject {
         lastUserInteraction = Date()
         print("[QueueManager] 🟢 Session started - blocking queue loads")
 
+        // New track starts at 0. Without this, saveQueue and the debounced
+        // snapshot capture the PREVIOUS track's position against the new
+        // track until the first playback-timer tick lands — kill the app in
+        // that window and next launch eager-loads the new track at the old
+        // track's position. Same reset in playTrack/nextTrack/previousTrack.
+        currentPlaybackPosition = 0
+
         playbackQueue.setTracks(songs, startingWith: startSong)
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
@@ -136,6 +142,8 @@ class QueueManagerService: ObservableObject {
         lastUserInteraction = Date()
         print("[QueueManager] 🟢 Session started (IDs path, \(trackIDs.count) tracks)")
 
+        currentPlaybackPosition = 0
+
         playbackQueue.setTrackIDs(trackIDs, startingIndex: index)
         if isShuffled {
             playbackQueue.shuffle(keepCurrentFirst: true)
@@ -158,7 +166,11 @@ class QueueManagerService: ObservableObject {
         lastUserInteraction = Date()
         
         guard let track = playbackQueue.play(at: index) else { return nil }
-        
+
+        // Reset AFTER the guard — a failed navigation must not zero the
+        // still-current track's position.
+        currentPlaybackPosition = 0
+
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
         currentTrack = track
@@ -174,6 +186,7 @@ class QueueManagerService: ObservableObject {
         
         // Try normal next track first
         if let track = playbackQueue.next() {
+            currentPlaybackPosition = 0
             // Trigger @Published update by reassigning the struct
             playbackQueue = playbackQueue
             currentTrack = track
@@ -187,6 +200,7 @@ class QueueManagerService: ObservableObject {
         if isLooped && !playbackQueue.isEmpty {
             print("[QueueManager] 🔄 Loop enabled - restarting from beginning")
             if let track = playbackQueue.play(at: 0) {
+                currentPlaybackPosition = 0
                 playbackQueue = playbackQueue
                 currentTrack = track
                 queueDidChange(triggeredBy: "nextTrack-loop")
@@ -203,7 +217,9 @@ class QueueManagerService: ObservableObject {
         lastUserInteraction = Date()
         
         guard let track = playbackQueue.previous() else { return nil }
-        
+
+        currentPlaybackPosition = 0
+
         // Trigger @Published update by reassigning the struct
         playbackQueue = playbackQueue
         currentTrack = track
@@ -365,21 +381,24 @@ class QueueManagerService: ObservableObject {
 
         // CRITICAL FIX: Capture state synchronously on main thread, not in async Task
         // This prevents race conditions where queue state changes between capture and persistence
-        let persisted = PersistedQueue(
+        //
+        // The capture is a checksum-less QueueSnapshot: the SHA-256 over up
+        // to 23k track IDs was hitching the main thread on every track
+        // change, so QueuePersistenceService derives it off-main instead.
+        let snapshot = QueueSnapshot(
             savedAt: Date(),
             trackIDs: playbackQueue.getAllTrackIDs(),
             currentIndex: playbackQueue.currentIndex,
             isShuffled: isShuffled,
             isLooped: isLooped,
             originalOrder: playbackQueue.originalOrder,
-            checksum: generateChecksum(),
             playbackPosition: currentPlaybackPosition
         )
 
         // Now persist asynchronously with the already-captured state
         Task {
-            await persistenceService.saveQueue(persisted)
-            print("[QueueManager] Queue saved successfully - index: \(persisted.currentIndex ?? -1)")
+            await persistenceService.saveQueue(snapshot)
+            print("[QueueManager] Queue saved successfully - index: \(snapshot.currentIndex ?? -1)")
         }
 
         // Refresh the current-track snapshot whenever the main queue saves.
@@ -495,14 +514,6 @@ class QueueManagerService: ObservableObject {
         }
     }
     
-    private func generateChecksum() -> String {
-        let trackIDs = playbackQueue.getAllTrackIDs()
-        let idString = trackIDs.map { String($0) }.joined(separator: ",")
-        let data = Data(idString.utf8)
-        let hash = SHA256.hash(data: data)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
-    }
-    
     private func loadQueueOnce() async {
         // Only load once at startup
         guard !hasLoadedInitialQueue else {
@@ -611,7 +622,10 @@ class QueueManagerService: ObservableObject {
                 songDictionary[id]
             }
 
-            let validOriginalOrder = persisted.originalOrder.filter { validTrackIDs.contains($0) }
+            // Set lookup, not Array.contains — the array form is O(n²) and
+            // costs hundreds of ms at 23k tracks on every cold-launch restore.
+            let validTrackIDSet = Set(validTrackIDs)
+            let validOriginalOrder = persisted.originalOrder.filter { validTrackIDSet.contains($0) }
             let shuffled = persisted.isShuffled
             let currentIndex = persisted.currentIndex
             
@@ -663,7 +677,9 @@ class QueueManagerService: ObservableObject {
                     // Cases (b) and (c): keep eager track, queue index aligned.
                     // Audio is already loaded via the eager path; no delegate call.
                     print("[QueueManager] ✅ Reconciled eager track with restored queue: \(eager.title) at index \(anchorIndex ?? -1)")
-                    // restoredPlaybackPosition was already set during eager apply.
+                    // currentPlaybackPosition was already seeded during eager
+                    // apply. restoredPlaybackPosition is deliberately NOT set
+                    // on the eager path — see applyEagerTrackSnapshot.
                 } else if let index = anchorIndex, index < songs.count {
                     // Case (a) or (d): fall back to the queue's stored current.
                     // If there was an eager track (case d), we're dropping it
@@ -692,6 +708,12 @@ class QueueManagerService: ObservableObject {
                     }
                     self.currentTrack = restored
                     self.restoredPlaybackPosition = persisted.playbackPosition
+                    // Seed currentPlaybackPosition too — same reasoning as
+                    // applyEagerTrackSnapshot: the debounced snapshot save
+                    // (fired by currentTrack.didSet above) and any saveQueue
+                    // before playback starts would otherwise persist 0 and
+                    // lose the restored position on a no-interaction session.
+                    self.currentPlaybackPosition = persisted.playbackPosition ?? 0
                     self.delegate?.currentTrackDidChange(restored)
                     print("[QueueManager] ✅ Restored current track from persisted queue: \(restored.title) at position \(persisted.playbackPosition ?? 0)s")
                 }

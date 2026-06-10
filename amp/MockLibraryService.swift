@@ -381,6 +381,17 @@ class MockLibraryService {
         return mockPlaylists
     }
 
+    // Mirrors LibraryService.getPlaylistDetail. Durations are 0 (matching
+    // the DEBUG behavior of getDuration) and albumID 0 marks "unknown" so
+    // the collage falls back to placeholder cells, as it did before.
+    func getPlaylistDetail(for playlistID: MPMediaEntityPersistentID) -> PlaylistDetail? {
+        guard let playlist = mockPlaylists.first(where: { $0.id == playlistID }) else { return nil }
+        let tracks = getSongs(forPlaylist: playlistID).map {
+            PlaylistDetail.Track(song: $0, duration: 0, albumID: 0)
+        }
+        return PlaylistDetail(name: playlist.name, tracks: tracks)
+    }
+
     func getSongs(forPlaylist playlistID: MPMediaEntityPersistentID) -> [Song] {
         // Return a subset of songs for mock playlists
         switch playlistID {

@@ -38,6 +38,8 @@ extension String {
             .replacingOccurrences(of: ".", with: "")
             .replacingOccurrences(of: "'", with: "")
             .replacingOccurrences(of: "?", with: "")
+            .replacingOccurrences(of: "¿", with: "")      // ¿Dónde? -> donde
+            .replacingOccurrences(of: "¡", with: "")      // ¡Hola! -> hola
             .replacingOccurrences(of: ":", with: "")
             .replacingOccurrences(of: ";", with: "")
             .replacingOccurrences(of: ",", with: "")
@@ -80,6 +82,19 @@ extension String {
     var searchNormalized: String {
         return searchQueryNormalized
     }
+}
+
+// Playlist Detail's full data requirement, satisfied by a single
+// MPMediaQuery (see LibraryService.getPlaylistDetail). Track order is
+// playlist order. albumID 0 means "unknown" (mock data) — collage skips it.
+struct PlaylistDetail {
+    struct Track {
+        let song: Song
+        let duration: TimeInterval
+        let albumID: MPMediaEntityPersistentID
+    }
+    let name: String
+    let tracks: [Track]
 }
 
 class LibraryService {
@@ -938,6 +953,33 @@ class LibraryService {
             }
             return Playlist(id: playlist.persistentID, name: name)
         }
+        #endif
+    }
+
+    // Everything Playlist Detail needs from ONE predicate-filtered playlist
+    // query. The previous flow ran getPlaylists() (materializes every
+    // playlist and its contents) just for the name, getSongs(forPlaylist:)
+    // for the rows, then one MPMediaQuery per track for duration and per
+    // collage cell for the album ID — all properties that were already
+    // sitting on the items this single query returns.
+    func getPlaylistDetail(for playlistID: MPMediaEntityPersistentID) -> PlaylistDetail? {
+        #if DEBUG
+        return MockLibraryService.shared.getPlaylistDetail(for: playlistID)
+        #else
+        let predicate = MPMediaPropertyPredicate(value: playlistID, forProperty: MPMediaPlaylistPropertyPersistentID)
+        let query = MPMediaQuery.playlists()
+        query.addFilterPredicate(predicate)
+
+        guard let playlist = query.collections?.first as? MPMediaPlaylist else { return nil }
+        let name = playlist.value(forProperty: MPMediaPlaylistPropertyName) as? String ?? ""
+        let tracks = playlist.items.map { item in
+            PlaylistDetail.Track(
+                song: self.song(from: item),
+                duration: item.playbackDuration,
+                albumID: item.albumPersistentID
+            )
+        }
+        return PlaylistDetail(name: name, tracks: tracks)
         #endif
     }
 

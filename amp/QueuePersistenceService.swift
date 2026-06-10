@@ -48,8 +48,12 @@ class QueuePersistenceService {
         backupDirectory?.appendingPathComponent("queue_history.plist")
     }
     
-    // Debouncing properties
-    private var pendingSave: PersistedQueue?
+    // Debouncing properties. All four mutable fields below are confined to
+    // `saveQueue` (the serial dispatch queue) — saveQueue(_:) is called from
+    // arbitrary executors and performSave runs on detached tasks, so
+    // unguarded access was a data race (worst case a lost debounce or
+    // mistimed backup, but Swift 6 strict concurrency rejects it outright).
+    private var pendingSave: QueueSnapshot?
     private var saveWorkItem: DispatchWorkItem?
     private let saveQueue = DispatchQueue(label: "com.amp.queuepersistence", qos: .background)
     private var changeCount = 0
@@ -75,38 +79,48 @@ class QueuePersistenceService {
     
     // MARK: - Public Methods
     
-    func saveQueue(_ queue: PersistedQueue) async {
+    func saveQueue(_ snapshot: QueueSnapshot) async {
         // Debug: Track save operations
         print("🟢 [QUEUE-PERSIST] [Save] Save requested - will NOT trigger any loads")
-        
-        // Cancel any pending save
-        saveWorkItem?.cancel()
-        
-        // Store for debounced save
-        pendingSave = queue
-        changeCount += 1
-        
-        // Create new debounced save work item
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self = self, let queueToSave = self.pendingSave else { return }
-            
-            Task {
-                await self.performSave(queueToSave)
+
+        saveQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            // Cancel any pending save
+            self.saveWorkItem?.cancel()
+
+            // Store for debounced save
+            self.pendingSave = snapshot
+            self.changeCount += 1
+
+            // Create new debounced save work item. It executes on saveQueue
+            // (asyncAfter below), so pendingSave access stays confined.
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self, let queueToSave = self.pendingSave else { return }
+                // Consume the pending snapshot — leaving it set retained the
+                // last 23k-ID snapshot indefinitely.
+                self.pendingSave = nil
+
+                Task {
+                    await self.performSave(queueToSave)
+                }
             }
+
+            self.saveWorkItem = workItem
+
+            // Schedule the save after debounce delay
+            self.saveQueue.asyncAfter(deadline: .now() + self.debounceDelay, execute: workItem)
         }
-        
-        saveWorkItem = workItem
-        
-        // Schedule the save after debounce delay
-        saveQueue.asyncAfter(deadline: .now() + debounceDelay, execute: workItem)
     }
-    
-    func saveQueueImmediately(_ queue: PersistedQueue) async {
+
+    func saveQueueImmediately(_ snapshot: QueueSnapshot) async {
         // Cancel any pending debounced save
-        saveWorkItem?.cancel()
-        pendingSave = nil
-        
-        await performSave(queue)
+        saveQueue.sync {
+            saveWorkItem?.cancel()
+            pendingSave = nil
+        }
+
+        await performSave(snapshot)
     }
     
     func loadQueue() async -> PersistedQueue? {
@@ -146,7 +160,11 @@ class QueuePersistenceService {
         
         // 3. Try migration from UserDefaults (one-time)
         if let migrated = await migrateFromUserDefaults() {
-            await saveQueueImmediately(migrated)
+            // Already a full PersistedQueue (checksum computed off-main in
+            // migrateFromUserDefaults) — skip the snapshot path.
+            saveWorkItem?.cancel()
+            pendingSave = nil
+            await performSave(migrated)
             clearUserDefaults()
             let loadTime = Date().timeIntervalSince(startTime) * 1000
             print("[QUEUE-PERSIST] [Load] [\(Date().ISO8601Format())]: Migrated from UserDefaults - \(migrated.trackIDs.count) tracks in \(Int(loadTime))ms")
@@ -159,7 +177,29 @@ class QueuePersistenceService {
     }
     
     // MARK: - Private Methods - Core Save/Load
-    
+
+    // Snapshot → PersistedQueue happens here, off-main, because the
+    // checksum (23k IDs → string join → SHA-256) is the expensive part.
+    // QueueManagerService captures the cheap QueueSnapshot synchronously
+    // (the ghost-queue fix requires synchronous state capture) and the
+    // hash cost lands on a background task instead of hitching the main
+    // thread on every track change.
+    private func performSave(_ snapshot: QueueSnapshot) async {
+        let queue = await Task.detached(priority: .background) {
+            PersistedQueue(
+                savedAt: snapshot.savedAt,
+                trackIDs: snapshot.trackIDs,
+                currentIndex: snapshot.currentIndex,
+                isShuffled: snapshot.isShuffled,
+                isLooped: snapshot.isLooped,
+                originalOrder: snapshot.originalOrder,
+                checksum: self.generateChecksum(for: snapshot.trackIDs),
+                playbackPosition: snapshot.playbackPosition
+            )
+        }.value
+        await performSave(queue)
+    }
+
     private func performSave(_ queue: PersistedQueue) async {
         let startTime = Date()
 
@@ -175,15 +215,20 @@ class QueuePersistenceService {
             }
         }
 
-        // Determine if we should also write to backup
-        let shouldBackup = changeCount >= backupChangeThreshold ||
-                          Date().timeIntervalSince(lastBackupTime) >= backupInterval
+        // Determine if we should also write to backup (counter state lives
+        // on saveQueue — see the property declarations).
+        let shouldBackup = saveQueue.sync {
+            changeCount >= backupChangeThreshold ||
+                Date().timeIntervalSince(lastBackupTime) >= backupInterval
+        }
 
         if shouldBackup {
             let backupSuccess = await writeToBackup(queue)
             if backupSuccess {
-                changeCount = 0
-                lastBackupTime = Date()
+                saveQueue.sync {
+                    changeCount = 0
+                    lastBackupTime = Date()
+                }
 
                 // Clean up legacy backup JSON for the same reason.
                 if let legacy = legacyBackupURL {
@@ -459,6 +504,21 @@ enum QueueBinaryCoder {
 }
 
 // MARK: - Data Models
+
+// Synchronously-captured queue state, minus the checksum. This is what
+// QueueManagerService hands to saveQueue/saveQueueImmediately: capturing
+// these fields is cheap (array references, COW), so it can happen
+// synchronously on the main thread per the ghost-queue fix, while the
+// expensive checksum derivation happens later in performSave off-main.
+struct QueueSnapshot {
+    let savedAt: Date
+    let trackIDs: [MPMediaEntityPersistentID]
+    let currentIndex: Int?
+    let isShuffled: Bool
+    let isLooped: Bool
+    let originalOrder: [MPMediaEntityPersistentID]
+    let playbackPosition: TimeInterval?
+}
 
 struct PersistedQueue: Codable {
     var version: Int = 1

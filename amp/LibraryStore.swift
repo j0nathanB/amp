@@ -326,16 +326,6 @@ final class LibraryStore: ObservableObject {
     // seen Albums shouldn't suddenly pay for a Songs scan just because
     // iOS fired a library-change notification.
     @objc private func libraryDidChange() {
-        // Purge cache files. The lastModifiedDate guard alone would also
-        // force a miss on next load (new library date > cached date), but
-        // explicit deletion matches SearchIndexService.libraryDidChange and
-        // keeps intent legible.
-        Task.detached(priority: .utility) {
-            for url in Self.allCacheURLs {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
-
         Task { @MainActor in
             let reloadAlbums = albumsState == .loaded
             let reloadArtists = artistsState == .loaded
@@ -348,6 +338,18 @@ final class LibraryStore: ObservableObject {
             songsState = .idle
             genresState = .idle
             playlistsState = .idle
+
+            // Purge cache files BEFORE kicking off the reloads. The
+            // lastModifiedDate guard alone would also force a miss on next
+            // load, but explicit deletion matches SearchIndexService. The
+            // ordering (await, not fire-and-forget) is load-bearing: a fast
+            // rebuild (playlists ≈30ms) can otherwise save its fresh cache
+            // and have an unordered detached deletion remove it afterwards.
+            await Task.detached(priority: .utility) {
+                for url in Self.allCacheURLs {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }.value
 
             if reloadAlbums { await ensureAlbums() }
             if reloadArtists { await ensureArtists() }

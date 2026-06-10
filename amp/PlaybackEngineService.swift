@@ -73,6 +73,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func play(song: Song, isManualSelection: Bool = false) {
         guard let url = getAudioURL(for: song) else {
             print("❌ No audio URL found for song: \(song.title)")
+            // Match the AVAudioPlayer-throw path's state (lastPlayedSong /
+            // pausedAt set before the failure) and route through the same
+            // recovery. The old early-return left the PREVIOUS track's
+            // player loaded while currentTrack showed the new song —
+            // play/pause then resumed the wrong audio — and never entered
+            // the skip cascade, so playback just dead-stopped.
+            lastPlayedSong = song
+            pausedAt = 0
+            handleLoadFailure(error: PlaybackLoadError.noAssetURL, song: song)
             return
         }
 
@@ -190,12 +199,22 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("📍 Manual seek while paused to: \(playbackTime)s")
         }
 
+        // Push the new position to QueueManager immediately. While paused
+        // the playback timer isn't running, so without this a seek-then-kill
+        // persists the pre-seek position.
+        delegate?.playbackTimeDidUpdate(playbackTime)
+
         updateNowPlayingInfoTime()
     }
 
     func loadWithoutPlaying(song: Song) {
         guard let url = getAudioURL(for: song) else {
             print("❌ No audio URL found for song: \(song.title)")
+            // Same rationale as play(): clear stale player state and enter
+            // the capped failure cascade instead of dead-ending.
+            lastPlayedSong = song
+            pausedAt = 0
+            handleLoadFailure(error: PlaybackLoadError.noAssetURL, song: song)
             return
         }
 
@@ -294,6 +313,17 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     // MARK: - Load failure plumbing
+
+    // A track whose MPMediaItem has no assetURL (cloud-only item that isn't
+    // downloaded, DRM, or removed from the library since the queue was
+    // built). Routed through handleLoadFailure so it behaves exactly like
+    // an AVAudioPlayer open failure.
+    private enum PlaybackLoadError: LocalizedError {
+        case noAssetURL
+        var errorDescription: String? {
+            "No asset URL for track (cloud-only, DRM, or removed from library)"
+        }
+    }
 
     // Shared catch handling for play() / loadWithoutPlaying(). loadWithURL
     // has its own explicit fall-through behavior and intentionally does
@@ -550,9 +580,6 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("ℹ️ Audio session reset not needed: \(error)")
         }
 
-        // Small delay to ensure session state is stable.
-        Thread.sleep(forTimeInterval: 0.1)
-
         do {
             try session.setCategory(.playback, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP])
             try session.setActive(true)
@@ -671,6 +698,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 player.pause()
                 isPlaying = false
                 stopTimer()
+                // Timer is stopped — sync the final position to QueueManager
+                // so a kill during the interruption persists it.
+                delegate?.playbackTimeDidUpdate(pausedAt)
                 updateNowPlayingInfoTime()
             }
 
@@ -709,6 +739,9 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("⏸️ Pausing playback — no output route remains")
             pausedAt = player.currentTime
             player.pause()
+            // Same rationale as the interruption path: timer stops below,
+            // sync the final position to QueueManager.
+            delegate?.playbackTimeDidUpdate(pausedAt)
         }
 
         isPlaying = false
@@ -786,9 +819,15 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
 
         commandCenter.nextTrackCommand.isEnabled = true
-        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            // Notify delegate to play next track (matches auto-advance path)
-            self?.delegate?.playbackDidFinish(successfully: true)
+        commandCenter.nextTrackCommand.addTarget { _ in
+            // Explicit advance via AudioPlayerService.nextTrack() (mirrors
+            // the PlayPreviousTrack pattern below). The old implementation
+            // impersonated track completion (playbackDidFinish(true)), which
+            // runs the isLoopingSong check first — so lock-screen "next"
+            // REPLAYED the current song whenever song-loop was on. Side
+            // effect of the new route: remote next preserves play/pause
+            // state instead of force-playing, matching Apple Music.
+            NotificationCenter.default.post(name: Notification.Name("PlayNextTrack"), object: nil)
             return .success
         }
 
