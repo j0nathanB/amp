@@ -2,7 +2,7 @@ import SwiftUI
 
 // Spec §5.12: full-width (24px side padding), 4px ampDivider track,
 // ampGreen progress fill, 16×16 ampGreen playhead with 2px stroke.
-// Below: current time left, remaining time right with leading "-".
+// Below: current time left, total track length right (static).
 
 struct Scrubber: View {
     let currentTime: TimeInterval
@@ -63,7 +63,7 @@ struct Scrubber: View {
                     .font(.timestamp)
                     .foregroundStyle(Color.ampMutedText)
                 Spacer()
-                Text("-" + format(max(0, duration - displayTime)))
+                Text(format(duration))
                     .font(.timestamp)
                     .foregroundStyle(Color.ampMutedText)
             }

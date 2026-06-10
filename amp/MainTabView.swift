@@ -14,6 +14,7 @@ struct MainTabView: View {
     @ObservedObject private var nav = NavigationService.shared
 
     @State private var isKeyboardVisible = false
+    @State private var didPickInitialTab = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,6 +39,17 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
+        }
+        .onAppear {
+            // Eager track restore in AudioPlayerService.init runs synchronously
+            // before the first frame, so currentTrack is already populated here
+            // if there's a persisted track. Decide the launch tab once based on
+            // that signal, then leave selectedTab alone.
+            guard !didPickInitialTab else { return }
+            didPickInitialTab = true
+            if audioPlayer.currentTrack != nil {
+                nav.selectedTab = .active
+            }
         }
     }
 

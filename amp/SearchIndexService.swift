@@ -31,7 +31,7 @@ struct PersistedSearchIndex: Codable {
     let libraryLastModified: Date
     let version: Int // For future compatibility
 
-    static let currentVersion = 2
+    static let currentVersion = 3
 }
 
 // Codable versions of data models (lightweight for persistence)
