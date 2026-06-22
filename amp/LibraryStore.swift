@@ -162,6 +162,14 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var genresState: LoadState = .idle
     @Published private(set) var playlistsState: LoadState = .idle
 
+    // Content signature (stable FNV-1a over the sorted song persistentID set)
+    // of the library as of the last songs rebuild. Lets libraryDidChange tell
+    // a real add/remove apart from a play-count / metadata-only bump and skip
+    // the expensive song-derived rebuilds in the latter case. In-memory only:
+    // ensureSongs has no disk cache, so this is re-established on every launch
+    // by the unconditional songs load before any change notification can fire.
+    private var songContentSignature: UInt64?
+
     // Per-tab cache files. See the VersionedLibraryCache comment above
     // for why we keep these separate rather than one consolidated blob.
     private static func cacheURL(_ name: String) -> URL {
@@ -309,6 +317,9 @@ final class LibraryStore: ObservableObject {
         }.value
         songs = loaded.0
         songSections = loaded.1
+        // Derived from the already-built array — free, and identical to the
+        // getAllSongIDs() hash libraryDidChange computes for the diff check.
+        songContentSignature = Self.contentSignature(loaded.0.map { $0.persistentID })
         libraryPOI.endInterval("library.rebuildSongs", state, "count: \(loaded.0.count)")
         print("[PERF] ensureSongs count=\(loaded.0.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
     }
@@ -405,34 +416,51 @@ final class LibraryStore: ObservableObject {
             let reloadGenres = genresState == .loaded
             let reloadPlaylists = playlistsState == .loaded
 
-            // Stage-and-swap: do NOT reset visited tabs to .idle here.
-            // Dropping to .idle makes LibraryView render a loading spinner on
-            // every visited tab at once — the "all views slow on resume"
-            // symptom — because a single coalesced MPMediaLibraryDidChange on
-            // foreground (often just a play-count / sync bump to
-            // lastModifiedDate, not a content edit) triggers a full rebuild
-            // storm. The rebuild* helpers leave loadState alone, so the
-            // current rows stay on screen and the fresh data swaps in when
-            // ready. Unvisited (.idle) tabs are left untouched; their now-stale
-            // disk cache is rejected by the lastModifiedDate guard on next
-            // visit.
+            // Diff-based invalidation. A MPMediaLibraryDidChange frequently
+            // reflects only play-count / last-played metadata bumps (from
+            // normal listening or a background sync), which leave the actual
+            // song set — and the albums/artists/genres derived from it —
+            // identical. Compute a cheap content signature of the current
+            // song-ID set and skip the song-derived rebuilds when it matches
+            // what the loaded data was built from. This is what stops a long
+            // idle's coalesced resume notification from burning multi-second
+            // getAllSongs() / getAllArtists() scans for no real change.
+            //
+            // Caveat: a pure in-place metadata edit that preserves every
+            // persistentID (e.g. renaming an album in Apple Music without
+            // adding/removing any track) doesn't move the signature, so it's
+            // not picked up here — it's caught on the next cold launch by
+            // loadCache's lastModifiedDate guard. Any add/remove of a track,
+            // album, or artist DOES move the signature and rebuilds.
+            //
+            // Playlists are derived separately (membership can change with no
+            // song-set change) and are cheap to rebuild (~30ms), so they
+            // always refresh.
+            //
+            // Stage-and-swap throughout: the rebuild* helpers never reset a tab
+            // to .idle, so visited tabs keep their current rows on screen while
+            // a real change rebuilds in the background — no spinner storm.
+            // No explicit cache purge: a real rebuild re-saves a fresh cache,
+            // and any unvisited tab's now-stale cache is rejected by the
+            // lastModifiedDate guard on its next load.
+            let songDerivedLoaded = reloadAlbums || reloadArtists || reloadSongs || reloadGenres
+            var songContentChanged = true
+            if songDerivedLoaded, let baseline = songContentSignature {
+                let current = await Task.detached(priority: .utility) {
+                    Self.contentSignature(LibraryService.shared.getAllSongIDs())
+                }.value
+                songContentChanged = current != baseline
+            }
 
-            // Purge cache files BEFORE kicking off the reloads. The
-            // lastModifiedDate guard alone would also force a miss on next
-            // load, but explicit deletion matches SearchIndexService. The
-            // ordering (await, not fire-and-forget) is load-bearing: a fast
-            // rebuild (playlists ≈30ms) can otherwise save its fresh cache
-            // and have an unordered detached deletion remove it afterwards.
-            await Task.detached(priority: .utility) {
-                for url in Self.allCacheURLs {
-                    try? FileManager.default.removeItem(at: url)
-                }
-            }.value
+            if songContentChanged {
+                if reloadAlbums { await rebuildAlbums() }
+                if reloadArtists { await rebuildArtists() }
+                if reloadSongs { await rebuildSongs() }
+                if reloadGenres { await rebuildGenres() }
+            } else {
+                print("📚 libraryDidChange: song content unchanged — skipped albums/artists/songs/genres rebuild")
+            }
 
-            if reloadAlbums { await rebuildAlbums() }
-            if reloadArtists { await rebuildArtists() }
-            if reloadSongs { await rebuildSongs() }
-            if reloadGenres { await rebuildGenres() }
             if reloadPlaylists { await rebuildPlaylists() }
         }
     }
@@ -480,6 +508,26 @@ final class LibraryStore: ObservableObject {
                 print("📚 \(url.lastPathComponent) save failed: \(error)")
             }
         }
+    }
+
+    // Order-independent content signature over a set of persistentIDs.
+    // FNV-1a (not Swift's Hasher, whose seed is randomized per process) so the
+    // value is reproducible: the songs rebuild derives it from its result and
+    // libraryDidChange recomputes it from getAllSongIDs(), and the two must
+    // agree for identical libraries. Sorting first makes it order-independent;
+    // 23k UInt64s sort in well under a millisecond.
+    private nonisolated static func contentSignature(_ ids: [MPMediaEntityPersistentID]) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325          // FNV-1a offset basis
+        let prime: UInt64 = 0x100000001b3
+        hash = (hash ^ UInt64(ids.count)) &* prime     // length-sensitive
+        for id in ids.sorted() {
+            var v = id
+            for _ in 0..<8 {
+                hash = (hash ^ (v & 0xff)) &* prime
+                v >>= 8
+            }
+        }
+        return hash
     }
 
 }
