@@ -31,9 +31,11 @@ struct CurrentTrackSnapshot: Codable {
 
     static let currentVersion = 1
 
+    // Durable (Application Support), not .cachesDirectory: a purged snapshot
+    // would silently lose the eager Now Playing hydration after a long idle.
+    // See DurableStorage in LibraryStore.swift for the full rationale.
     private static var diskURL: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("current_track_snapshot.plist")
+        DurableStorage.url(for: "current_track_snapshot.plist")
     }
 
     // Sync read — file is ~500 bytes, read happens once at app launch

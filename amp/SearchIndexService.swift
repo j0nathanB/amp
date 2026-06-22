@@ -88,11 +88,11 @@ class HybridSearchIndex: @unchecked Sendable {
     // Thread-safe access to indices
     private let indexQueue = DispatchQueue(label: "com.amp.searchIndex", attributes: .concurrent)
 
-    // Persistence configuration
-    private static let indexCacheURL: URL = {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return cacheDir.appendingPathComponent("SearchIndex.cache")
-    }()
+    // Persistence configuration. Durable (Application Support), not
+    // .cachesDirectory — a purge forces a full index rebuild on resume, part
+    // of the same storm as the Library tabs. See DurableStorage in
+    // LibraryStore.swift.
+    private static let indexCacheURL: URL = DurableStorage.url(for: "SearchIndex.cache")
 
     // Word-based index for exact matches (O(1) lookup)
     private var _songWordIndex: [String: Set<MPMediaEntityPersistentID>] = [:]

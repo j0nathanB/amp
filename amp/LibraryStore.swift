@@ -8,6 +8,40 @@ import os.signpost
 // options to configure. Differentiate by name prefix (library.*, etc.).
 private let libraryPOI = OSSignposter(subsystem: "j0nathanb.amp", category: "PointsOfInterest")
 
+// Resolver for durable (non-purgeable) cache files, shared by LibraryStore,
+// CurrentTrackSnapshot, and the search index.
+//
+// These derived caches used to live in .cachesDirectory, which iOS reclaims
+// under storage pressure while the app is backgrounded — increasingly likely
+// the longer it sits idle (days/weeks). When they vanish, the next foreground
+// pays a full MPMediaQuery rebuild of every Library tab + the search index,
+// surfacing as multi-second loading spinners on every view except Now Playing.
+// Application Support is not purged, so these survive a long idle (and a silent
+// background jettison followed by state restoration).
+//
+// Deliberately NOT moved here: ArtworkCache stays in .cachesDirectory. It's
+// large and trivially regenerable from the library — exactly what Caches is
+// for — and moving it would bloat the app's non-purgeable footprint.
+//
+// Migration: existing installs have these files in Caches. The path change
+// orphans them (Caches is auto-purged, so no cleanup needed) and costs a
+// single rebuild on the first launch after update; durable from then on.
+enum DurableStorage {
+    private static var directory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("LibraryCache", isDirectory: true)
+    }
+
+    // Application Support is not guaranteed to exist; create on demand.
+    // createDirectory(withIntermediateDirectories: true) is idempotent and
+    // cheap once the directory exists, so this is safe on every read/write.
+    static func url(for fileName: String) -> URL {
+        let dir = directory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent(fileName)
+    }
+}
+
 // Typed letter-section container for alphabet-scrubber views. Generic so
 // the same section shape works for albums, artists, songs, and genres.
 struct LetterSection<T>: Identifiable {
@@ -131,8 +165,7 @@ final class LibraryStore: ObservableObject {
     // Per-tab cache files. See the VersionedLibraryCache comment above
     // for why we keep these separate rather than one consolidated blob.
     private static func cacheURL(_ name: String) -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(name)
+        DurableStorage.url(for: name)
     }
     private static let albumsCacheURL = cacheURL("LibraryAlbums.cache")
     private static let artistsCacheURL = cacheURL("LibraryArtists.cache")
@@ -174,14 +207,25 @@ final class LibraryStore: ObservableObject {
             return
         }
 
+        await rebuildAlbums()
+        albumsState = .loaded
+    }
+
+    // Rebuild Albums from the live library, publish, and persist the cache.
+    // Deliberately leaves albumsState untouched: ensureAlbums() owns the
+    // first-load loading→loaded flip, while libraryDidChange() calls this
+    // directly to refresh an already-.loaded tab WITHOUT dropping to a
+    // spinner — the current rows stay on screen until the fresh ones swap in.
+    private func rebuildAlbums() async {
+        let state = libraryPOI.beginInterval("library.rebuildAlbums")
+        let t0 = Date()
         let loaded = await Task.detached(priority: .userInitiated) {
             let albums = LibraryService.shared.getAllAlbums()
             return (albums, LetterSection.bucket(albums) { $0.title })
         }.value
         albums = loaded.0
         albumSections = loaded.1
-        albumsState = .loaded
-        libraryPOI.endInterval("library.ensureAlbums", state, "count: \(loaded.0.count)")
+        libraryPOI.endInterval("library.rebuildAlbums", state, "count: \(loaded.0.count)")
         print("[PERF] ensureAlbums count=\(loaded.0.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
         Self.saveCache(
@@ -210,6 +254,14 @@ final class LibraryStore: ObservableObject {
             return
         }
 
+        await rebuildArtists()
+        artistsState = .loaded
+    }
+
+    // See rebuildAlbums() for why this is split out and leaves state alone.
+    private func rebuildArtists() async {
+        let state = libraryPOI.beginInterval("library.rebuildArtists")
+        let t0 = Date()
         let loaded = await Task.detached(priority: .userInitiated) {
             let rows = LibraryService.shared.getAllArtistsWithAlbumCounts()
             let artists = rows.map { $0.artist }
@@ -221,8 +273,7 @@ final class LibraryStore: ObservableObject {
         artists = loaded.0
         artistAlbumCounts = loaded.1
         artistSections = loaded.2
-        artistsState = .loaded
-        libraryPOI.endInterval("library.ensureArtists", state, "count: \(loaded.0.count)")
+        libraryPOI.endInterval("library.rebuildArtists", state, "count: \(loaded.0.count)")
         print("[PERF] ensureArtists count=\(loaded.0.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
         Self.saveCache(
@@ -239,7 +290,15 @@ final class LibraryStore: ObservableObject {
     func ensureSongs() async {
         guard songsState == .idle else { return }
         songsState = .loading
-        let state = libraryPOI.beginInterval("library.ensureSongs")
+        await rebuildSongs()
+        songsState = .loaded
+    }
+
+    // See rebuildAlbums() for why this is split out and leaves state alone.
+    // Songs are deliberately not disk-cached (see the persisted-cache note up
+    // top), so unlike the other tabs this has no save step.
+    private func rebuildSongs() async {
+        let state = libraryPOI.beginInterval("library.rebuildSongs")
         let t0 = Date()
         let loaded = await Task.detached(priority: .userInitiated) {
             // SongsScrubbableList displays songs sorted by title, so we
@@ -250,8 +309,7 @@ final class LibraryStore: ObservableObject {
         }.value
         songs = loaded.0
         songSections = loaded.1
-        songsState = .loaded
-        libraryPOI.endInterval("library.ensureSongs", state, "count: \(loaded.0.count)")
+        libraryPOI.endInterval("library.rebuildSongs", state, "count: \(loaded.0.count)")
         print("[PERF] ensureSongs count=\(loaded.0.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
     }
 
@@ -270,12 +328,19 @@ final class LibraryStore: ObservableObject {
             return
         }
 
+        await rebuildGenres()
+        genresState = .loaded
+    }
+
+    // See rebuildAlbums() for why this is split out and leaves state alone.
+    private func rebuildGenres() async {
+        let state = libraryPOI.beginInterval("library.rebuildGenres")
+        let t0 = Date()
         let raw = await LibraryService.shared.getAllGenres()
         let sorted = raw.sorted(by: LibraryService.nameOrder)
         genres = sorted
         genreSections = LetterSection.bucket(sorted) { $0 }
-        genresState = .loaded
-        libraryPOI.endInterval("library.ensureGenres", state, "count: \(sorted.count)")
+        libraryPOI.endInterval("library.rebuildGenres", state, "count: \(sorted.count)")
         print("[PERF] ensureGenres count=\(sorted.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
         Self.saveCache(
@@ -302,12 +367,19 @@ final class LibraryStore: ObservableObject {
             return
         }
 
+        await rebuildPlaylists()
+        playlistsState = .loaded
+    }
+
+    // See rebuildAlbums() for why this is split out and leaves state alone.
+    private func rebuildPlaylists() async {
+        let state = libraryPOI.beginInterval("library.rebuildPlaylists")
+        let t0 = Date()
         let loaded = await Task.detached(priority: .userInitiated) {
             LibraryService.shared.getPlaylists()
         }.value
         playlists = loaded
-        playlistsState = .loaded
-        libraryPOI.endInterval("library.ensurePlaylists", state, "count: \(loaded.count)")
+        libraryPOI.endInterval("library.rebuildPlaylists", state, "count: \(loaded.count)")
         print("[PERF] ensurePlaylists count=\(loaded.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
         Self.saveCache(
@@ -333,11 +405,17 @@ final class LibraryStore: ObservableObject {
             let reloadGenres = genresState == .loaded
             let reloadPlaylists = playlistsState == .loaded
 
-            albumsState = .idle
-            artistsState = .idle
-            songsState = .idle
-            genresState = .idle
-            playlistsState = .idle
+            // Stage-and-swap: do NOT reset visited tabs to .idle here.
+            // Dropping to .idle makes LibraryView render a loading spinner on
+            // every visited tab at once — the "all views slow on resume"
+            // symptom — because a single coalesced MPMediaLibraryDidChange on
+            // foreground (often just a play-count / sync bump to
+            // lastModifiedDate, not a content edit) triggers a full rebuild
+            // storm. The rebuild* helpers leave loadState alone, so the
+            // current rows stay on screen and the fresh data swaps in when
+            // ready. Unvisited (.idle) tabs are left untouched; their now-stale
+            // disk cache is rejected by the lastModifiedDate guard on next
+            // visit.
 
             // Purge cache files BEFORE kicking off the reloads. The
             // lastModifiedDate guard alone would also force a miss on next
@@ -351,11 +429,11 @@ final class LibraryStore: ObservableObject {
                 }
             }.value
 
-            if reloadAlbums { await ensureAlbums() }
-            if reloadArtists { await ensureArtists() }
-            if reloadSongs { await ensureSongs() }
-            if reloadGenres { await ensureGenres() }
-            if reloadPlaylists { await ensurePlaylists() }
+            if reloadAlbums { await rebuildAlbums() }
+            if reloadArtists { await rebuildArtists() }
+            if reloadSongs { await rebuildSongs() }
+            if reloadGenres { await rebuildGenres() }
+            if reloadPlaylists { await rebuildPlaylists() }
         }
     }
 
