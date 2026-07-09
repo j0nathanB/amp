@@ -1,5 +1,6 @@
 import Foundation
 import MediaPlayer
+import UIKit
 
 #if DEBUG
 
@@ -518,6 +519,102 @@ class MockLibraryService {
             albumTrackNumber: item.albumTrackNumber,
             genre: item.genre
         )
+    }
+}
+
+// Adapter exposing MockLibraryService through the LibrarySource seam
+// (Phase 1 of dev/FOLDER_LIBRARY_TOGGLE_PLAN.md). Each method mirrors the
+// old per-method `#if DEBUG` branch in LibraryService exactly: duration is
+// 0, lyrics/artwork are nil, album-artist lookups alias to artist lookups,
+// and artists-with-counts is unsorted — parity over polish, so the seam
+// extraction stays a pure refactor.
+final class MockLibrarySource: LibrarySource {
+    private let mock = MockLibraryService.shared
+
+    func getSong(by id: MPMediaEntityPersistentID) -> Song? {
+        mock.getSong(by: id)
+    }
+
+    func getSongs(by ids: [MPMediaEntityPersistentID]) -> [MPMediaEntityPersistentID: Song] {
+        mock.getSongs(by: ids)
+    }
+
+    func getPlaylists() -> [Playlist] {
+        mock.getPlaylists()
+    }
+
+    func getPlaylistDetail(for playlistID: MPMediaEntityPersistentID) -> PlaylistDetail? {
+        mock.getPlaylistDetail(for: playlistID)
+    }
+
+    func getSongs(forPlaylist playlistID: MPMediaEntityPersistentID) -> [Song] {
+        mock.getSongs(forPlaylist: playlistID)
+    }
+
+    func getTotalSongCount() -> Int {
+        mock.getTotalSongCount()
+    }
+
+    func getAllSongs() -> [Song] {
+        mock.getAllSongs()
+    }
+
+    func getAllSongIDs() -> [MPMediaEntityPersistentID] {
+        mock.getAllSongIDs()
+    }
+
+    func getAllAlbums() -> [Album] {
+        mock.getAllAlbums().sorted { LibraryService.nameOrder($0.title, $1.title) }
+    }
+
+    func getAllArtistsWithAlbumCounts() -> [(artist: Artist, albumCount: Int)] {
+        mock.getAllArtists().map {
+            ($0, mock.getAlbums(forArtist: $0.id).count)
+        }
+    }
+
+    func getSongs(forAlbum albumID: MPMediaEntityPersistentID) -> [Song] {
+        mock.getSongs(forAlbum: albumID)
+    }
+
+    func getSongs(forArtist artistID: MPMediaEntityPersistentID) -> [Song] {
+        mock.getSongs(forArtist: artistID)
+    }
+
+    func getAlbums(forArtist artistID: MPMediaEntityPersistentID) -> [Album] {
+        mock.getAlbums(forArtist: artistID)
+    }
+
+    func getAlbums(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Album] {
+        mock.getAlbums(forArtist: albumArtistID)
+    }
+
+    func getSongs(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Song] {
+        mock.getSongs(forArtist: albumArtistID)
+    }
+
+    func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {
+        0
+    }
+
+    func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {
+        nil
+    }
+
+    func getArtworkImage(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
+        nil
+    }
+
+    func getSongIDs(forPlaylist playlistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
+        await mock.getSongIDs(forPlaylist: playlistID)
+    }
+
+    func getSongIDs(forAlbum albumID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
+        await mock.getSongIDs(forAlbum: albumID)
+    }
+
+    func getSongIDs(forArtist artistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
+        await mock.getSongIDs(forArtist: artistID)
     }
 }
 
