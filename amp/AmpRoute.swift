@@ -10,6 +10,7 @@ enum AmpRoute: Hashable {
     case playlistDetail(MPMediaEntityPersistentID)
     case genreDetail(String)
     case settings
+    case folderSettings
     case lyrics
 }
 
@@ -30,6 +31,8 @@ struct AmpRouteDestination: View {
             GenreDetailView(genre: name)
         case .settings:
             SettingsView()
+        case .folderSettings:
+            FolderSettingsView()
         case .lyrics:
             LyricsView()
         }

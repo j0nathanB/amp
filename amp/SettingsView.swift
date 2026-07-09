@@ -21,10 +21,12 @@ struct SettingsView: View {
     @ObservedObject private var settings = SettingsService.shared
     @ObservedObject private var liked = LikedTracksService.shared
     @ObservedObject private var libraryMode = LibraryModeService.shared
+    @ObservedObject private var nav = NavigationService.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var showNoLikedAlert = false
     @State private var exportErrorMessage: String?
+    @State private var showFirstFolderPicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -83,9 +85,10 @@ struct SettingsView: View {
             // Library source (FOLDER_LIBRARY_TOGGLE_PLAN). Non-invertible:
             // MUSIC and FOLDER are equally valid choices, like TOP/BOTTOM.
             // Switching stops playback and erases the queue (decision #6) —
-            // LibraryModeService owns that sequence. Phase 3 adds the
-            // folder picker on first switch to FOLDER; until then folder
-            // mode is an empty library.
+            // LibraryModeService owns that sequence. First flip to FOLDER
+            // with no roots opens the system picker instead (decision #9);
+            // cancelling leaves the mode untouched, so the toggle — which
+            // reads the mode — stays on MUSIC by construction.
             BrutalistToggle(
                 label: "Library source",
                 onLabel: "FOLDER",
@@ -93,12 +96,43 @@ struct SettingsView: View {
                 isInvertible: false,
                 isOn: Binding(
                     get: { libraryMode.mode == .folder },
-                    set: { libraryMode.setMode($0 ? .folder : .music) }
+                    set: { wantsFolder in
+                        if wantsFolder && FolderLibraryService.shared.roots.isEmpty {
+                            showFirstFolderPicker = true
+                        } else {
+                            libraryMode.setMode(wantsFolder ? .folder : .music)
+                        }
+                    }
                 )
             )
+            // Folder roots management (add/remove/rescan).
+            Button {
+                nav.push(.folderSettings)
+            } label: {
+                HStack(spacing: 0) {
+                    Text("Folders")
+                        .font(.listTitle)
+                        .foregroundStyle(Color.ampBlack)
+                        .padding(.leading, 16)
+                    Spacer(minLength: 12)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.ampBlack)
+                        .padding(.trailing, 16)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+            }
+            .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 28)
+        .fileImporter(isPresented: $showFirstFolderPicker, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                FolderLibraryService.shared.addFolder(pickedURL: url)
+                libraryMode.setMode(.folder)
+            }
+            // Cancel/failure: no mode change; toggle stays MUSIC.
+        }
     }
 
     // MARK: - Export section

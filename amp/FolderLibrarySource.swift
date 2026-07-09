@@ -2,21 +2,55 @@ import Foundation
 import MediaPlayer
 import UIKit
 
-// The folder-roots LibrarySource. Phase 2 stub: folder mode exists
-// end-to-end (Settings toggle, switch sequence, empty library) with this
-// returning empty results everywhere. Phase 3 replaces the bodies with
-// reads from the folder-scan cache (see dev/FOLDER_LIBRARY_TOGGLE_PLAN.md:
-// FolderRootStore + FolderScanService + FolderLibraryCache), minting
-// deterministic FNV-1a ids for tracks/albums/artists.
+// The folder-roots LibrarySource (Phase 3 of
+// dev/FOLDER_LIBRARY_TOGGLE_PLAN.md): reads FolderLibraryService's
+// scanned catalog. Phase 3 serves the flat Songs surface — song lookups,
+// the all-songs list, durations. Albums/Artists/Genres grouping lands in
+// Phase 4 (the catalog already carries albumID/artistID for it) and
+// .m3u playlists in Phase 5; those queries return empty until then.
 final class FolderLibrarySource: LibrarySource {
 
+    private var catalog: FolderCatalog { FolderLibraryService.shared.catalog }
+
+    // MARK: - Songs (live in Phase 3)
+
     func getSong(by id: MPMediaEntityPersistentID) -> Song? {
-        nil
+        catalog.track(for: id)?.song
     }
 
     func getSongs(by ids: [MPMediaEntityPersistentID]) -> [MPMediaEntityPersistentID: Song] {
-        [:]
+        catalog.songs(for: ids)
     }
+
+    func getTotalSongCount() -> Int {
+        catalog.count
+    }
+
+    func getAllSongs() -> [Song] {
+        catalog.allSongs
+    }
+
+    func getAllSongIDs() -> [MPMediaEntityPersistentID] {
+        catalog.allSongs.map { $0.persistentID }
+    }
+
+    func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {
+        catalog.track(for: id)?.duration ?? 0
+    }
+
+    // Embedded-lyrics read needs an AVAsset open under a security scope;
+    // deferred alongside the Phase 4 per-track polish.
+    func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {
+        nil
+    }
+
+    // Artwork extraction (AVAsset commonKeyArtwork) is Phase 4, wired
+    // through ArtworkCache's per-source dispatch.
+    func getArtworkImage(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
+        nil
+    }
+
+    // MARK: - Grouping (Phase 4) and playlists (Phase 5) — empty until then
 
     func getPlaylists() -> [Playlist] {
         []
@@ -27,18 +61,6 @@ final class FolderLibrarySource: LibrarySource {
     }
 
     func getSongs(forPlaylist playlistID: MPMediaEntityPersistentID) -> [Song] {
-        []
-    }
-
-    func getTotalSongCount() -> Int {
-        0
-    }
-
-    func getAllSongs() -> [Song] {
-        []
-    }
-
-    func getAllSongIDs() -> [MPMediaEntityPersistentID] {
         []
     }
 
@@ -68,18 +90,6 @@ final class FolderLibrarySource: LibrarySource {
 
     func getSongs(forAlbumArtist albumArtistID: MPMediaEntityPersistentID) -> [Song] {
         []
-    }
-
-    func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {
-        0
-    }
-
-    func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {
-        nil
-    }
-
-    func getArtworkImage(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
-        nil
     }
 
     func getSongIDs(forPlaylist playlistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {

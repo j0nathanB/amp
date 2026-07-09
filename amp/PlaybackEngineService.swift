@@ -48,6 +48,28 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var consecutiveLoadFailures = 0
     private let maxConsecutiveFailures = 5
 
+    // Folder-mode security scope currently held for playback. Acquired in
+    // getAudioURL's folder branch (before AVAudioPlayer opens the file),
+    // held for the track's lifetime, released in the cleanup paths — the
+    // paused-30s cleanup and stop. Reference-counted inside
+    // FolderLibraryService, so a concurrent scan bracketing the same root
+    // can't tear our grant down mid-track.
+    private var heldFolderRootID: UUID?
+
+    private func acquireFolderScope(_ rootID: UUID) {
+        guard heldFolderRootID != rootID else { return }
+        releaseFolderScope()
+        if FolderLibraryService.shared.beginAccess(rootID) != nil {
+            heldFolderRootID = rootID
+        }
+    }
+
+    private func releaseFolderScope() {
+        guard let rootID = heldFolderRootID else { return }
+        FolderLibraryService.shared.endAccess(rootID)
+        heldFolderRootID = nil
+    }
+
     override init() {
         super.init()
 
@@ -351,6 +373,20 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // to open. Distinguishes DRM-protected items (hasProtectedAsset) from
     // cloud-only items (isCloudItem) from genuinely corrupt files.
     private func logMediaItemDiagnostics(for song: Song) {
+        // Folder tracks have no MPMediaItem to interrogate — dump the
+        // catalog/root state instead.
+        if LibraryModeService.shared.mode == .folder {
+            if let track = FolderLibraryService.shared.catalog.track(for: song.persistentID) {
+                let stale = FolderLibraryService.shared.staleRootIDs.contains(track.rootID)
+                print("🔬 [diag] Failing folder track: \(song.title)")
+                print("🔬 [diag]   relativePath: \(track.relativePath)")
+                print("🔬 [diag]   rootID:       \(track.rootID) (stale: \(stale))")
+            } else {
+                print("🔬 [diag] Failing folder track not in catalog: \(song.title) (id: \(song.persistentID))")
+            }
+            return
+        }
+
         let predicate = MPMediaPropertyPredicate(
             value: NSNumber(value: song.persistentID),
             forProperty: MPMediaItemPropertyPersistentID
@@ -380,6 +416,18 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // MARK: - Helpers
 
     private func getAudioURL(for song: Song) -> URL? {
+        // Folder mode: resolve through the scanned catalog and hold the
+        // root's security scope for the playback lifetime. nil (track
+        // gone, root stale) feeds the same handleLoadFailure cascade as a
+        // missing MP asset — one recovery path for both sources.
+        if LibraryModeService.shared.mode == .folder {
+            guard let resolved = FolderLibraryService.shared.audioURL(forTrack: song.persistentID) else {
+                return nil
+            }
+            acquireFolderScope(resolved.rootID)
+            return resolved.url
+        }
+
         let predicate = MPMediaPropertyPredicate(
             value: NSNumber(value: song.persistentID),
             forProperty: MPMediaItemPropertyPersistentID
@@ -396,6 +444,11 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func getArtwork(for song: Song) -> MPMediaItemArtwork? {
+        // Folder tracks: no artwork until Phase 4 (AVAsset commonKeyArtwork
+        // via ArtworkCache's per-source dispatch). Control Center shows the
+        // placeholder.
+        guard LibraryModeService.shared.mode == .music else { return nil }
+
         let predicate = MPMediaPropertyPredicate(
             value: NSNumber(value: song.persistentID),
             forProperty: MPMediaItemPropertyPersistentID
@@ -458,6 +511,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         player = nil
         playbackTime = pausedAt
 
+        // Player released → the folder scope can drop too. Resume re-opens
+        // via getAudioURL (resumeFromPause), which re-acquires it.
+        releaseFolderScope()
+
         deactivateAudioSessionIfNeeded()
 
         // Notify AudioPlayerService to coordinate with QueueManager —
@@ -474,6 +531,7 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         pausedAt = 0
         songDuration = 0.0
         playbackTime = 0.0
+        releaseFolderScope()
         deactivateAudioSessionIfNeeded()
     }
 
