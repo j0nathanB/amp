@@ -100,16 +100,22 @@ struct PlaylistDetail {
 class LibraryService {
     static let shared = LibraryService()
 
-    // Active data source behind the LibrarySource seam (Phase 1 of
-    // dev/FOLDER_LIBRARY_TOGGLE_PLAN.md). DEBUG builds run on mock data
-    // (the simulator has no MP library) — this replaces the old per-method
-    // `#if DEBUG` branches with a single compile-time source choice.
-    // Phase 2 makes this switchable at runtime (Music ⇄ Folder).
+    // The two sources behind the LibrarySource seam
+    // (dev/FOLDER_LIBRARY_TOGGLE_PLAN.md). DEBUG builds run "music" mode on
+    // mock data (the simulator has no MP library) — this replaces the old
+    // per-method `#if DEBUG` branches with a single compile-time choice.
     #if DEBUG
-    private let activeSource: LibrarySource = MockLibrarySource()
+    private let musicSource: LibrarySource = MockLibrarySource()
     #else
-    private let activeSource: LibrarySource = MusicLibrarySource()
+    private let musicSource: LibrarySource = MusicLibrarySource()
     #endif
+    private let folderSource: LibrarySource = FolderLibrarySource()
+
+    // Resolved per call so a mode switch takes effect without re-wiring;
+    // both sources are cheap to hold.
+    private var activeSource: LibrarySource {
+        LibraryModeService.shared.mode == .folder ? folderSource : musicSource
+    }
 
     // Hybrid search index for fast diacritics-insensitive search
     private let searchIndex = HybridSearchIndex()
@@ -365,7 +371,13 @@ class LibraryService {
 
     func search(for term: String) async -> SearchResults {
         #if DEBUG
-        return await MockLibraryService.shared.search(for: term)
+        // Mock search only serves music mode; in folder mode fall through
+        // to the index path (empty index → empty results) so folder mode
+        // never leaks Music/mock results. Phase 4 adds a real folder index.
+        if LibraryModeService.shared.mode == .music {
+            return await MockLibraryService.shared.search(for: term)
+        }
+        return SearchResults(artists: [], albums: [], songs: [])
         #else
         // Add safety checks and error handling to prevent crashes
         guard !term.isEmpty && term.count < 100 else {
@@ -671,12 +683,7 @@ class LibraryService {
     
     /// Get all available genres in the library (for filter UI)
     func getAllGenres() async -> [String] {
-        await Task.detached(priority: .userInitiated) {
-            let query = MPMediaQuery.genres()
-            return (query.collections ?? []).compactMap { collection in
-                collection.representativeItem?.genre
-            }.sorted()
-        }.value
+        await activeSource.getAllGenres()
     }
     
     // MARK: - Performance Testing

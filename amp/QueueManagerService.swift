@@ -375,6 +375,31 @@ class QueueManagerService: ObservableObject {
         // DO NOT reload the queue here!
     }
     
+    // Full queue erase for the library-mode switch (FOLDER_LIBRARY_TOGGLE_PLAN
+    // decision #6): in-memory queue, current track, persisted queue file, and
+    // the Now-Playing snapshot all go. The pending debounced snapshot save is
+    // cancelled FIRST — otherwise a queued write could resurrect the snapshot
+    // after currentTrack = nil removed it from disk.
+    func eraseQueue() {
+        snapshotSaveWorkItem?.cancel()
+        snapshotSaveWorkItem = nil
+        isEagerLoad = false
+
+        playbackQueue.clear()
+        currentTrack = nil          // didSet removes CurrentTrackSnapshot from disk
+        currentPlaybackPosition = 0
+        restoredPlaybackPosition = nil
+        isShuffled = false
+        isLooped = false
+        queueVersion += 1
+        delegate?.queueDidChange()
+
+        Task {
+            await persistenceService.clearAllStorage()
+            print("[QueueManager] Queue erased (mode switch) — memory, disk, snapshot cleared")
+        }
+    }
+
     internal func saveQueue() {
         // Don't trigger any loads after saving
         print("[QueueManager] Saving queue - currentIndex: \(playbackQueue.currentIndex ?? -1), track: \(currentTrack?.title ?? "none")")

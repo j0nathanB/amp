@@ -20,6 +20,7 @@ final class SettingsService: ObservableObject {
 struct SettingsView: View {
     @ObservedObject private var settings = SettingsService.shared
     @ObservedObject private var liked = LikedTracksService.shared
+    @ObservedObject private var libraryMode = LibraryModeService.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var showNoLikedAlert = false
@@ -78,6 +79,22 @@ struct SettingsView: View {
                 offLabel: "BOTTOM",
                 isInvertible: false,
                 isOn: $settings.queuePinDefaultTop
+            )
+            // Library source (FOLDER_LIBRARY_TOGGLE_PLAN). Non-invertible:
+            // MUSIC and FOLDER are equally valid choices, like TOP/BOTTOM.
+            // Switching stops playback and erases the queue (decision #6) —
+            // LibraryModeService owns that sequence. Phase 3 adds the
+            // folder picker on first switch to FOLDER; until then folder
+            // mode is an empty library.
+            BrutalistToggle(
+                label: "Library source",
+                onLabel: "FOLDER",
+                offLabel: "MUSIC",
+                isInvertible: false,
+                isOn: Binding(
+                    get: { libraryMode.mode == .folder },
+                    set: { libraryMode.setMode($0 ? .folder : .music) }
+                )
             )
         }
         .padding(.horizontal, 24)

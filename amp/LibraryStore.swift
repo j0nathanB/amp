@@ -190,6 +190,12 @@ final class LibraryStore: ObservableObject {
             name: .MPMediaLibraryDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sourceDidChange),
+            name: .ampLibrarySourceDidChange,
+            object: nil
+        )
         MPMediaLibrary.default().beginGeneratingLibraryChangeNotifications()
     }
 
@@ -206,7 +212,12 @@ final class LibraryStore: ObservableObject {
         let state = libraryPOI.beginInterval("library.ensureAlbums")
         let t0 = Date()
 
-        if let cached = await Self.loadCache(Self.albumsCacheURL, type: PersistedAlbums.self) {
+        // Disk caches are music-mode only: the folder source (Phase 3) is
+        // itself a disk-cached derived structure, so caching its output
+        // here would be a second copy with the wrong invalidation guard
+        // (loadCache checks MPMediaLibrary.lastModifiedDate).
+        if LibraryModeService.shared.mode == .music,
+           let cached = await Self.loadCache(Self.albumsCacheURL, type: PersistedAlbums.self) {
             albums = cached.albums
             albumSections = LetterSection.bucket(cached.albums) { $0.title }
             albumsState = .loaded
@@ -227,23 +238,36 @@ final class LibraryStore: ObservableObject {
     private func rebuildAlbums() async {
         let state = libraryPOI.beginInterval("library.rebuildAlbums")
         let t0 = Date()
+        // Mode captured before the detached work; re-checked after (the
+        // CLAUDE.md fail-safe pattern). A mode switch mid-build means this
+        // result belongs to the old source — publishing it would stomp the
+        // new mode's rows, and saving it would poison the music cache with
+        // cross-source data. sourceDidChange has already queued a rebuild
+        // for the new mode, so discarding is safe.
+        let modeAtBuild = LibraryModeService.shared.mode
         let loaded = await Task.detached(priority: .userInitiated) {
             let albums = LibraryService.shared.getAllAlbums()
             return (albums, LetterSection.bucket(albums) { $0.title })
         }.value
+        guard LibraryModeService.shared.mode == modeAtBuild else {
+            print("📚 rebuildAlbums: mode switched mid-build — discarding")
+            return
+        }
         albums = loaded.0
         albumSections = loaded.1
         libraryPOI.endInterval("library.rebuildAlbums", state, "count: \(loaded.0.count)")
         print("[PERF] ensureAlbums count=\(loaded.0.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
-        Self.saveCache(
-            PersistedAlbums(
-                version: PersistedAlbums.currentVersion,
-                libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
-                albums: loaded.0
-            ),
-            to: Self.albumsCacheURL
-        )
+        if modeAtBuild == .music {
+            Self.saveCache(
+                PersistedAlbums(
+                    version: PersistedAlbums.currentVersion,
+                    libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
+                    albums: loaded.0
+                ),
+                to: Self.albumsCacheURL
+            )
+        }
     }
 
     func ensureArtists() async {
@@ -252,7 +276,8 @@ final class LibraryStore: ObservableObject {
         let state = libraryPOI.beginInterval("library.ensureArtists")
         let t0 = Date()
 
-        if let cached = await Self.loadCache(Self.artistsCacheURL, type: PersistedArtists.self) {
+        if LibraryModeService.shared.mode == .music,
+           let cached = await Self.loadCache(Self.artistsCacheURL, type: PersistedArtists.self) {
             artists = cached.artists
             artistAlbumCounts = cached.albumCounts
             artistSections = LetterSection.bucket(cached.artists) { $0.name }
@@ -270,6 +295,8 @@ final class LibraryStore: ObservableObject {
     private func rebuildArtists() async {
         let state = libraryPOI.beginInterval("library.rebuildArtists")
         let t0 = Date()
+        // See rebuildAlbums for the mode capture/re-check rationale.
+        let modeAtBuild = LibraryModeService.shared.mode
         let loaded = await Task.detached(priority: .userInitiated) {
             let rows = LibraryService.shared.getAllArtistsWithAlbumCounts()
             let artists = rows.map { $0.artist }
@@ -278,21 +305,27 @@ final class LibraryStore: ObservableObject {
             for row in rows { counts[row.artist.id] = row.albumCount }
             return (artists, counts, LetterSection.bucket(artists) { $0.name })
         }.value
+        guard LibraryModeService.shared.mode == modeAtBuild else {
+            print("📚 rebuildArtists: mode switched mid-build — discarding")
+            return
+        }
         artists = loaded.0
         artistAlbumCounts = loaded.1
         artistSections = loaded.2
         libraryPOI.endInterval("library.rebuildArtists", state, "count: \(loaded.0.count)")
         print("[PERF] ensureArtists count=\(loaded.0.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
-        Self.saveCache(
-            PersistedArtists(
-                version: PersistedArtists.currentVersion,
-                libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
-                artists: loaded.0,
-                albumCounts: loaded.1
-            ),
-            to: Self.artistsCacheURL
-        )
+        if modeAtBuild == .music {
+            Self.saveCache(
+                PersistedArtists(
+                    version: PersistedArtists.currentVersion,
+                    libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
+                    artists: loaded.0,
+                    albumCounts: loaded.1
+                ),
+                to: Self.artistsCacheURL
+            )
+        }
     }
 
     func ensureSongs() async {
@@ -308,6 +341,8 @@ final class LibraryStore: ObservableObject {
     private func rebuildSongs() async {
         let state = libraryPOI.beginInterval("library.rebuildSongs")
         let t0 = Date()
+        // See rebuildAlbums for the mode capture/re-check rationale.
+        let modeAtBuild = LibraryModeService.shared.mode
         let loaded = await Task.detached(priority: .userInitiated) {
             // SongsScrubbableList displays songs sorted by title, so we
             // sort once here instead of recomputing in the view's body.
@@ -315,6 +350,10 @@ final class LibraryStore: ObservableObject {
                 .sorted { LibraryService.nameOrder($0.title, $1.title) }
             return (sorted, LetterSection.bucket(sorted) { $0.title })
         }.value
+        guard LibraryModeService.shared.mode == modeAtBuild else {
+            print("📚 rebuildSongs: mode switched mid-build — discarding")
+            return
+        }
         songs = loaded.0
         songSections = loaded.1
         // Derived from the already-built array — free, and identical to the
@@ -330,7 +369,8 @@ final class LibraryStore: ObservableObject {
         let state = libraryPOI.beginInterval("library.ensureGenres")
         let t0 = Date()
 
-        if let cached = await Self.loadCache(Self.genresCacheURL, type: PersistedGenres.self) {
+        if LibraryModeService.shared.mode == .music,
+           let cached = await Self.loadCache(Self.genresCacheURL, type: PersistedGenres.self) {
             genres = cached.genres
             genreSections = LetterSection.bucket(cached.genres) { $0 }
             genresState = .loaded
@@ -347,21 +387,29 @@ final class LibraryStore: ObservableObject {
     private func rebuildGenres() async {
         let state = libraryPOI.beginInterval("library.rebuildGenres")
         let t0 = Date()
+        // See rebuildAlbums for the mode capture/re-check rationale.
+        let modeAtBuild = LibraryModeService.shared.mode
         let raw = await LibraryService.shared.getAllGenres()
+        guard LibraryModeService.shared.mode == modeAtBuild else {
+            print("📚 rebuildGenres: mode switched mid-build — discarding")
+            return
+        }
         let sorted = raw.sorted(by: LibraryService.nameOrder)
         genres = sorted
         genreSections = LetterSection.bucket(sorted) { $0 }
         libraryPOI.endInterval("library.rebuildGenres", state, "count: \(sorted.count)")
         print("[PERF] ensureGenres count=\(sorted.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
-        Self.saveCache(
-            PersistedGenres(
-                version: PersistedGenres.currentVersion,
-                libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
-                genres: sorted
-            ),
-            to: Self.genresCacheURL
-        )
+        if modeAtBuild == .music {
+            Self.saveCache(
+                PersistedGenres(
+                    version: PersistedGenres.currentVersion,
+                    libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
+                    genres: sorted
+                ),
+                to: Self.genresCacheURL
+            )
+        }
     }
 
     func ensurePlaylists() async {
@@ -370,7 +418,8 @@ final class LibraryStore: ObservableObject {
         let state = libraryPOI.beginInterval("library.ensurePlaylists")
         let t0 = Date()
 
-        if let cached = await Self.loadCache(Self.playlistsCacheURL, type: PersistedPlaylists.self) {
+        if LibraryModeService.shared.mode == .music,
+           let cached = await Self.loadCache(Self.playlistsCacheURL, type: PersistedPlaylists.self) {
             playlists = cached.playlists
             playlistsState = .loaded
             libraryPOI.endInterval("library.ensurePlaylists", state, "count: \(cached.playlists.count) (cache)")
@@ -386,21 +435,29 @@ final class LibraryStore: ObservableObject {
     private func rebuildPlaylists() async {
         let state = libraryPOI.beginInterval("library.rebuildPlaylists")
         let t0 = Date()
+        // See rebuildAlbums for the mode capture/re-check rationale.
+        let modeAtBuild = LibraryModeService.shared.mode
         let loaded = await Task.detached(priority: .userInitiated) {
             LibraryService.shared.getPlaylists()
         }.value
+        guard LibraryModeService.shared.mode == modeAtBuild else {
+            print("📚 rebuildPlaylists: mode switched mid-build — discarding")
+            return
+        }
         playlists = loaded
         libraryPOI.endInterval("library.rebuildPlaylists", state, "count: \(loaded.count)")
         print("[PERF] ensurePlaylists count=\(loaded.count) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
 
-        Self.saveCache(
-            PersistedPlaylists(
-                version: PersistedPlaylists.currentVersion,
-                libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
-                playlists: loaded
-            ),
-            to: Self.playlistsCacheURL
-        )
+        if modeAtBuild == .music {
+            Self.saveCache(
+                PersistedPlaylists(
+                    version: PersistedPlaylists.currentVersion,
+                    libraryLastModified: MPMediaLibrary.default().lastModifiedDate,
+                    playlists: loaded
+                ),
+                to: Self.playlistsCacheURL
+            )
+        }
     }
 
     // MARK: - Invalidation
@@ -410,6 +467,16 @@ final class LibraryStore: ObservableObject {
     // iOS fired a library-change notification.
     @objc private func libraryDidChange() {
         Task { @MainActor in
+            // MP change notifications only matter while the Music source is
+            // live. In folder mode the published rows are folder data — a
+            // rebuild here would burn getAllSongIDs() scans for a library
+            // the user isn't looking at. Music disk caches self-heal: the
+            // lastModifiedDate guard rejects them on the next music-mode load.
+            guard LibraryModeService.shared.mode == .music else {
+                print("📚 libraryDidChange: folder mode active — ignoring MP library change")
+                return
+            }
+
             let reloadAlbums = albumsState == .loaded
             let reloadArtists = artistsState == .loaded
             let reloadSongs = songsState == .loaded
@@ -462,6 +529,24 @@ final class LibraryStore: ObservableObject {
             }
 
             if reloadPlaylists { await rebuildPlaylists() }
+        }
+    }
+
+    // Library source switched (Music ⇄ Folder). Rebuild every visited tab
+    // from the new active source, unconditionally — the source itself
+    // changed, so the content-signature short-circuit is meaningless (and
+    // the baseline belongs to the old source; drop it). Same stage-and-swap
+    // as libraryDidChange: current rows stay on screen until the new
+    // source's rows land. Unvisited tabs stay .idle and lazily load from
+    // the new source on first visit.
+    @objc private func sourceDidChange() {
+        Task { @MainActor in
+            songContentSignature = nil
+            if albumsState == .loaded { await rebuildAlbums() }
+            if artistsState == .loaded { await rebuildArtists() }
+            if songsState == .loaded { await rebuildSongs() }
+            if genresState == .loaded { await rebuildGenres() }
+            if playlistsState == .loaded { await rebuildPlaylists() }
         }
     }
 

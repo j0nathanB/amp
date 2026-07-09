@@ -616,6 +616,13 @@ final class MockLibrarySource: LibrarySource {
     func getSongIDs(forArtist artistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
         await mock.getSongIDs(forArtist: artistID)
     }
+
+    // Parity with the pre-seam DEBUG behavior: getAllGenres ran a real
+    // MPMediaQuery even in DEBUG, which returns nothing on the simulator —
+    // so the Genres tab has always been empty in DEBUG builds.
+    func getAllGenres() async -> [String] {
+        []
+    }
 }
 
 #endif

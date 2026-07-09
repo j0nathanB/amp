@@ -126,6 +126,12 @@ class HybridSearchIndex: @unchecked Sendable {
             name: .MPMediaLibraryDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sourceDidChange),
+            name: .ampLibrarySourceDidChange,
+            object: nil
+        )
 
         // Begin monitoring library changes
         MPMediaLibrary.default().beginGeneratingLibraryChangeNotifications()
@@ -139,10 +145,30 @@ class HybridSearchIndex: @unchecked Sendable {
     @objc private func libraryDidChange() {
         print("🔍 Music library changed - invalidating search index cache")
 
-        // Delete cached index file
+        // Delete cached index file — the MP library genuinely changed, so
+        // the persisted music index is stale regardless of active mode.
         try? FileManager.default.removeItem(at: Self.indexCacheURL)
 
+        // But only rebuild while the Music source is live. In folder mode
+        // the in-memory index is the (empty, Phase 2) folder index; the
+        // music rebuild happens on switch-back, when buildIndex misses the
+        // deleted cache.
+        guard LibraryModeService.shared.mode == .music else {
+            print("🔍 Folder mode active — deferring music index rebuild to switch-back")
+            return
+        }
+
         // Rebuild index asynchronously
+        Task.detached(priority: .background) {
+            await self.buildIndex()
+        }
+    }
+
+    // Library source switched (Music ⇄ Folder): install the new source's
+    // index. Music: disk-cache hit in the common case (the cache is only
+    // deleted when MP actually changed), so no rebuild storm. Folder:
+    // buildIndex's mode guard installs an empty index (Phase 2).
+    @objc private func sourceDidChange() {
         Task.detached(priority: .background) {
             await self.buildIndex()
         }
@@ -302,6 +328,30 @@ class HybridSearchIndex: @unchecked Sendable {
     // MARK: - Index Building
 
     func buildIndex() async {
+        // Folder mode (Phase 2): the folder source has no index yet —
+        // install an EMPTY index so search returns nothing rather than
+        // stale Music results. Marked built so callers don't fall into
+        // rebuild loops. The music-mode disk cache is deliberately left
+        // alone: switching back to music is a cache hit, not a rebuild
+        // storm. Phase 4 replaces this with a real folder index build.
+        guard LibraryModeService.shared.mode == .music else {
+            print("🔍 Folder mode — installing empty search index")
+            self.allSongs = []
+            self.allArtists = []
+            self.allAlbums = []
+            indexQueue.async(flags: .barrier) {
+                self._songWordIndex = [:]
+                self._artistWordIndex = [:]
+                self._albumWordIndex = [:]
+                self._songCache = [:]
+                self._artistCache = [:]
+                self._albumCache = [:]
+                self._durationCache = [:]
+                self._isIndexBuilt = true
+            }
+            return
+        }
+
         // Try loading from cache first
         if loadCachedIndex() {
             return // Successfully loaded from cache

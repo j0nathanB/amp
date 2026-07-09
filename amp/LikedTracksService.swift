@@ -16,16 +16,34 @@ import Combine
 final class LikedTracksService: ObservableObject {
     static let shared = LikedTracksService()
 
-    private static let storageKey = "amp.likedTrackIDs"
+    // Per-mode storage (FOLDER_LIBRARY_TOGGLE_PLAN decision #5): each
+    // library source keeps its own liked set, and switching modes swaps
+    // which one is live — neither is destroyed by the other. Music keeps
+    // the pre-toggle key so existing installs inherit their liked history.
+    private static let musicStorageKey = "amp.likedTrackIDs"
+    private static let folderStorageKey = "amp.likedTrackIDs.folder"
+
+    private static func storageKey(for mode: LibrarySourceMode) -> String {
+        mode == .folder ? folderStorageKey : musicStorageKey
+    }
+
+    private static func load(for mode: LibrarySourceMode) -> Set<MPMediaEntityPersistentID> {
+        if let stored = UserDefaults.standard.array(forKey: storageKey(for: mode)) as? [NSNumber] {
+            return Set(stored.map { $0.uint64Value })
+        }
+        return []
+    }
 
     @Published private(set) var likedIDs: Set<MPMediaEntityPersistentID>
 
     private init() {
-        if let stored = UserDefaults.standard.array(forKey: Self.storageKey) as? [NSNumber] {
-            self.likedIDs = Set(stored.map { $0.uint64Value })
-        } else {
-            self.likedIDs = []
-        }
+        likedIDs = Self.load(for: LibraryModeService.shared.mode)
+    }
+
+    // Called by LibraryModeService.setMode AFTER the mode flips: publish
+    // the new mode's persisted likes.
+    func reloadForActiveMode() {
+        likedIDs = Self.load(for: LibraryModeService.shared.mode)
     }
 
     func isLiked(trackID: MPMediaEntityPersistentID) -> Bool {
@@ -47,7 +65,7 @@ final class LikedTracksService: ObservableObject {
 
     private func persist() {
         let array = likedIDs.map { NSNumber(value: $0) }
-        UserDefaults.standard.set(array, forKey: Self.storageKey)
+        UserDefaults.standard.set(array, forKey: Self.storageKey(for: LibraryModeService.shared.mode))
     }
 
     // MARK: - .m3u export (§7.9, §9.1)

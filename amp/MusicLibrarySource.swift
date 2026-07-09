@@ -349,6 +349,16 @@ final class MusicLibrarySource: LibrarySource {
         }.value
     }
 
+    /// Get all available genres in the library (for filter UI)
+    func getAllGenres() async -> [String] {
+        await Task.detached(priority: .userInitiated) {
+            let query = MPMediaQuery.genres()
+            return (query.collections ?? []).compactMap { collection in
+                collection.representativeItem?.genre
+            }.sorted()
+        }.value
+    }
+
     func getSongIDs(forArtist artistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
         await Task.detached(priority: .userInitiated) {
             let predicate = MPMediaPropertyPredicate(value: artistID, forProperty: MPMediaItemPropertyArtistPersistentID)

@@ -279,6 +279,15 @@ class AudioPlayerService: ObservableObject {
     func seek(to time: TimeInterval) {
         playbackEngine.seek(to: time)
     }
+
+    // Library-mode switch support (FOLDER_LIBRARY_TOGGLE_PLAN decision #6):
+    // full stop — audio, Now Playing info, lastPlayedSong/pausedAt (cleared
+    // inside stop()'s cleanup) — then erase the queue, its persisted file,
+    // and the Now-Playing snapshot. Nothing from the old source survives.
+    func stopPlaybackAndEraseQueue() {
+        playbackEngine.stop()
+        queueManager.eraseQueue()
+    }
     
     func shuffleCurrentQueue() {
         queueManager.shuffleCurrentQueue()

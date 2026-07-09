@@ -575,6 +575,13 @@ extension QueuePersistenceService {
         return info
     }
     
+}
+#endif
+
+// Production queue-storage wipe. Formerly DEBUG-only; promoted for the
+// library-mode switch (FOLDER_LIBRARY_TOGGLE_PLAN decision #6), which
+// erases the persisted queue when the user swaps sources.
+extension QueuePersistenceService {
     func clearAllStorage() async {
         if let cacheURL = cacheURL {
             try? fileManager.removeItem(at: cacheURL)
@@ -586,7 +593,6 @@ extension QueuePersistenceService {
             try? fileManager.removeItem(at: historyURL)
         }
         clearUserDefaults()
-        print("[QUEUE-PERSIST] [Debug] [\(Date().ISO8601Format())]: Cleared all storage")
+        print("[QUEUE-PERSIST] [\(Date().ISO8601Format())]: Cleared all storage")
     }
 }
-#endif
