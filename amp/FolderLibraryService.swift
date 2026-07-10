@@ -147,9 +147,16 @@ final class FolderLibraryService: ObservableObject {
     // at zero (plan watch-out: playback holds a root's scope for a track's
     // lifetime while a scan may bracket the same root — naive pairing would
     // let the scan's stop tear down playback's grant mid-track).
+    //
+    // scopeHeld tracks whether startAccessing actually took a scope for the
+    // root: it returns false for URLs that don't need one (folders inside
+    // the app's own container, "On My iPhone" locations) — that's "no scope
+    // required", NOT "access denied", so we proceed without it and skip the
+    // matching stopAccessing.
     private let accessLock = NSLock()
     private var resolvedURLs: [UUID: URL] = [:]
     private var accessCounts: [UUID: Int] = [:]
+    private var scopeHeld: Set<UUID> = []
 
     private init() {
         loadRoots()
@@ -261,17 +268,18 @@ final class FolderLibraryService: ObservableObject {
 
     // MARK: - Security-scope access (reference-counted per root)
 
-    // Returns the root URL with an active scope grant, or nil if the root
-    // is unresolved. Every beginAccess must be paired with endAccess.
+    // Returns the root URL ready for file access, or nil if the root is
+    // unresolved. Every beginAccess must be paired with endAccess.
     @discardableResult
     func beginAccess(_ rootID: UUID) -> URL? {
         accessLock.lock(); defer { accessLock.unlock() }
         guard let url = resolvedURLs[rootID] else { return nil }
         let count = accessCounts[rootID, default: 0]
         if count == 0 {
-            guard url.startAccessingSecurityScopedResource() else {
-                print("📁 ⚠️ startAccessingSecurityScopedResource failed for root \(rootID)")
-                return nil
+            // false = the URL isn't security-scoped (device-local folder,
+            // app's own container) — access works without a grant.
+            if url.startAccessingSecurityScopedResource() {
+                scopeHeld.insert(rootID)
             }
         }
         accessCounts[rootID] = count + 1
@@ -282,7 +290,7 @@ final class FolderLibraryService: ObservableObject {
         accessLock.lock(); defer { accessLock.unlock() }
         guard let count = accessCounts[rootID], count > 0 else { return }
         accessCounts[rootID] = count - 1
-        if count == 1 {
+        if count == 1, scopeHeld.remove(rootID) != nil {
             resolvedURLs[rootID]?.stopAccessingSecurityScopedResource()
         }
     }

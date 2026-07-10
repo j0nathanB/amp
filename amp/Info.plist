@@ -22,5 +22,13 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- Folder library (FOLDER_LIBRARY_TOGGLE_PLAN): expose amp's Documents
+	     in Finder/Files so music folders can be dragged onto the device and
+	     then picked as a folder root. In-place so picked subfolders play
+	     from where they live rather than being copied. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>
