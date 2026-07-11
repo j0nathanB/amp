@@ -627,6 +627,14 @@ final class MockLibrarySource: LibrarySource {
     func getGenreDetail(for genre: String) async -> GenreDetail {
         .empty
     }
+
+    // Parity with the pre-seam DEBUG behavior: AlbumArtView and
+    // NavigationService ran real MPMediaQueries even in DEBUG (empty on
+    // simulator), so Now Playing artwork/album-artist and info-strip
+    // navigation have never worked in DEBUG builds.
+    func getTrackAlbumInfo(forTrack id: MPMediaEntityPersistentID) -> TrackAlbumInfo? {
+        nil
+    }
 }
 
 #endif

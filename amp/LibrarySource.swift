@@ -47,6 +47,18 @@ protocol LibrarySource {
 
     func getAllGenres() async -> [String]
     func getGenreDetail(for genre: String) async -> GenreDetail
+
+    // Track → owning album + canonical artist identity. Now Playing's
+    // album art, its flip-side metadata, info-strip navigation
+    // (NavigationService.navigateToArtist/Album(forTrack:)), and
+    // notification artwork all key off this.
+    func getTrackAlbumInfo(forTrack id: MPMediaEntityPersistentID) -> TrackAlbumInfo?
+}
+
+struct TrackAlbumInfo {
+    let albumID: MPMediaEntityPersistentID
+    let artistID: MPMediaEntityPersistentID
+    let albumArtist: String?
 }
 
 // Everything Genre Detail renders, in display order. Formerly derived

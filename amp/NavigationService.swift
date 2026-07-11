@@ -110,42 +110,27 @@ extension Notification.Name {
 // MARK: - Track-scoped navigation helpers
 //
 // Info-strip taps (artist name, "From {Album}", genre) need to resolve a
-// track's albumArtistPersistentID / albumPersistentID before pushing.
-// Centralizing here keeps the MPMediaQuery boilerplate out of views.
+// track's album/artist identity before pushing. Resolution goes through
+// the LibrarySource seam (MP query in music mode, catalog read in folder
+// mode); centralizing here keeps that boilerplate out of views.
 
 extension NavigationService {
     func navigateToArtist(forTrack trackID: MPMediaEntityPersistentID) {
         Task.detached(priority: .userInitiated) { [weak self] in
-            let predicate = MPMediaPropertyPredicate(
-                value: NSNumber(value: trackID),
-                forProperty: MPMediaItemPropertyPersistentID
-            )
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(predicate)
-            guard let item = query.items?.first else { return }
-            let id = item.albumArtistPersistentID != 0
-                ? item.albumArtistPersistentID
-                : item.artistPersistentID
-            guard id != 0 else { return }
+            guard let info = LibraryService.shared.getTrackAlbumInfo(forTrack: trackID),
+                  info.artistID != 0 else { return }
             await MainActor.run {
-                self?.push(.artistDetail(id))
+                self?.push(.artistDetail(info.artistID))
             }
         }
     }
 
     func navigateToAlbum(forTrack trackID: MPMediaEntityPersistentID) {
         Task.detached(priority: .userInitiated) { [weak self] in
-            let predicate = MPMediaPropertyPredicate(
-                value: NSNumber(value: trackID),
-                forProperty: MPMediaItemPropertyPersistentID
-            )
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(predicate)
-            guard let item = query.items?.first else { return }
-            let id = item.albumPersistentID
-            guard id != 0 else { return }
+            guard let info = LibraryService.shared.getTrackAlbumInfo(forTrack: trackID),
+                  info.albumID != 0 else { return }
             await MainActor.run {
-                self?.push(.albumDetail(id))
+                self?.push(.albumDetail(info.albumID))
             }
         }
     }

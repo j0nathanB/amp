@@ -65,6 +65,11 @@ final class FolderLibrarySource: LibrarySource {
         catalog.track(for: id)?.duration ?? 0
     }
 
+    func getTrackAlbumInfo(forTrack id: MPMediaEntityPersistentID) -> TrackAlbumInfo? {
+        guard let track = catalog.track(for: id) else { return nil }
+        return TrackAlbumInfo(albumID: track.albumID, artistID: track.artistID, albumArtist: track.albumArtist)
+    }
+
     // Embedded-lyrics read needs an AVAsset open under a security scope;
     // deferred alongside the Phase 4 per-track polish.
     func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {

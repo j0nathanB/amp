@@ -293,6 +293,29 @@ final class MusicLibrarySource: LibrarySource {
         }
     }
 
+    // One MPMediaQuery by track ID returns the albumPersistentID, the
+    // canonical artist id (album-artist preferred, matching
+    // ArtistDetailView's identity rules), and the albumArtist display name.
+    // Consolidates the identical queries that lived in
+    // AlbumArtView.loadMetadata and NavigationService's track-scoped
+    // navigation helpers.
+    func getTrackAlbumInfo(forTrack id: MPMediaEntityPersistentID) -> TrackAlbumInfo? {
+        let predicate = MPMediaPropertyPredicate(
+            value: NSNumber(value: id),
+            forProperty: MPMediaItemPropertyPersistentID
+        )
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(predicate)
+        guard let item = query.items?.first else { return nil }
+        return TrackAlbumInfo(
+            albumID: item.albumPersistentID,
+            artistID: item.albumArtistPersistentID != 0
+                ? item.albumArtistPersistentID
+                : item.artistPersistentID,
+            albumArtist: item.albumArtist ?? item.artist
+        )
+    }
+
     // MARK: - Per-track properties
 
     func getDuration(forTrack id: MPMediaEntityPersistentID) -> TimeInterval {

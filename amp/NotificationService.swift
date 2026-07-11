@@ -388,27 +388,20 @@ enum NotificationError: Error {
 // MARK: - Helper Extensions
 
 extension NotificationService {
-    // Extract artwork from a Song's MPMediaItem
+    // Notification artwork via the seam + ArtworkCache: track → album id
+    // through the active source, then the shared two-tier artwork cache
+    // (which handles both MP rasterization and folder embedded-art
+    // extraction). Replaces a direct MPMediaQuery that returned nil for
+    // folder tracks — and music-mode notifications now hit the cache
+    // instead of re-rasterizing.
     func getArtwork(for song: Song) async -> UIImage? {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let predicate = MPMediaPropertyPredicate(
-                    value: NSNumber(value: song.persistentID),
-                    forProperty: MPMediaItemPropertyPersistentID
-                )
-                let query = MPMediaQuery.songs()
-                query.addFilterPredicate(predicate)
-                
-                guard let item = query.items?.first,
-                      let artwork = item.artwork else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
-                // Get image at a reasonable size for notifications
-                let image = artwork.image(at: CGSize(width: 300, height: 300))
-                continuation.resume(returning: image)
-            }
-        }
+        let trackID = song.persistentID
+        guard let info = await Task.detached(priority: .utility, operation: {
+            LibraryService.shared.getTrackAlbumInfo(forTrack: trackID)
+        }).value else { return nil }
+        return await ArtworkCache.shared.artwork(
+            forAlbum: info.albumID,
+            size: CGSize(width: 300, height: 300)
+        )
     }
 }

@@ -690,6 +690,12 @@ class LibraryService {
     func getGenreDetail(for genre: String) async -> GenreDetail {
         await activeSource.getGenreDetail(for: genre)
     }
+
+    /// Track → owning album/artist identity (Now Playing art, info-strip
+    /// navigation, notification artwork).
+    func getTrackAlbumInfo(forTrack id: MPMediaEntityPersistentID) -> TrackAlbumInfo? {
+        activeSource.getTrackAlbumInfo(forTrack: id)
+    }
     
     // MARK: - Performance Testing
     

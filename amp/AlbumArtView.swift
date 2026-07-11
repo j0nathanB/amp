@@ -216,11 +216,12 @@ struct AlbumArtView: View {
 
     // MARK: - Loading
 
-    // One MPMediaQuery by track ID returns both the albumPersistentID and
-    // the albumArtist; artwork then goes through ArtworkCache keyed by
-    // albumID, so skipping to another track on the same album (or viewing
-    // the same album next session, via the disk thumbnail cache) is a hit.
-    // Replaces an older split-loader that ran two identical queries.
+    // One source lookup by track ID returns both the album id and the
+    // albumArtist (via the LibrarySource seam — MP query in music mode,
+    // catalog read in folder mode); artwork then goes through ArtworkCache
+    // keyed by albumID, so skipping to another track on the same album (or
+    // viewing the same album next session, via the disk thumbnail cache)
+    // is a hit.
     private func loadMetadata() async {
         guard let song else {
             artwork = nil
@@ -229,15 +230,8 @@ struct AlbumArtView: View {
         }
         let id = song.persistentID
 
-        let result = await Task.detached(priority: .userInitiated) { () -> (albumID: MPMediaEntityPersistentID, albumArtist: String?)? in
-            let predicate = MPMediaPropertyPredicate(
-                value: NSNumber(value: id),
-                forProperty: MPMediaItemPropertyPersistentID
-            )
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(predicate)
-            guard let item = query.items?.first else { return nil }
-            return (item.albumPersistentID, item.albumArtist ?? item.artist)
+        let result = await Task.detached(priority: .userInitiated) {
+            LibraryService.shared.getTrackAlbumInfo(forTrack: id)
         }.value
 
         albumArtist = result?.albumArtist
