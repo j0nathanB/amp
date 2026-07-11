@@ -21,8 +21,8 @@ struct FolderSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
         .toolbar(.hidden, for: .navigationBar)
-        .fileImporter(isPresented: $showPicker, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
+        .sheet(isPresented: $showPicker) {
+            FolderPicker { url in
                 folders.addFolder(pickedURL: url)
             }
         }
@@ -108,6 +108,30 @@ struct FolderSettingsView: View {
 
     private var actions: some View {
         VStack(spacing: 16) {
+            // The explicit load step (dogfood feedback 2026-07-11): a scan
+            // only stages results; this applies them to the live library,
+            // erasing the queue and rebuilding library/search views.
+            if folders.stagedTrackCount != nil || folders.isScanning {
+                Button {
+                    folders.loadStagedLibrary()
+                } label: {
+                    HStack(spacing: 0) {
+                        Text(loadButtonLabel)
+                            .font(.listTitle)
+                            .foregroundStyle(loadEnabled ? Color.ampBlack : Color.ampMutedText)
+                            .padding(.leading, 16)
+                        Spacer(minLength: 12)
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(loadEnabled ? Color.ampBlack : Color.ampMutedText)
+                            .padding(.trailing, 16)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+                }
+                .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
+                .disabled(!loadEnabled)
+            }
+
             Button {
                 showPicker = true
             } label: {
@@ -158,5 +182,19 @@ struct FolderSettingsView: View {
             return "Scanning…"
         }
         return "Rescan folders"
+    }
+
+    private var loadEnabled: Bool {
+        folders.stagedTrackCount != nil && !folders.isScanning
+    }
+
+    private var loadButtonLabel: String {
+        if folders.isScanning {
+            return "Load library"
+        }
+        if let count = folders.stagedTrackCount {
+            return "Load library (\(count) track\(count == 1 ? "" : "s"))"
+        }
+        return "Load library"
     }
 }

@@ -138,6 +138,13 @@ final class FolderLibraryService: ObservableObject {
     @Published private(set) var scanProgress: (discovered: Int, processed: Int)?
     @Published private(set) var staleRootIDs: Set<UUID> = []
 
+    // Scanned-but-not-loaded catalog awaiting the explicit "Load library"
+    // action (dogfood feedback 2026-07-11): scanning only STAGES results;
+    // nothing reaches the live library/queue/search until the user loads.
+    // nil count = nothing staged.
+    @Published private(set) var stagedTrackCount: Int?
+    private var stagedCatalog: FolderCatalogData?
+
     let catalog = FolderCatalog()
 
     private static let rootsFileURL = DurableStorage.url(for: "FolderRoots.json")
@@ -353,8 +360,6 @@ final class FolderLibraryService: ObservableObject {
             }
 
             let data = Self.buildCatalog(from: extracted)
-            catalog.install(data)
-            Self.saveCatalog(data)
 
             await MainActor.run {
                 self.isScanning = false
@@ -367,14 +372,32 @@ final class FolderLibraryService: ObservableObject {
                     }
                 }
                 self.saveRoots()
-                print("📁 Scan complete: \(data.tracks.count) tracks across \(rootsSnapshot.count) root(s)")
-                // Only poke the UI pipeline if folder mode is what's on
-                // screen; in music mode the catalog just sits ready.
-                if LibraryModeService.shared.mode == .folder {
-                    NotificationCenter.default.post(name: .ampLibrarySourceDidChange, object: nil)
-                }
+                // Stage only — the live catalog, its disk copy, and the UI
+                // pipeline are untouched until loadStagedLibrary().
+                self.stagedCatalog = data
+                self.stagedTrackCount = data.tracks.count
+                print("📁 Scan complete: \(data.tracks.count) tracks staged across \(rootsSnapshot.count) root(s) — awaiting Load")
             }
         }
+    }
+
+    // The explicit "Load library" action: apply the staged scan result as
+    // the live folder library. Erases the queue first (staged content may
+    // not contain what's queued), persists the catalog, then announces so
+    // LibraryStore / search / views rebuild from it.
+    @MainActor
+    func loadStagedLibrary() {
+        guard let data = stagedCatalog else {
+            print("📁 Load requested with nothing staged — ignored")
+            return
+        }
+        AudioPlayerService.shared.stopPlaybackAndEraseQueue()
+        catalog.install(data)
+        Self.saveCatalog(data)
+        stagedCatalog = nil
+        stagedTrackCount = nil
+        print("📁 Loaded folder library: \(data.tracks.count) tracks live")
+        NotificationCenter.default.post(name: .ampLibrarySourceDidChange, object: nil)
     }
 
     // Deterministic catalog assembly: sort by (rootID, relativePath) before

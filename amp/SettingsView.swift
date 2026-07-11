@@ -105,34 +105,46 @@ struct SettingsView: View {
                     }
                 )
             )
-            // Folder roots management (add/remove/rescan).
+            // Folder roots management (add/remove/rescan/load). Only
+            // meaningful while the FOLDER source is active — greyed out in
+            // MUSIC mode so folder scans can't be mistaken for "loaded into
+            // the library" while Music is what's on screen (dogfood
+            // feedback 2026-07-11).
             Button {
                 nav.push(.folderSettings)
             } label: {
                 HStack(spacing: 0) {
                     Text("Folders")
                         .font(.listTitle)
-                        .foregroundStyle(Color.ampBlack)
+                        .foregroundStyle(folderModeActive ? Color.ampBlack : Color.ampMutedText)
                         .padding(.leading, 16)
                     Spacer(minLength: 12)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.ampBlack)
+                        .foregroundStyle(folderModeActive ? Color.ampBlack : Color.ampMutedText)
                         .padding(.trailing, 16)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
             }
             .buttonStyle(BrutalistButtonStyle(offset: .small, fillColor: .ampWhite))
+            .disabled(!folderModeActive)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 28)
-        .fileImporter(isPresented: $showFirstFolderPicker, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
+        .sheet(isPresented: $showFirstFolderPicker) {
+            FolderPicker { url in
                 FolderLibraryService.shared.addFolder(pickedURL: url)
                 libraryMode.setMode(.folder)
+                // Land on the Folders screen: scan progress is visible and
+                // the Load button lights up when staging completes.
+                nav.push(.folderSettings)
             }
-            // Cancel/failure: no mode change; toggle stays MUSIC.
+            // Cancel: no mode change; toggle stays MUSIC.
         }
+    }
+
+    private var folderModeActive: Bool {
+        libraryMode.mode == .folder
     }
 
     // MARK: - Export section
