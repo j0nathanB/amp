@@ -349,6 +349,61 @@ final class MusicLibrarySource: LibrarySource {
         }.value
     }
 
+    // One MPMediaQuery pass, dedupe into Song / Album / Artist sets.
+    // Artist identity prefers albumArtistPersistentID (canonical) with a
+    // fallback to artistPersistentID, matching ArtistDetailView's rules.
+    // (Moved verbatim from GenreDetailView.loadData in the Phase 4 seam
+    // extension.)
+    func getGenreDetail(for genre: String) async -> GenreDetail {
+        await Task.detached(priority: .userInitiated) {
+            let predicate = MPMediaPropertyPredicate(
+                value: genre,
+                forProperty: MPMediaItemPropertyGenre,
+                comparisonType: .equalTo
+            )
+            let query = MPMediaQuery.songs()
+            query.addFilterPredicate(predicate)
+            let items = query.items ?? []
+
+            var songs: [Song] = []
+            var albumMap: [MPMediaEntityPersistentID: Album] = [:]
+            var artistMap: [MPMediaEntityPersistentID: Artist] = [:]
+            var artistAlbums: [MPMediaEntityPersistentID: Set<MPMediaEntityPersistentID>] = [:]
+
+            for item in items {
+                songs.append(Self.song(from: item))
+
+                let albumID = item.albumPersistentID
+                if albumID != 0, albumMap[albumID] == nil {
+                    let title = item.albumTitle ?? ""
+                    let artist = item.albumArtist ?? item.artist ?? ""
+                    albumMap[albumID] = Album(id: albumID, title: title, artist: artist)
+                }
+
+                let artistID = item.albumArtistPersistentID != 0
+                    ? item.albumArtistPersistentID
+                    : item.artistPersistentID
+                if artistID != 0 {
+                    if artistMap[artistID] == nil {
+                        let name = item.albumArtist ?? item.artist ?? ""
+                        artistMap[artistID] = Artist(id: artistID, name: name)
+                    }
+                    if albumID != 0 {
+                        artistAlbums[artistID, default: []].insert(albumID)
+                    }
+                }
+            }
+
+            return GenreDetail(
+                songs: songs.sorted { LibraryService.nameOrder($0.title, $1.title) },
+                albums: albumMap.values.sorted { LibraryService.nameOrder($0.title, $1.title) },
+                artists: artistMap.values
+                    .sorted { LibraryService.nameOrder($0.name, $1.name) }
+                    .map { ($0, artistAlbums[$0.id]?.count ?? 0) }
+            )
+        }.value
+    }
+
     /// Get all available genres in the library (for filter UI)
     func getAllGenres() async -> [String] {
         await Task.detached(priority: .userInitiated) {

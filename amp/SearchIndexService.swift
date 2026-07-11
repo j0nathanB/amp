@@ -174,6 +174,67 @@ class HybridSearchIndex: @unchecked Sendable {
         }
     }
 
+    // Word indices from the folder catalog, mirroring the MP build's
+    // normalization exactly (searchTargetNormalized + whitespace split) so
+    // prefix matching behaves identically across sources. The [MPMediaItem]
+    // fallback arrays stay empty — folder search is index-only, which is
+    // the primary path anyway.
+    private func buildFolderIndex() {
+        let tracks = FolderLibraryService.shared.catalog.allTracks
+
+        var songWords: [String: Set<MPMediaEntityPersistentID>] = [:]
+        var songCache: [MPMediaEntityPersistentID: Song] = [:]
+        var durations: [MPMediaEntityPersistentID: TimeInterval] = [:]
+        var artistWords: [String: Set<MPMediaEntityPersistentID>] = [:]
+        var artistCache: [MPMediaEntityPersistentID: Artist] = [:]
+        var albumWords: [String: Set<MPMediaEntityPersistentID>] = [:]
+        var albumCache: [MPMediaEntityPersistentID: Album] = [:]
+
+        func words(_ text: String) -> [String] {
+            text.searchTargetNormalized
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+        }
+
+        for track in tracks {
+            let song = track.song
+            for word in words(song.title) {
+                songWords[word, default: Set()].insert(song.persistentID)
+            }
+            songCache[song.persistentID] = song
+            durations[song.persistentID] = track.duration
+
+            if artistCache[track.artistID] == nil {
+                artistCache[track.artistID] = Artist(id: track.artistID, name: track.albumArtist)
+                for word in words(track.albumArtist) {
+                    artistWords[word, default: Set()].insert(track.artistID)
+                }
+            }
+
+            if albumCache[track.albumID] == nil {
+                albumCache[track.albumID] = Album(id: track.albumID, title: song.album, artist: track.albumArtist)
+                for word in words(song.album) {
+                    albumWords[word, default: Set()].insert(track.albumID)
+                }
+            }
+        }
+
+        allSongs = []
+        allArtists = []
+        allAlbums = []
+        indexQueue.async(flags: .barrier) {
+            self._songWordIndex = songWords
+            self._songCache = songCache
+            self._durationCache = durations
+            self._artistWordIndex = artistWords
+            self._artistCache = artistCache
+            self._albumWordIndex = albumWords
+            self._albumCache = albumCache
+            self._isIndexBuilt = true
+        }
+        print("🔍 Folder search index built: \(songCache.count) songs, \(artistCache.count) artists, \(albumCache.count) albums")
+    }
+
     // Thread-safe accessors
     private var songWordIndex: [String: Set<MPMediaEntityPersistentID>] {
         indexQueue.sync { _songWordIndex }
@@ -328,27 +389,14 @@ class HybridSearchIndex: @unchecked Sendable {
     // MARK: - Index Building
 
     func buildIndex() async {
-        // Folder mode (Phase 2): the folder source has no index yet —
-        // install an EMPTY index so search returns nothing rather than
-        // stale Music results. Marked built so callers don't fall into
-        // rebuild loops. The music-mode disk cache is deliberately left
-        // alone: switching back to music is a cache hit, not a rebuild
-        // storm. Phase 4 replaces this with a real folder index build.
+        // Folder mode (Phase 4): build word indices straight from the
+        // in-memory catalog. No AVAsset reads, no MPMediaQuery, no disk
+        // cache — a few thousand strings index in milliseconds, so this
+        // rebuilds on every source change / library load. The music-mode
+        // disk cache is deliberately left alone: switching back to music
+        // is a cache hit, not a rebuild storm.
         guard LibraryModeService.shared.mode == .music else {
-            print("🔍 Folder mode — installing empty search index")
-            self.allSongs = []
-            self.allArtists = []
-            self.allAlbums = []
-            indexQueue.async(flags: .barrier) {
-                self._songWordIndex = [:]
-                self._artistWordIndex = [:]
-                self._albumWordIndex = [:]
-                self._songCache = [:]
-                self._artistCache = [:]
-                self._albumCache = [:]
-                self._durationCache = [:]
-                self._isIndexBuilt = true
-            }
+            buildFolderIndex()
             return
         }
 

@@ -184,69 +184,28 @@ struct GenreDetailView: View {
 
     // MARK: - Loading
 
-    // One MPMediaQuery pass, dedupe into Song / Album / Artist sets.
-    // Artist identity prefers albumArtistPersistentID (canonical) with
-    // a fallback to artistPersistentID, matching ArtistDetailView's
-    // identity rules.
+    // Fetch through the LibrarySource seam (the genre-predicated
+    // MPMediaQuery moved to MusicLibrarySource; folder mode answers from
+    // its catalog). Sectioning stays here — it's presentation shape.
     private func loadData() async {
         let captured = genre
-        let loaded = await Task.detached(priority: .userInitiated) {
-            let predicate = MPMediaPropertyPredicate(
-                value: captured,
-                forProperty: MPMediaItemPropertyGenre,
-                comparisonType: .equalTo
+        let detail = await LibraryService.shared.getGenreDetail(for: captured)
+        let sections = await Task.detached(priority: .userInitiated) {
+            (
+                LetterSection.bucket(detail.songs) { $0.title },
+                LetterSection.bucket(detail.albums) { $0.title },
+                LetterSection.bucket(detail.artists.map { $0.artist }) { $0.name }
             )
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(predicate)
-            let items = query.items ?? []
-
-            var songs: [Song] = []
-            var albumMap: [MPMediaEntityPersistentID: Album] = [:]
-            var artistMap: [MPMediaEntityPersistentID: Artist] = [:]
-            var artistAlbums: [MPMediaEntityPersistentID: Set<MPMediaEntityPersistentID>] = [:]
-
-            for item in items {
-                songs.append(LibraryService.shared.song(from: item))
-
-                let albumID = item.albumPersistentID
-                if albumID != 0, albumMap[albumID] == nil {
-                    let title = item.albumTitle ?? ""
-                    let artist = item.albumArtist ?? item.artist ?? ""
-                    albumMap[albumID] = Album(id: albumID, title: title, artist: artist)
-                }
-
-                let artistID = item.albumArtistPersistentID != 0
-                    ? item.albumArtistPersistentID
-                    : item.artistPersistentID
-                if artistID != 0 {
-                    if artistMap[artistID] == nil {
-                        let name = item.albumArtist ?? item.artist ?? ""
-                        artistMap[artistID] = Artist(id: artistID, name: name)
-                    }
-                    if albumID != 0 {
-                        artistAlbums[artistID, default: []].insert(albumID)
-                    }
-                }
-            }
-
-            let sortedSongs = songs.sorted { LibraryService.nameOrder($0.title, $1.title) }
-            let sortedAlbums = Array(albumMap.values).sorted { LibraryService.nameOrder($0.title, $1.title) }
-            let sortedArtists = Array(artistMap.values).sorted { LibraryService.nameOrder($0.name, $1.name) }
-            let counts = artistAlbums.mapValues { $0.count }
-
-            let songSections = LetterSection.bucket(sortedSongs) { $0.title }
-            let albumSections = LetterSection.bucket(sortedAlbums) { $0.title }
-            let artistSections = LetterSection.bucket(sortedArtists) { $0.name }
-
-            return (sortedSongs, sortedAlbums, sortedArtists, counts, songSections, albumSections, artistSections)
         }.value
 
-        self.songs = loaded.0
-        self.albums = loaded.1
-        self.artists = loaded.2
-        self.artistAlbumCounts = loaded.3
-        self.songSections = loaded.4
-        self.albumSections = loaded.5
-        self.artistSections = loaded.6
+        self.songs = detail.songs
+        self.albums = detail.albums
+        self.artists = detail.artists.map { $0.artist }
+        self.artistAlbumCounts = Dictionary(
+            uniqueKeysWithValues: detail.artists.map { ($0.artist.id, $0.albumCount) }
+        )
+        self.songSections = sections.0
+        self.albumSections = sections.1
+        self.artistSections = sections.2
     }
 }

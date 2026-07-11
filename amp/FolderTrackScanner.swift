@@ -1,15 +1,15 @@
 import Foundation
 import AVFoundation
 
-// Stateless folder-scan mechanics (Phase 3 of
+// Stateless folder-scan mechanics (Phases 3–4 of
 // dev/FOLDER_LIBRARY_TOGGLE_PLAN.md): recursive audio-file discovery and
 // AVAsset tag extraction with bounded concurrency. Orchestration (roots,
 // scopes, catalog assembly, persistence) lives in FolderLibraryService.
 //
-// Phase 3 extracts title / artist / album / album-artist / genre /
-// duration — what the flat Songs list and Phase 4 grouping need.
-// Track/disc numbers (format-specific binary keys) and embedded artwork
-// arrive with Phase 4's album detail work.
+// Extracts title / artist / album / album-artist / genre / duration /
+// track# / disc#. Embedded artwork is read on demand by ArtworkCache's
+// folder path, not at scan time (a 2000-track scan shouldn't decode
+// 2000 images up front).
 enum FolderTrackScanner {
 
     // Plan decision #8: MP3, M4A (AAC + ALAC), WAV, AIFF, FLAC.
@@ -94,6 +94,8 @@ enum FolderTrackScanner {
         var albumArtist: String?
         var genre: String?
         var duration: TimeInterval = 0
+        var trackNumber = 0
+        var discNumber = 1
 
         if let loaded = try? await asset.load(.duration), loaded.seconds.isFinite {
             duration = loaded.seconds
@@ -106,24 +108,46 @@ enum FolderTrackScanner {
             genre = await stringValue(in: common, for: .commonIdentifierType)
         }
 
-        // Album-artist is format-specific (ID3 TPE2 / iTunes aART); walk
-        // the available formats only if the common pass left it unknown.
+        // Album-artist and track/disc numbers are format-specific
+        // (ID3 TPE2/TRCK/TPOS as "N" or "N/total" strings; iTunes
+        // aART/trkn/disk, the latter two as big-endian binary blobs).
         if let formats = try? await asset.load(.availableMetadataFormats) {
-            for format in formats where albumArtist == nil {
+            for format in formats {
+                guard albumArtist == nil || trackNumber == 0 else { break }
                 guard let items = try? await asset.loadMetadata(for: format) else { continue }
-                albumArtist = await stringValue(in: items, for: .id3MetadataBand)
+                if albumArtist == nil {
+                    albumArtist = await stringValue(in: items, for: .id3MetadataBand)
+                }
                 if albumArtist == nil {
                     albumArtist = await stringValue(in: items, for: .iTunesMetadataAlbumArtist)
+                }
+                if trackNumber == 0 {
+                    trackNumber = await numberFromSlashString(in: items, for: .id3MetadataTrackNumber)
+                }
+                if trackNumber == 0 {
+                    trackNumber = await numberFromITunesPair(in: items, for: .iTunesMetadataTrackNumber)
+                }
+                if discNumber <= 1 {
+                    let disc = await numberFromSlashString(in: items, for: .id3MetadataPartOfASet)
+                    if disc > 0 { discNumber = disc }
+                }
+                if discNumber <= 1 {
+                    let disc = await numberFromITunesPair(in: items, for: .iTunesMetadataDiscNumber)
+                    if disc > 0 { discNumber = disc }
                 }
             }
         }
 
         // Filename fallback for untagged files: "01 Artist - Title.mp3" /
-        // "Artist - Title.mp3" / bare stem.
+        // "Artist - Title.mp3" / bare stem. The stripped leading digits
+        // double as the track number when tags didn't provide one.
+        let parsed = parseFilename(file.relativePath)
         if title == nil || title?.isEmpty == true {
-            let parsed = parseFilename(file.relativePath)
             title = parsed.title
             if artist == nil { artist = parsed.artist }
+        }
+        if trackNumber == 0, let fromName = parsed.trackNumber {
+            trackNumber = fromName
         }
 
         let resolvedTitle = title?.trimmingCharacters(in: .whitespaces) ?? "Track"
@@ -137,8 +161,8 @@ enum FolderTrackScanner {
             artist: resolvedArtist,
             album: resolvedAlbum,
             releaseDate: nil,
-            albumTrackNumber: 0,
-            discNumber: 1,
+            albumTrackNumber: trackNumber,
+            discNumber: discNumber,
             genre: genre
         )
 
@@ -164,36 +188,66 @@ enum FolderTrackScanner {
         return value
     }
 
+    // ID3 numeric frames arrive as "3" or "3/12" strings.
+    private static func numberFromSlashString(
+        in items: [AVMetadataItem],
+        for identifier: AVMetadataIdentifier
+    ) async -> Int {
+        guard let raw = await stringValue(in: items, for: identifier) else { return 0 }
+        let head = raw.split(separator: "/").first.map(String.init) ?? raw
+        return Int(head.trimmingCharacters(in: .whitespaces)) ?? 0
+    }
+
+    // iTunes trkn/disk atoms are binary: pairs of big-endian UInt16s with
+    // the number at bytes 2–3 ([0, 0, N_hi, N_lo, total_hi, total_lo, ...]).
+    private static func numberFromITunesPair(
+        in items: [AVMetadataItem],
+        for identifier: AVMetadataIdentifier
+    ) async -> Int {
+        guard let item = AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier).first else {
+            return 0
+        }
+        // Some encoders write these as plain numbers; try that first.
+        if let number = try? await item.load(.numberValue) {
+            return number.intValue
+        }
+        guard let data = try? await item.load(.dataValue), data.count >= 4 else { return 0 }
+        return Int(data[data.startIndex + 2]) << 8 | Int(data[data.startIndex + 3])
+    }
+
     // MARK: - Filename fallback
 
-    // "01 Artist - Title" → (Artist, Title); "Artist - Title" → same;
-    // anything else → stem as title. Leading track digits + separators
-    // are stripped first.
-    static func parseFilename(_ relativePath: String) -> (title: String, artist: String?) {
+    // "01 Artist - Title" → (Artist, Title, 1); "Artist - Title" → same,
+    // no number; anything else → stem as title. Leading track digits +
+    // separators are stripped and reported so untagged files still sort
+    // by track order in album detail.
+    static func parseFilename(_ relativePath: String) -> (title: String, artist: String?, trackNumber: Int?) {
         var stem = (relativePath as NSString).lastPathComponent
         stem = (stem as NSString).deletingPathExtension
 
         // Strip a leading track number: 1-3 digits followed by separators.
         var trimmed = Substring(stem)
+        var strippedNumber: Int?
         let digits = trimmed.prefix(while: { $0.isNumber })
         if !digits.isEmpty && digits.count <= 3 {
             let afterDigits = trimmed.dropFirst(digits.count)
             let separators = afterDigits.prefix(while: { $0 == " " || $0 == "." || $0 == "-" || $0 == "_" })
             if !separators.isEmpty {
                 trimmed = afterDigits.dropFirst(separators.count)
+                strippedNumber = Int(digits)
             }
         }
 
         let cleaned = String(trimmed).trimmingCharacters(in: .whitespaces)
-        guard !cleaned.isEmpty else { return (stem, nil) }
+        guard !cleaned.isEmpty else { return (stem, nil, strippedNumber) }
 
         if let range = cleaned.range(of: " - ") {
             let artist = String(cleaned[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
             let title = String(cleaned[range.upperBound...]).trimmingCharacters(in: .whitespaces)
             if !artist.isEmpty && !title.isEmpty {
-                return (title, artist)
+                return (title, artist, strippedNumber)
             }
         }
-        return (cleaned, nil)
+        return (cleaned, nil, strippedNumber)
     }
 }

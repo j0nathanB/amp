@@ -685,6 +685,11 @@ class LibraryService {
     func getAllGenres() async -> [String] {
         await activeSource.getAllGenres()
     }
+
+    /// Everything Genre Detail renders, from the active source.
+    func getGenreDetail(for genre: String) async -> GenreDetail {
+        await activeSource.getGenreDetail(for: genre)
+    }
     
     // MARK: - Performance Testing
     

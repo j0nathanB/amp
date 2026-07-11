@@ -46,4 +46,16 @@ protocol LibrarySource {
     func getSongIDs(forArtist artistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID]
 
     func getAllGenres() async -> [String]
+    func getGenreDetail(for genre: String) async -> GenreDetail
+}
+
+// Everything Genre Detail renders, in display order. Formerly derived
+// inside GenreDetailView from its own genre-predicated MPMediaQuery —
+// moved behind the seam so folder mode can answer from its catalog.
+struct GenreDetail {
+    let songs: [Song]
+    let albums: [Album]
+    let artists: [(artist: Artist, albumCount: Int)]
+
+    static let empty = GenreDetail(songs: [], albums: [], artists: [])
 }

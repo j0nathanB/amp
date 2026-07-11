@@ -623,6 +623,10 @@ final class MockLibrarySource: LibrarySource {
     func getAllGenres() async -> [String] {
         []
     }
+
+    func getGenreDetail(for genre: String) async -> GenreDetail {
+        .empty
+    }
 }
 
 #endif

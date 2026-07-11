@@ -67,6 +67,12 @@ final class ArtworkCache {
             name: .MPMediaLibraryDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sourceDidChange),
+            name: .ampLibrarySourceDidChange,
+            object: nil
+        )
         MPMediaLibrary.default().beginGeneratingLibraryChangeNotifications()
     }
 
@@ -84,6 +90,18 @@ final class ArtworkCache {
         }
     }
 
+    // Source switched or a folder library was loaded: drop the in-memory
+    // tier so views re-resolve against the new source. Disk thumbnails
+    // stay — keys are mode-namespaced (music unprefixed, folder "f"-
+    // prefixed) so entries can't collide across sources, and folder album
+    // ids are content-derived (albumArtist|album hash) so their art is
+    // stable across rescans. Known v1 gap: replacing the embedded art
+    // inside a file keeps serving the old folder thumbnail until the next
+    // MP-change nuke wipes the shared dir.
+    @objc private func sourceDidChange() {
+        cache.removeAllObjects()
+    }
+
     // Keyed by albumPersistentID, not trackPersistentID — tracks on the
     // same album share one cache entry (same-album skip = cache hit).
     // Trade-off: compilations with per-track custom artwork show the
@@ -93,7 +111,12 @@ final class ArtworkCache {
     // "fix" this to track-keyed without understanding what the sharing
     // is buying.
     func artwork(forAlbum albumID: MPMediaEntityPersistentID, size: CGSize) async -> UIImage? {
-        let key = Self.key(albumID: albumID, size: size)
+        // Mode captured once at entry (main actor); everything downstream —
+        // cache keys, disk filenames, the miss path — derives from it, so
+        // a mode switch mid-request can't mix sources.
+        let mode = LibraryModeService.shared.mode
+        let prefix = Self.keyPrefix(for: mode)
+        let key = Self.key(prefix: prefix, albumID: albumID, size: size)
 
         if let cached = cache.object(forKey: key) {
             artworkPOI.emitEvent("artwork.hit", "album: \(albumID)")
@@ -106,33 +129,46 @@ final class ArtworkCache {
         }
 
         let dir = Self.thumbnailsDir
-        // Disk read + MPMediaQuery + rasterize + disk write all run inside
+        // Disk read + source query + rasterize + disk write all run inside
         // this detached block. Do NOT move the disk read out to the caller
         // — keeping it here guarantees the I/O stays off-main even on disk
         // hits, so scrolling a grid never pays main-thread file I/O.
         let task = Task.detached(priority: .userInitiated) { () -> UIImage? in
             // Tier 2: disk check before rasterize.
-            if let image = ThumbnailCache.loadThumbnail(dir: dir, albumID: albumID, size: size) {
+            if let image = ThumbnailCache.loadThumbnail(dir: dir, prefix: prefix, albumID: albumID, size: size) {
                 artworkPOI.emitEvent("artwork.diskhit", "album: \(albumID)")
                 return image
             }
 
-            // Miss on both tiers — rasterize from MPMediaItem.
+            // Miss on both tiers — rasterize from the active source.
             artworkPOI.emitEvent("artwork.miss", "album: \(albumID)")
             let interval = artworkPOI.beginInterval("artwork.rasterize")
             let t0 = Date()
 
-            let predicate = MPMediaPropertyPredicate(
-                value: albumID,
-                forProperty: MPMediaItemPropertyAlbumPersistentID
-            )
-            let query = MPMediaQuery.albums()
-            query.addFilterPredicate(predicate)
-            let image: UIImage? = {
-                guard let rep = query.collections?.first?.representativeItem,
-                      let artwork = rep.artwork else { return nil }
-                return artwork.image(at: size)
-            }()
+            let image: UIImage?
+            if mode == .folder {
+                // Embedded artwork from a catalog track's file, scaled to
+                // the requested cell size (MP's artwork.image(at:) does
+                // this scaling for the music path).
+                if let data = await FolderLibraryService.shared.artworkData(forAlbum: albumID),
+                   let full = UIImage(data: data) {
+                    image = Self.scaled(full, toFill: size)
+                } else {
+                    image = nil
+                }
+            } else {
+                let predicate = MPMediaPropertyPredicate(
+                    value: albumID,
+                    forProperty: MPMediaItemPropertyAlbumPersistentID
+                )
+                let query = MPMediaQuery.albums()
+                query.addFilterPredicate(predicate)
+                image = {
+                    guard let rep = query.collections?.first?.representativeItem,
+                          let artwork = rep.artwork else { return nil }
+                    return artwork.image(at: size)
+                }()
+            }
 
             artworkPOI.endInterval("artwork.rasterize", interval, "album: \(albumID), ok: \(image != nil)")
             print("[PERF] artwork.rasterize album=\(albumID) ok=\(image != nil) took \(Int(Date().timeIntervalSince(t0) * 1000))ms")
@@ -141,7 +177,7 @@ final class ArtworkCache {
             // priority so it doesn't block the caller's return.
             if let image {
                 Task.detached(priority: .utility) {
-                    ThumbnailCache.saveThumbnail(image, dir: dir, albumID: albumID, size: size)
+                    ThumbnailCache.saveThumbnail(image, dir: dir, prefix: prefix, albumID: albumID, size: size)
                 }
             }
 
@@ -158,8 +194,31 @@ final class ArtworkCache {
         return image
     }
 
-    private static func key(albumID: MPMediaEntityPersistentID, size: CGSize) -> NSString {
-        "\(albumID)@\(Int(size.width))x\(Int(size.height))" as NSString
+    // Music keeps the legacy unprefixed keys (existing installs' disk
+    // thumbnails stay hot); folder entries are "f"-prefixed. Namespacing
+    // is load-bearing: a synthetic folder album id colliding with a real
+    // MP album id must not serve the wrong art across sources.
+    private static func keyPrefix(for mode: LibrarySourceMode) -> String {
+        mode == .folder ? "f" : ""
+    }
+
+    private static func key(prefix: String, albumID: MPMediaEntityPersistentID, size: CGSize) -> NSString {
+        "\(prefix)\(albumID)@\(Int(size.width))x\(Int(size.height))" as NSString
+    }
+
+    // Aspect-fill downscale for folder artwork (never upscales). The MP
+    // path gets this from MPMediaItemArtwork.image(at:). nonisolated: runs
+    // inside the detached rasterize block; UIGraphicsImageRenderer is
+    // thread-safe.
+    private nonisolated static func scaled(_ image: UIImage, toFill size: CGSize) -> UIImage {
+        guard size.width > 0, size.height > 0,
+              image.size.width > 0, image.size.height > 0 else { return image }
+        let scale = max(size.width / image.size.width, size.height / image.size.height)
+        guard scale < 1 else { return image }
+        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        return UIGraphicsImageRenderer(size: target).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
     }
 }
 
@@ -179,8 +238,10 @@ enum ThumbnailCache {
         dir.appendingPathComponent(".library_modified")
     }
 
-    static func thumbnailURL(inDir dir: URL, albumID: MPMediaEntityPersistentID, size: CGSize) -> URL {
-        dir.appendingPathComponent("\(albumID)@\(Int(size.width))x\(Int(size.height)).jpg")
+    // prefix "" = music (legacy filenames), "f" = folder — see
+    // ArtworkCache.keyPrefix for why the namespace matters.
+    static func thumbnailURL(inDir dir: URL, prefix: String = "", albumID: MPMediaEntityPersistentID, size: CGSize) -> URL {
+        dir.appendingPathComponent("\(prefix)\(albumID)@\(Int(size.width))x\(Int(size.height)).jpg")
     }
 
     // Check marker vs. current library date; if stale or missing, wipe the
@@ -214,8 +275,8 @@ enum ThumbnailCache {
         }
     }
 
-    static func loadThumbnail(dir: URL, albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
-        let url = thumbnailURL(inDir: dir, albumID: albumID, size: size)
+    static func loadThumbnail(dir: URL, prefix: String = "", albumID: MPMediaEntityPersistentID, size: CGSize) -> UIImage? {
+        let url = thumbnailURL(inDir: dir, prefix: prefix, albumID: albumID, size: size)
         guard let data = try? Data(contentsOf: url) else { return nil }
         return UIImage(data: data)
     }
@@ -224,9 +285,9 @@ enum ThumbnailCache {
     // an app-kill mid-write without it leaves a half-written file that
     // UIImage(data:) would accept as partially-decoded on next load. With
     // .atomic the file either exists fully or not at all.
-    static func saveThumbnail(_ image: UIImage, dir: URL, albumID: MPMediaEntityPersistentID, size: CGSize) {
+    static func saveThumbnail(_ image: UIImage, dir: URL, prefix: String = "", albumID: MPMediaEntityPersistentID, size: CGSize) {
         guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-        let url = thumbnailURL(inDir: dir, albumID: albumID, size: size)
+        let url = thumbnailURL(inDir: dir, prefix: prefix, albumID: albumID, size: size)
         try? data.write(to: url, options: .atomic)
     }
 }

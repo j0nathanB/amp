@@ -88,6 +88,7 @@ struct FolderCatalogData: Codable {
 // same reasoning as HybridSearchIndex's queue-guarded caches.
 final class FolderCatalog {
     private let lock = NSLock()
+    private var tracksByTitle: [FolderTrack] = []
     private var songsByTitle: [Song] = []
     private var byID: [UInt64: FolderTrack] = [:]
 
@@ -96,6 +97,7 @@ final class FolderCatalog {
         index.reserveCapacity(data.tracks.count)
         for track in data.tracks { index[track.song.persistentID] = track }
         lock.lock()
+        tracksByTitle = data.tracks
         songsByTitle = data.tracks.map { $0.song }
         byID = index
         lock.unlock()
@@ -104,6 +106,13 @@ final class FolderCatalog {
     var allSongs: [Song] {
         lock.lock(); defer { lock.unlock() }
         return songsByTitle
+    }
+
+    // Full track rows (title order) — grouping queries and the folder
+    // search-index build read these.
+    var allTracks: [FolderTrack] {
+        lock.lock(); defer { lock.unlock() }
+        return tracksByTitle
     }
 
     var count: Int {
@@ -311,6 +320,26 @@ final class FolderLibraryService: ObservableObject {
         guard let track = catalog.track(for: id),
               let rootURL = resolvedURL(for: track.rootID) else { return nil }
         return (track.rootID, rootURL.appending(path: track.relativePath))
+    }
+
+    // MARK: - Artwork
+
+    // Raw embedded artwork bytes for an album: first catalog track with a
+    // matching albumID, opened under the root's scope, commonKeyArtwork
+    // data. Called from ArtworkCache's folder miss path — rasterization,
+    // scaling, and both cache tiers live there.
+    func artworkData(forAlbum albumID: UInt64) async -> Data? {
+        guard let track = catalog.allTracks.first(where: { $0.albumID == albumID }) else {
+            return nil
+        }
+        guard let rootURL = beginAccess(track.rootID) else { return nil }
+        defer { endAccess(track.rootID) }
+
+        let asset = AVURLAsset(url: rootURL.appending(path: track.relativePath))
+        guard let common = try? await asset.load(.commonMetadata),
+              let item = AVMetadataItem.metadataItems(from: common, filteredByIdentifier: .commonIdentifierArtwork).first
+        else { return nil }
+        return try? await item.load(.dataValue)
     }
 
     // MARK: - Scanning
