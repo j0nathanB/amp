@@ -444,9 +444,10 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func getArtwork(for song: Song) -> MPMediaItemArtwork? {
-        // Folder tracks: no artwork until Phase 4 (AVAsset commonKeyArtwork
-        // via ArtworkCache's per-source dispatch). Control Center shows the
-        // placeholder.
+        // Fast synchronous path for the Music library: MPMediaItem.artwork is
+        // already a lazy MPMediaItemArtwork. Folder tracks have none here —
+        // updateNowPlayingInfo falls back to loadNowPlayingArtworkAsync, which
+        // pulls the file-embedded art through ArtworkCache.
         guard LibraryModeService.shared.mode == .music else { return nil }
 
         let predicate = MPMediaPropertyPredicate(
@@ -595,12 +596,46 @@ class PlaybackEngineService: NSObject, ObservableObject, AVAudioPlayerDelegate {
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, playbackTime)
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
 
-        if let artwork = getArtwork(for: song) {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+        let syncArtwork = getArtwork(for: song)
+        if let syncArtwork {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = syncArtwork
         }
 
         DispatchQueue.main.async {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        }
+
+        // Folder-mode tracks (and any music-library miss) have no synchronous
+        // MPMediaItemArtwork above — Control Center would show a blank tile.
+        // Fetch through ArtworkCache (per-source dispatch: file-embedded art
+        // for folder tracks) and patch it into the now-playing info.
+        if syncArtwork == nil {
+            loadNowPlayingArtworkAsync(for: song)
+        }
+    }
+
+    // Control Center artwork for tracks without a synchronous MPMediaItemArtwork.
+    // Routes through ArtworkCache — which caches and, in folder mode, extracts
+    // the file-embedded image — then stamps it into the current now-playing
+    // info. Guards against the track advancing during the async load so a slow
+    // fetch can't paint the previous track's art over the current one.
+    private func loadNowPlayingArtworkAsync(for song: Song) {
+        let targetID = song.persistentID
+        Task { [weak self] in
+            guard let self else { return }
+            guard let albumID = LibraryService.shared.getTrackAlbumInfo(forTrack: targetID)?.albumID,
+                  albumID != 0 else { return }
+            guard let image = await ArtworkCache.shared.artwork(
+                forAlbum: albumID,
+                size: CGSize(width: 600, height: 600)
+            ) else { return }
+            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            await MainActor.run {
+                guard self.lastPlayedSong?.persistentID == targetID else { return }
+                guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
+                info[MPMediaItemPropertyArtwork] = artwork
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            }
         }
     }
 

@@ -30,8 +30,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            chrome
-            titleBlock
+            header
             settingsSection
             exportSection
             Spacer(minLength: 0)
@@ -51,20 +50,16 @@ struct SettingsView: View {
 
     // MARK: - Chrome
 
-    private var chrome: some View {
-        HStack {
+    // Back button sits inline with the yellow SETTINGS title block (both are
+    // 44pt tall), same arrangement as Album / Genre Detail chrome.
+    private var header: some View {
+        HStack(spacing: 12) {
             BackButton { dismiss() }
-            Spacer()
+            ViewTitleBlock("SETTINGS")
         }
         .padding(.horizontal, 24)
         .padding(.top, 16)
-        .padding(.bottom, 16)
-    }
-
-    private var titleBlock: some View {
-        ViewTitleBlock("SETTINGS")
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+        .padding(.bottom, 24)
     }
 
     // MARK: - Settings section

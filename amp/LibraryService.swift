@@ -82,6 +82,18 @@ extension String {
     var searchNormalized: String {
         return searchQueryNormalized
     }
+
+    /// Split a genre tag into its individual clickable components. amp treats
+    /// "/" as the only separator (e.g. "Classic Rock/Rock" → ["Classic Rock",
+    /// "Rock"]); commas and ampersands are left intact so legitimate names
+    /// like "Rock, Pop" or "Drum & Bass" aren't broken apart. This is the one
+    /// canonical splitter — display (AlbumArtView), enumeration (getAllGenres),
+    /// and matching (getGenreDetail) all route through it so they agree.
+    var genreComponents: [String] {
+        split(separator: "/")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
 }
 
 // Playlist Detail's full data requirement, satisfied by a single

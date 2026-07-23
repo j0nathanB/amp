@@ -40,6 +40,14 @@ bookmark / iCloud mechanics (Phases 2/4/5 there are still directly reusable).
    OGG/Opus out of scope (no native iOS decoder).
 9. **First toggle with no folder chosen → immediately open the system folder
    picker.** Cancelling the picker reverts the toggle to MUSIC.
+10. *(Added from dogfooding 2026-07-11)* **Scans stage; loading is explicit.**
+    A folder scan never applies silently — results are staged and a
+    "Load library (N tracks)" button in the Folders screen erases the queue,
+    installs + persists the catalog, and triggers the library/search rebuild.
+    The Folders screen is only reachable in FOLDER mode (the Settings button
+    is greyed out in MUSIC mode), and the picker starts in the app's
+    Documents folder ("On My iPhone ▸ amp") via a UIDocumentPickerViewController
+    wrapper — .fileImporter can't set a start directory.
 
 ---
 
@@ -145,7 +153,8 @@ source-agnostic.
   per-root track count + "unavailable" state, "Rescan" button.
 - **`M3UParser.swift`** — parse `.m3u`/`.m3u8`/`.pls`; resolve entry paths
   (relative to the playlist file, and absolute) against scanned tracks by
-  normalized path; unresolved entries are dropped (or shown greyed — TBD in UI).
+  normalized path; unresolved entries are dropped *(TBD settled in Phase 5:
+  dropped, no grey-out)*.
 
 ## Existing files touched
 
@@ -299,10 +308,10 @@ AVErrorUnknown -11800).
 |---|---|---|
 | 0. Double-play bug fix (prerequisite) | ✅ **DONE 2026-07-08 — already fixed in `2dfbb36` (2026-05-01)**, per `PLAYBACK_REVERT_PLAN.md`: single play path via `pendingUserAction` + `currentTrackDidChange`, direction-aware recovery, 5-failure cascade cap. Code-trace verified; runtime sanity check owed when folder mode first yields a real unplayable track. | 0d |
 | 1. `LibrarySource` seam | ✅ **DONE 2026-07-08.** `LibrarySource` protocol (22 methods, UInt64-keyed) + `MusicLibrarySource` (Release MP bodies verbatim) + `MockLibrarySource` adapter (replaces all per-method `#if DEBUG` branches — parity preserved incl. unsorted mock artists). Index-first shortcuts stayed in `LibraryService`. `getMediaItems`/`song(from:)`/search/enrichment untouched. Both configs build; tests pass. LibraryService −372 lines. | done |
-| 2. Toggle + mode plumbing | `LibraryModeService`, Settings toggle, per-mode liked/search, snapshot clear, queue-erase/stop. Folder source stubbed empty. | 1.5d |
-| 3. Folder pick + scan + flat songs | `FolderRootStore`, bookmarks, `FolderScanService`, `FolderLibraryCache`, songs list playable. | 3–4d |
-| 4. Albums / Artists / Search / Artwork in folder mode | tag grouping + filename fallback, folder search index, `ArtworkCache` per-source dispatch + mode-namespaced keys. | 2–3d |
-| 5. Playlists (`.m3u`/`.pls`) | `M3UParser`, playlist detail. | 1d |
+| 2. Toggle + mode plumbing | ✅ **DONE 2026-07-08** (commit `9786ea7`). `LibraryModeService` (`LibrarySourceMode` — renamed; `LibraryMode` was taken by LibraryView's chips), Settings toggle, switch sequence (stop + eraseQueue + snapshot clear + liked swap + notify), per-mode liked keys, LibraryStore source-change rebuilds w/ mid-build mode fail-safes + music-only disk caches, empty folder search index (music index cache preserved), `getAllGenres` moved behind the seam (was a folder-mode leak). Folder source stubbed empty. **Deferred to Phase 3:** picker-on-first-toggle (decision #9) — no picker exists yet; toggle currently lands on an empty folder library. | done |
+| 3. Folder pick + scan + flat songs | ✅ **DONE 2026-07-09** (commit `e182411`). `FolderLibraryService` (roots + refcounted scopes + catalog persistence, merging the planned RootStore/Cache), `FolderTrackScanner` (bounded-concurrency AVAsset extraction, filename fallback), FNV-1a ids w/ deterministic collision salting, playback dispatch + scope-across-playback, `FolderSettingsView`, picker-on-first-toggle (decision #9 now live). Notes: track/disc numbers + artwork deferred to Phase 4 (format-specific keys); eager cold-launch snapshot misses gracefully for folder tracks (no scope at eager-load time — normal restore path covers it); launch-staleness auto-rescan is Phase 5. | done |
+| 4. Albums / Artists / Search / Artwork in folder mode | ✅ **DONE 2026-07-11** (commit `5a42599`). Grouping from scan-time albumID/artistID (group-on-read from catalog); track/disc extraction (ID3 strings + iTunes binary atoms + filename digits); GenreDetail moved behind the seam (GenreDetailView's MP query → MusicLibrarySource); `buildFolderIndex()` from catalog (same normalization as MP build, no disk cache needed); ArtworkCache per-source dispatch + mode-namespaced keys (music unprefixed = existing thumbnails stay hot, folder "f"-prefixed). Genres included (was listed for Phase 4 informally). Note: rescan + Load needed to populate track numbers in pre-Phase-4 catalogs. Control-Center artwork for folder tracks still placeholder (sync API vs async extraction — punt list). | done |
+| 5. Playlists (`.m3u`/`.pls`) | ✅ **DONE 2026-07-11.** `M3UParser` (m3u/m3u8/pls; UTF-8→Latin-1 fallback; CRLF via scalar-level splitting — Swift's `split(separator: "\n")` treats `\r\n` as ONE grapheme and never splits CRLF files; PLS FileN numeric ordering). Resolution: playlist-dir-relative → root-relative → filename fallback (absolute paths need a unique path-suffix match; ambiguous bare filenames drop). Unresolved entries **dropped** (TBD settled — no grey-out). Discovery shares the scan walk; playlist bytes captured under the root's scope, parsed at catalog build AFTER track-id salting. Catalog v2 (v1 discards → rescan+Load needed once). Synthetic playlist ids (`FolderID.playlist`, salted like tracks). Empty-after-resolution playlists still shown. Tests: 6 added (parser fixtures + pinned FNV-1a id stability). | done |
 | 6. iCloud/on-demand + FLAC hardening + unavailable-root UX | `async` URL resolve, download-wait, FLAC artwork caveat, stale-root banner. | 2d |
 
 **Total ≈ 12–14.5 days**, but Phase 1 ships independently and de-risks the rest.
@@ -316,8 +325,9 @@ Phases 4/5/6 parallelize once 3 lands; Phase 0 parallelizes with 1–2.
 - FLAC: playback + tag read work on iOS 15+ via `AVURLAsset`; **embedded artwork**
   via `METADATA_BLOCK_PICTURE` may need a manual parse — acceptable to ship FLAC
   with a placeholder cover in v1 and note it.
-- `.m3u` path resolution across security-scoped roots: entries may point outside
-  any granted root → unresolvable by design; decide drop vs. grey-out in UI.
+- ~~`.m3u` path resolution across security-scoped roots~~ *(settled in Phase 5)*:
+  entries outside any granted root are unresolvable by design and dropped;
+  filename fallback still catches same-named files inside a granted root.
 - Export-liked-as-m3u already exists in Settings — confirm it targets the *active*
   source's liked set and that folder-mode m3u uses real file paths (portable),
   which is actually nicer than the Music-mode `ipod-library://` case.

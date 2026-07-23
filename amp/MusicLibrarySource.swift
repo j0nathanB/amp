@@ -379,14 +379,22 @@ final class MusicLibrarySource: LibrarySource {
     // extension.)
     func getGenreDetail(for genre: String) async -> GenreDetail {
         await Task.detached(priority: .userInitiated) {
+            // `genre` may be a single split component ("Rock") whose songs are
+            // tagged with a compound string ("Classic Rock/Rock"), so an
+            // exact-match predicate would miss them. Narrow cheaply with a
+            // `.contains` predicate, then keep only items whose split genre
+            // has "Rock" as a *whole* component — otherwise `.contains` would
+            // also drag in "Rockabilly", "Post-Rock", etc.
             let predicate = MPMediaPropertyPredicate(
                 value: genre,
                 forProperty: MPMediaItemPropertyGenre,
-                comparisonType: .equalTo
+                comparisonType: .contains
             )
             let query = MPMediaQuery.songs()
             query.addFilterPredicate(predicate)
-            let items = query.items ?? []
+            let items = (query.items ?? []).filter {
+                ($0.genre?.genreComponents ?? []).contains(genre)
+            }
 
             var songs: [Song] = []
             var albumMap: [MPMediaEntityPersistentID: Album] = [:]
@@ -427,13 +435,19 @@ final class MusicLibrarySource: LibrarySource {
         }.value
     }
 
-    /// Get all available genres in the library (for filter UI)
+    /// Get all available genres in the library (for filter UI). Compound
+    /// tags ("Classic Rock/Rock") are split into their components and deduped
+    /// so the browse list matches the individually-clickable genres surfaced
+    /// on the album info card.
     func getAllGenres() async -> [String] {
         await Task.detached(priority: .userInitiated) {
             let query = MPMediaQuery.genres()
-            return (query.collections ?? []).compactMap { collection in
-                collection.representativeItem?.genre
-            }.sorted()
+            var seen: Set<String> = []
+            for collection in query.collections ?? [] {
+                guard let genre = collection.representativeItem?.genre else { continue }
+                seen.formUnion(genre.genreComponents)
+            }
+            return seen.sorted()
         }.value
     }
 

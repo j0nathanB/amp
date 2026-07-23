@@ -54,6 +54,11 @@ enum FolderID {
     static func artist(name: String) -> UInt64 {
         fnv1a64("artist|\(name.lowercased())")
     }
+
+    static func playlist(rootID: UUID, relativePath: String, salt: Int = 0) -> UInt64 {
+        let base = "playlist|\(rootID.uuidString)|\(relativePath)"
+        return fnv1a64(salt == 0 ? base : "\(base)|salt\(salt)")
+    }
 }
 
 // MARK: - Catalog model
@@ -71,15 +76,28 @@ struct FolderTrack: Codable {
     let artistID: UInt64
 }
 
+// One parsed-and-resolved .m3u/.pls playlist. trackIDs are catalog track
+// ids in playlist-file order; unresolvable entries were dropped at build
+// time (plan decision #3). id is synthetic (FolderID.playlist over the
+// playlist file's root + relative path) — stable across rescans.
+struct FolderPlaylist: Codable {
+    let id: UInt64
+    let name: String
+    let trackIDs: [UInt64]
+}
+
 // The persisted, derived catalog — what a warm launch loads instead of
 // re-reading AVAsset tags. tracks are pre-sorted by title (the Songs tab
-// order) at build time.
+// order), playlists by name, at build time.
+// v1 → v2: added playlists (Phase 5). Old catalogs fail decode / the
+// version gate and rebuild on the next scan+load.
 struct FolderCatalogData: Codable {
     let version: Int
     let tracks: [FolderTrack]
+    let playlists: [FolderPlaylist]
 
-    static let currentVersion = 1
-    static let empty = FolderCatalogData(version: currentVersion, tracks: [])
+    static let currentVersion = 2
+    static let empty = FolderCatalogData(version: currentVersion, tracks: [], playlists: [])
 }
 
 // Thread-safe in-memory catalog snapshot. LibrarySource methods are
@@ -91,15 +109,21 @@ final class FolderCatalog {
     private var tracksByTitle: [FolderTrack] = []
     private var songsByTitle: [Song] = []
     private var byID: [UInt64: FolderTrack] = [:]
+    private var playlistsByName: [FolderPlaylist] = []
+    private var playlistsByID: [UInt64: FolderPlaylist] = [:]
 
     func install(_ data: FolderCatalogData) {
         var index: [UInt64: FolderTrack] = [:]
         index.reserveCapacity(data.tracks.count)
         for track in data.tracks { index[track.song.persistentID] = track }
+        var playlistIndex: [UInt64: FolderPlaylist] = [:]
+        for playlist in data.playlists { playlistIndex[playlist.id] = playlist }
         lock.lock()
         tracksByTitle = data.tracks
         songsByTitle = data.tracks.map { $0.song }
         byID = index
+        playlistsByName = data.playlists
+        playlistsByID = playlistIndex
         lock.unlock()
     }
 
@@ -133,6 +157,16 @@ final class FolderCatalog {
             if let track = byID[id] { result[id] = track.song }
         }
         return result
+    }
+
+    var allPlaylists: [FolderPlaylist] {
+        lock.lock(); defer { lock.unlock() }
+        return playlistsByName
+    }
+
+    func playlist(for id: UInt64) -> FolderPlaylist? {
+        lock.lock(); defer { lock.unlock() }
+        return playlistsByID[id]
     }
 }
 
@@ -342,10 +376,42 @@ final class FolderLibraryService: ObservableObject {
         return try? await item.load(.dataValue)
     }
 
+    // MARK: - Lyrics
+
+    // Embedded unsynced lyrics for a track, opened under the root's scope.
+    // MP3 stores these in the ID3 USLT frame; M4A/AAC files (iTunes-style
+    // tagging) use the "©lyr" atom instead — checked as a fallback so
+    // non-MP3 folder imports aren't silently blank. Called directly by
+    // LyricsView for folder-mode tracks, bypassing the synchronous
+    // LibrarySource.getLyrics (which needs a security scope + AVAsset
+    // metadata load, both of which want to be async) — same dispatch
+    // shape as ArtworkCache.artwork's folder branch.
+    func lyrics(forTrack id: UInt64) async -> String? {
+        guard let track = catalog.track(for: id),
+              let rootURL = beginAccess(track.rootID) else { return nil }
+        defer { endAccess(track.rootID) }
+
+        let asset = AVURLAsset(url: rootURL.appending(path: track.relativePath))
+        let id3 = (try? await asset.loadMetadata(for: .id3Metadata)) ?? []
+        if let item = AVMetadataItem.metadataItems(from: id3, filteredByIdentifier: .id3MetadataUnsynchronizedLyric).first,
+           let text = try? await item.load(.stringValue), !text.isEmpty {
+            return text
+        }
+
+        let iTunes = (try? await asset.loadMetadata(for: .iTunesMetadata)) ?? []
+        if let item = AVMetadataItem.metadataItems(from: iTunes, filteredByIdentifier: .iTunesMetadataLyrics).first,
+           let text = try? await item.load(.stringValue), !text.isEmpty {
+            return text
+        }
+
+        return nil
+    }
+
     // MARK: - Scanning
 
-    // Full rescan of every root. Phase 3 is a complete walk + extract each
-    // time; Phase 5 adds the (relativePath, mtime, size) incremental diff.
+    // Full rescan of every root: complete walk + extract each time. A
+    // (relativePath, mtime, size) incremental diff remains a deferred
+    // optimization (Phase 6+).
     func rescan() {
         guard !isScanning else {
             print("📁 Rescan requested while a scan is running — ignored")
@@ -357,6 +423,7 @@ final class FolderLibraryService: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [self] in
             var extracted: [FolderTrack] = []
+            var playlistFiles: [RawPlaylistFile] = []
             var counts: [UUID: Int] = [:]
             var newlyStale: Set<UUID> = []
 
@@ -368,14 +435,27 @@ final class FolderLibraryService: ObservableObject {
                 }
                 defer { endAccess(root.id) }
 
-                let files = FolderTrackScanner.audioFiles(under: rootURL)
+                let files = FolderTrackScanner.mediaFiles(under: rootURL)
                 await MainActor.run {
                     let done = extracted.count
-                    self.scanProgress = (discovered: done + files.count, processed: done)
+                    self.scanProgress = (discovered: done + files.audio.count, processed: done)
+                }
+
+                // Capture playlist bytes now, while the scope is held;
+                // parsing + entry resolution happen at catalog build, after
+                // track ids are final (collision salting can change them).
+                for file in files.playlists {
+                    guard let data = try? Data(contentsOf: file.url) else {
+                        print("📁 ⚠️ Unreadable playlist file skipped: \(file.relativePath)")
+                        continue
+                    }
+                    playlistFiles.append(RawPlaylistFile(
+                        rootID: root.id, relativePath: file.relativePath, data: data
+                    ))
                 }
 
                 let tracks = await FolderTrackScanner.extractTracks(
-                    from: files,
+                    from: files.audio,
                     rootID: root.id
                 ) { processed in
                     Task { @MainActor in
@@ -388,7 +468,7 @@ final class FolderLibraryService: ObservableObject {
                 counts[root.id] = tracks.count
             }
 
-            let data = Self.buildCatalog(from: extracted)
+            let data = Self.buildCatalog(from: extracted, playlistFiles: playlistFiles)
 
             await MainActor.run {
                 self.isScanning = false
@@ -405,7 +485,7 @@ final class FolderLibraryService: ObservableObject {
                 // pipeline are untouched until loadStagedLibrary().
                 self.stagedCatalog = data
                 self.stagedTrackCount = data.tracks.count
-                print("📁 Scan complete: \(data.tracks.count) tracks staged across \(rootsSnapshot.count) root(s) — awaiting Load")
+                print("📁 Scan complete: \(data.tracks.count) tracks, \(data.playlists.count) playlist(s) staged across \(rootsSnapshot.count) root(s) — awaiting Load")
             }
         }
     }
@@ -429,11 +509,22 @@ final class FolderLibraryService: ObservableObject {
         NotificationCenter.default.post(name: .ampLibrarySourceDidChange, object: nil)
     }
 
+    // A playlist file's bytes, captured during the scan while its root's
+    // scope was held. Parsed and resolved at catalog build.
+    struct RawPlaylistFile {
+        let rootID: UUID
+        let relativePath: String
+        let data: Data
+    }
+
     // Deterministic catalog assembly: sort by (rootID, relativePath) before
     // id-collision handling so salting reproduces identically on every
     // rescan of the same file set, then sort the final list by title (the
     // Songs tab order).
-    private static func buildCatalog(from tracks: [FolderTrack]) -> FolderCatalogData {
+    private static func buildCatalog(
+        from tracks: [FolderTrack],
+        playlistFiles: [RawPlaylistFile]
+    ) -> FolderCatalogData {
         let ordered = tracks.sorted {
             ($0.rootID.uuidString, $0.relativePath) < ($1.rootID.uuidString, $1.relativePath)
         }
@@ -474,7 +565,71 @@ final class FolderLibraryService: ObservableObject {
         }
 
         let byTitle = resolved.sorted { LibraryService.nameOrder($0.song.title, $1.song.title) }
-        return FolderCatalogData(version: FolderCatalogData.currentVersion, tracks: byTitle)
+        return FolderCatalogData(
+            version: FolderCatalogData.currentVersion,
+            tracks: byTitle,
+            playlists: buildPlaylists(from: playlistFiles, tracks: resolved)
+        )
+    }
+
+    // Parse + resolve playlist files against the FINAL track set (ids are
+    // post-salting). A playlist whose entries all fail to resolve still
+    // appears — empty — rather than vanishing; consistent with decision #7's
+    // never-silently-drop stance.
+    private static func buildPlaylists(
+        from files: [RawPlaylistFile],
+        tracks: [FolderTrack]
+    ) -> [FolderPlaylist] {
+        guard !files.isEmpty else { return [] }
+
+        // Relative entries resolve within the playlist's own root; the
+        // filename fallback spans all roots (see M3UParser.resolve).
+        var pathsByRoot: [UUID: [String: UInt64]] = [:]
+        var filenameCandidates: [String: [M3UParser.TrackCandidate]] = [:]
+        for track in tracks {
+            let key = M3UParser.normalizeKey(track.relativePath)
+            pathsByRoot[track.rootID, default: [:]][key] = track.song.persistentID
+            if let filename = key.split(separator: "/").last.map(String.init) {
+                filenameCandidates[filename, default: []].append(
+                    M3UParser.TrackCandidate(id: track.song.persistentID, normalizedPath: key)
+                )
+            }
+        }
+
+        // Same deterministic order + id-collision salting as tracks.
+        let ordered = files.sorted {
+            ($0.rootID.uuidString, $0.relativePath) < ($1.rootID.uuidString, $1.relativePath)
+        }
+        var owners: [UInt64: (UUID, String)] = [:]
+        var playlists: [FolderPlaylist] = []
+        for file in ordered {
+            let path = file.relativePath as NSString
+            // .txt is Apple Music's TSV export (own parser); everything
+            // else is a real m3u/pls. Both feed the same resolver.
+            let entries = path.pathExtension.lowercased() == "txt"
+                ? AppleMusicTextPlaylistParser.entries(in: file.data)
+                : M3UParser.entries(in: file.data, fileExtension: path.pathExtension)
+            let trackIDs = M3UParser.resolve(
+                entries: entries,
+                playlistDirectory: path.deletingLastPathComponent,
+                trackIDsByPath: pathsByRoot[file.rootID] ?? [:],
+                filenameCandidates: filenameCandidates
+            )
+            var salt = 0
+            var id = FolderID.playlist(rootID: file.rootID, relativePath: file.relativePath)
+            while let owner = owners[id], owner != (file.rootID, file.relativePath) {
+                salt += 1
+                print("📁 ⚠️ Playlist id collision (\(file.relativePath)) — salting (\(salt))")
+                id = FolderID.playlist(rootID: file.rootID, relativePath: file.relativePath, salt: salt)
+            }
+            owners[id] = (file.rootID, file.relativePath)
+            playlists.append(FolderPlaylist(
+                id: id,
+                name: (path.lastPathComponent as NSString).deletingPathExtension,
+                trackIDs: trackIDs
+            ))
+        }
+        return playlists.sorted { LibraryService.nameOrder($0.name, $1.name) }
     }
 
     // MARK: - Persistence (.atomic — non-negotiable for every amp cache)

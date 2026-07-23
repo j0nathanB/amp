@@ -2,12 +2,12 @@ import SwiftUI
 import MediaPlayer
 
 // Spec §8.1 + navigation amendment: front shows the artwork, back shows
-// ampNavy metadata as stacked label/value rows — ALBUM, ALBUM ARTIST,
-// YEAR, GENRE. Tapping the artwork flips between front and back; tappable
-// rows (album, album artist, genre) route to the matching detail via
-// NavigationService.push, which targets whichever tab is currently
-// selected. Tap on the back-face whitespace (or a non-tappable row like
-// YEAR) flips back to the front.
+// metadata on a gray (ampMutedText) card as centered, label-less lines —
+// song, artist, album, year, then a wrapping row of genre links. Tapping
+// the artwork flips between front and back; tappable lines (artist, album,
+// each genre) route to the matching detail via NavigationService.push,
+// which targets whichever tab is currently selected. Tap on the back-face
+// whitespace (or a non-tappable line like song/year) flips back to the front.
 //
 // Flip direction is tap-location-aware: a tap on the right half always
 // advances the rotation forward (clockwise around Y), a tap on the left
@@ -42,8 +42,12 @@ struct AlbumArtView: View {
         .aspectRatio(1, contentMode: .fit)
         .clipped()
         .rotation3DEffect(.degrees(rotationAngle), axis: (x: 0, y: 1, z: 0))
-        .animation(.easeInOut(duration: 0.4), value: flipState)
         .onChange(of: song?.persistentID) { _, _ in
+            // Snap the new track to its front face *without* animating. The
+            // flip is explicitly animated in flip(); an implicit
+            // .animation(value: flipState) here would instead animate this
+            // reset, rewinding the accumulated rotation (e.g. 3 → 0 = a 540°
+            // spin) every time the track changes while the card was flipped.
             flipState = 0
         }
         .task(id: song?.persistentID) {
@@ -58,10 +62,12 @@ struct AlbumArtView: View {
     // Right half → +1 (forward spin), left half → -1 (reverse spin).
     // Either way parity flips, so the opposite face becomes visible.
     private func flip(tappedAt location: CGPoint, width: CGFloat) {
-        if location.x >= width / 2 {
-            flipState += 1
-        } else {
-            flipState -= 1
+        withAnimation(.easeInOut(duration: 0.4)) {
+            if location.x >= width / 2 {
+                flipState += 1
+            } else {
+                flipState -= 1
+            }
         }
     }
 
@@ -110,11 +116,11 @@ struct AlbumArtView: View {
     private var backFace: some View {
         GeometryReader { geo in
             ZStack {
-                // Tapping the navy background (anywhere not on a link or label
-                // text) flips back to the artwork. Direction depends on which
-                // half was tapped.
+                // Tapping the gray background (anywhere not on a link) flips
+                // back to the artwork. Direction depends on which half was
+                // tapped.
                 Rectangle()
-                    .fill(Color.ampNavy)
+                    .fill(Color.ampMutedText)
                     .contentShape(Rectangle())
                     .gesture(
                         SpatialTapGesture()
@@ -123,11 +129,14 @@ struct AlbumArtView: View {
                             }
                     )
 
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .center, spacing: 16) {
                     ForEach(metadataRows, id: \.label) { row in
                         MetadataRow(row: row) {
                             handleTap(row)
                         }
+                    }
+                    if !genres.isEmpty {
+                        GenreRow(genres: genres) { navigateToGenre($0) }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -142,52 +151,70 @@ struct AlbumArtView: View {
     // MARK: - Metadata model
 
     fileprivate struct Row: Equatable {
-        enum Kind: Equatable { case album, artist, year, genre }
+        enum Kind: Equatable { case song, artist, album, year }
         let label: String
         let value: String
         let kind: Kind
         var isTappable: Bool {
             switch kind {
-            case .album, .artist, .genre: true
-            case .year: false
+            case .artist, .album: true
+            case .song, .year: false
             }
         }
     }
 
+    // Order: song, artist, album, year (genres render below as their own
+    // wrapping block). Labels are intentionally omitted and the values are
+    // centered, so a field with no value would show as a bare, meaningless
+    // line — those are dropped entirely, same spirit as the empty-genre case.
     private var metadataRows: [Row] {
         guard let song else { return [] }
-        return [
-            Row(label: "ALBUM", value: song.album.isEmpty ? "—" : song.album, kind: .album),
-            Row(label: "ALBUM ARTIST", value: albumArtistString, kind: .artist),
-            Row(label: "YEAR", value: yearString, kind: .year),
-            Row(label: "GENRE", value: (song.genre?.isEmpty == false ? song.genre : nil) ?? "—", kind: .genre)
-        ]
+        var rows: [Row] = []
+        if !song.title.isEmpty {
+            rows.append(Row(label: "SONG", value: song.title, kind: .song))
+        }
+        let artist = albumArtistString
+        if !artist.isEmpty {
+            rows.append(Row(label: "ARTIST", value: artist, kind: .artist))
+        }
+        if !song.album.isEmpty {
+            rows.append(Row(label: "ALBUM", value: song.album, kind: .album))
+        }
+        if let year = yearString {
+            rows.append(Row(label: "YEAR", value: year, kind: .year))
+        }
+        return rows
     }
 
-    private var yearString: String {
-        guard let date = song?.releaseDate else { return "—" }
+    // A single tag may split into several independently-clickable components
+    // ("Classic Rock/Rock" → "Classic Rock", "Rock"); the whole block is
+    // omitted when the track has no genre.
+    private var genres: [String] {
+        song?.genre?.genreComponents ?? []
+    }
+
+    private var yearString: String? {
+        guard let date = song?.releaseDate else { return nil }
         return String(Calendar.current.component(.year, from: date))
     }
 
     // Prefer the MPMediaItem albumArtist (loaded async); fall back to the
-    // track artist on the Song so the row is never blank while loading.
+    // track artist on the Song. Empty when neither is known, so the row drops.
     private var albumArtistString: String {
         if let albumArtist, !albumArtist.isEmpty { return albumArtist }
         if let song, !song.artist.isEmpty { return song.artist }
-        return "—"
+        return ""
     }
 
     // MARK: - Taps
 
     private func handleTap(_ row: Row) {
         switch row.kind {
-        case .album:
-            navigateToAlbum()
         case .artist:
             navigateToArtist()
-        case .genre:
-            navigateToGenre(row.value)
-        case .year:
+        case .album:
+            navigateToAlbum()
+        case .song, .year:
             // Not navigable — non-tappable rows shouldn't receive taps
             // (their text is hit-disabled), but keep this no-op safe.
             break
@@ -249,52 +276,130 @@ struct AlbumArtView: View {
 
 // MARK: - MetadataRow
 
-// Tap target on tappable rows is restricted to the value text only —
-// label, surrounding whitespace, and non-tappable rows (YEAR) let the
-// tap fall through to the parent's navy rectangle, which handles the
-// flip-back with direction awareness. `allowsHitTesting(false)` on the
-// non-link content is what makes that fall-through work.
+// A single centered value line (labels were dropped from the card). On
+// tappable rows the tap target is restricted to the value text itself —
+// flanking whitespace and non-tappable rows (SONG, YEAR) let the tap fall
+// through to the parent's gray rectangle, which handles the flip-back with
+// direction awareness. `allowsHitTesting(false)` on the flanks and on
+// non-link text is what makes that fall-through work.
 private struct MetadataRow: View {
     let row: AlbumArtView.Row
     let onTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(row.label)
-                .font(.inversionLabel)
-                .foregroundStyle(Color.ampInversionLabel)
-                .allowsHitTesting(false)
-
-            valueText
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(row.isTappable ? .isButton : [])
-    }
-
-    @ViewBuilder
-    private var valueText: some View {
         let text = Text(row.value)
-            .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 26))
+            .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 22))
             .foregroundStyle(Color.ampWhite)
-            .underline(row.isTappable, color: Color.ampInversionLabel)
+            .underline(row.isTappable, color: Color.ampWhite)
             .lineLimit(2)
-            .multilineTextAlignment(.leading)
+            .multilineTextAlignment(.center)
 
         if row.isTappable {
-            // Wrap in an HStack with a trailing Spacer so the Text takes
-            // only its rendered width; the tap target then matches the
-            // underlined link, not the full row width.
+            // Spacers on both sides keep the Text at its rendered width and
+            // centered, so the tap target matches the underlined link and the
+            // background beside it still flips the card.
             HStack(spacing: 0) {
+                Spacer(minLength: 0).allowsHitTesting(false)
                 text
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onTap)
-                Spacer(minLength: 0)
-                    .allowsHitTesting(false)
+                Spacer(minLength: 0).allowsHitTesting(false)
             }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement()
+            .accessibilityLabel(row.value)
+            .accessibilityAddTraits(.isButton)
         } else {
-            text.allowsHitTesting(false)
+            text
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityLabel(row.value)
+        }
+    }
+}
+
+// MARK: - GenreRow
+//
+// A centered, wrapping run of independently-tappable genre links (one per
+// split component). Each routes to its own Genre Detail. Matches the
+// MetadataRow link treatment (bold 22, white, white underline); the tap
+// target is restricted to each underlined word so the gray background between
+// them still flips the card back.
+private struct GenreRow: View {
+    let genres: [String]
+    let onTap: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 14, rowSpacing: 6) {
+            ForEach(Array(genres.enumerated()), id: \.offset) { _, genre in
+                Text(genre)
+                    .font(.custom("AtkinsonHyperlegibleNext-Bold", size: 22))
+                    .foregroundStyle(Color.ampWhite)
+                    .underline(true, color: Color.ampWhite)
+                    .fixedSize()
+                    .contentShape(Rectangle())
+                    .onTapGesture { onTap(genre) }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+// MARK: - FlowLayout
+//
+// Minimal wrapping layout that packs subviews into rows (wrapping when the
+// next would overflow the proposed width) and centers each row horizontally.
+// Used for the genre links, which can be several short words on a narrow
+// (square-artwork) card and should read centered with the rest of the info.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 14
+    var rowSpacing: CGFloat = 6
+
+    // Group subview indices into rows for a given width. Each row also carries
+    // its packed width and tallest height so both passes agree on layout.
+    private struct RowInfo { var indices: [Int]; var width: CGFloat; var height: CGFloat }
+
+    private func rows(subviews: Subviews, maxWidth: CGFloat) -> [RowInfo] {
+        var rows: [RowInfo] = []
+        var current = RowInfo(indices: [], width: 0, height: 0)
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let advance = current.indices.isEmpty ? size.width : spacing + size.width
+            if !current.indices.isEmpty, current.width + advance > maxWidth {
+                rows.append(current)
+                current = RowInfo(indices: [index], width: size.width, height: size.height)
+            } else {
+                current.indices.append(index)
+                current.width += advance
+                current.height = max(current.height, size.height)
+            }
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = rows(subviews: subviews, maxWidth: maxWidth)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +)
+            + rowSpacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: min(width, maxWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = rows(subviews: subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.midX - row.width / 2
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + rowSpacing
         }
     }
 }

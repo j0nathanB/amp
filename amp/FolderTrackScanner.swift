@@ -1,9 +1,10 @@
 import Foundation
 import AVFoundation
 
-// Stateless folder-scan mechanics (Phases 3–4 of
-// dev/FOLDER_LIBRARY_TOGGLE_PLAN.md): recursive audio-file discovery and
-// AVAsset tag extraction with bounded concurrency. Orchestration (roots,
+// Stateless folder-scan mechanics (Phases 3–5 of
+// dev/FOLDER_LIBRARY_TOGGLE_PLAN.md): recursive audio/playlist-file
+// discovery and AVAsset tag extraction with bounded concurrency.
+// Orchestration (roots,
 // scopes, catalog assembly, persistence) lives in FolderLibraryService.
 //
 // Extracts title / artist / album / album-artist / genre / duration /
@@ -18,6 +19,12 @@ enum FolderTrackScanner {
         "mp3", "m4a", "aac", "wav", "aif", "aiff", "flac"
     ]
 
+    // Plan decision #3: playlists come from playlist FILES in the roots
+    // (subfolders are not playlists). .m3u/.m3u8/.pls are parsed by
+    // M3UParser; .txt is Apple Music's tab-separated export, parsed by
+    // AppleMusicTextPlaylistParser. Both resolved at catalog build.
+    private static let playlistExtensions: Set<String> = ["m3u", "m3u8", "pls", "txt"]
+
     // Matches A-series efficiency cores + I/O overlap; the old plan's
     // profiling note. Tunable.
     private static let maxConcurrentExtractions = 6
@@ -29,30 +36,38 @@ enum FolderTrackScanner {
 
     // MARK: - Discovery
 
-    // Recursive walk under an (already scope-granted) root. Hidden files
-    // skipped; `.icloud` placeholder sidecars are hidden, so undownloaded
-    // iCloud items simply don't appear until Phase 6's download-on-demand.
-    static func audioFiles(under rootURL: URL) -> [DiscoveredFile] {
+    // Recursive walk under an (already scope-granted) root, collecting
+    // audio and playlist files in one pass. Hidden files skipped;
+    // `.icloud` placeholder sidecars are hidden, so undownloaded iCloud
+    // items simply don't appear until Phase 6's download-on-demand.
+    static func mediaFiles(under rootURL: URL) -> (audio: [DiscoveredFile], playlists: [DiscoveredFile]) {
         let rootPath = rootURL.standardizedFileURL.path
         guard let enumerator = FileManager.default.enumerator(
             at: rootURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
-        ) else { return [] }
+        ) else { return ([], []) }
 
-        var results: [DiscoveredFile] = []
+        var audio: [DiscoveredFile] = []
+        var playlists: [DiscoveredFile] = []
         for case let url as URL in enumerator {
-            guard audioExtensions.contains(url.pathExtension.lowercased()) else { continue }
+            let ext = url.pathExtension.lowercased()
+            let isAudio = audioExtensions.contains(ext)
+            guard isAudio || playlistExtensions.contains(ext) else { continue }
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(rootPath + "/") else { continue }
-            results.append(DiscoveredFile(
+            let file = DiscoveredFile(
                 url: url,
                 relativePath: String(path.dropFirst(rootPath.count + 1))
-            ))
+            )
+            if isAudio { audio.append(file) } else { playlists.append(file) }
         }
         // Deterministic order in, deterministic catalog out.
-        return results.sorted { $0.relativePath < $1.relativePath }
+        return (
+            audio.sorted { $0.relativePath < $1.relativePath },
+            playlists.sorted { $0.relativePath < $1.relativePath }
+        )
     }
 
     // MARK: - Extraction
@@ -155,12 +170,17 @@ enum FolderTrackScanner {
         let resolvedAlbum = album?.trimmingCharacters(in: .whitespaces) ?? "Album"
         let resolvedAlbumArtist = albumArtist?.trimmingCharacters(in: .whitespaces) ?? resolvedArtist
 
+        // Song surfaces the year via releaseDate's .year component
+        // everywhere, so a year-only Date is all downstream needs.
+        let releaseDate = await resolveReleaseYear(from: asset)
+            .flatMap { Calendar.current.date(from: DateComponents(year: $0)) }
+
         let song = Song(
             persistentID: FolderID.track(rootID: rootID, relativePath: file.relativePath),
             title: resolvedTitle,
             artist: resolvedArtist,
             album: resolvedAlbum,
-            releaseDate: nil,
+            releaseDate: releaseDate,
             albumTrackNumber: trackNumber,
             discNumber: discNumber,
             genre: genre
@@ -175,6 +195,46 @@ enum FolderTrackScanner {
             albumID: FolderID.album(albumArtist: resolvedAlbumArtist, album: resolvedAlbum),
             artistID: FolderID.artist(name: resolvedAlbumArtist)
         )
+    }
+
+    // Release year by priority (spec): original year first, then original
+    // release date, then plain year. TORY/TYER are ID3v2.3 bare-year
+    // frames; TDOR/TDRC are their v2.4 successors and carry a full date
+    // (yearValue takes the year out). iTunes ©day and the common creation
+    // date cover M4A/AAC imports so they don't come back blank.
+    private static func resolveReleaseYear(from asset: AVURLAsset) async -> Int? {
+        let id3 = (try? await asset.loadMetadata(for: .id3Metadata)) ?? []
+        let id3Priority: [AVMetadataIdentifier] = [
+            .id3MetadataOriginalReleaseYear,   // TORY — original year
+            .id3MetadataOriginalReleaseTime,   // TDOR — original release date (v2.4)
+            .id3MetadataYear,                  // TYER — year
+            .id3MetadataRecordingTime,         // TDRC — recording time (v2.4's TYER)
+        ]
+        for identifier in id3Priority {
+            if let year = await yearValue(in: id3, for: identifier) { return year }
+        }
+
+        let iTunes = (try? await asset.loadMetadata(for: .iTunesMetadata)) ?? []
+        if let year = await yearValue(in: iTunes, for: .iTunesMetadataReleaseDate) { return year }
+
+        let common = (try? await asset.load(.commonMetadata)) ?? []
+        if let year = await yearValue(in: common, for: .commonIdentifierCreationDate) { return year }
+
+        return nil
+    }
+
+    // First four-digit year in a metadata string. Bare years ("2002") and
+    // dates that lead with the year ("2002-02-25", "2002-02-25T08:00:00Z")
+    // both resolve; anything below 1000 (encoder "0000"/"0" placeholders)
+    // is rejected so priority falls through to the next source.
+    private static func yearValue(
+        in items: [AVMetadataItem],
+        for identifier: AVMetadataIdentifier
+    ) async -> Int? {
+        guard let raw = await stringValue(in: items, for: identifier),
+              let match = raw.firstMatch(of: /\d{4}/),
+              let year = Int(match.output), year >= 1000 else { return nil }
+        return year
     }
 
     private static func stringValue(

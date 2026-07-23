@@ -2,13 +2,13 @@ import Foundation
 import MediaPlayer
 import UIKit
 
-// The folder-roots LibrarySource (Phases 3–4 of
+// The folder-roots LibrarySource (Phases 3–5 of
 // dev/FOLDER_LIBRARY_TOGGLE_PLAN.md): reads FolderLibraryService's
 // scanned catalog. Songs, albums/artists/genres grouping (via the
-// scan-time albumID/artistID), and genre detail are all served from the
-// in-memory catalog — group-on-read over a few thousand tracks is
-// microseconds, so no derived grouping caches are kept here.
-// .m3u playlists are Phase 5; playlist queries return empty until then.
+// scan-time albumID/artistID), genre detail, and .m3u/.pls playlists are
+// all served from the in-memory catalog — group-on-read over a few
+// thousand tracks is microseconds, so no derived grouping caches are
+// kept here.
 final class FolderLibrarySource: LibrarySource {
 
     private var catalog: FolderCatalog { FolderLibraryService.shared.catalog }
@@ -70,8 +70,11 @@ final class FolderLibrarySource: LibrarySource {
         return TrackAlbumInfo(albumID: track.albumID, artistID: track.artistID, albumArtist: track.albumArtist)
     }
 
-    // Embedded-lyrics read needs an AVAsset open under a security scope;
-    // deferred alongside the Phase 4 per-track polish.
+    // Embedded-lyrics read needs an AVAsset opened under a security scope,
+    // which wants to be async — this synchronous protocol method stays a
+    // stub for folder mode. LyricsView calls FolderLibraryService.lyrics(
+    // forTrack:) directly instead, the same bypass ArtworkCache uses for
+    // getArtworkImage below.
     func getLyrics(forTrack id: MPMediaEntityPersistentID) -> String? {
         nil
     }
@@ -144,15 +147,19 @@ final class FolderLibrarySource: LibrarySource {
     func getAllGenres() async -> [String] {
         var seen: Set<String> = []
         for track in catalog.allTracks {
-            if let genre = track.song.genre?.trimmingCharacters(in: .whitespaces), !genre.isEmpty {
-                seen.insert(genre)
-            }
+            // Split compound tags ("Classic Rock/Rock") into deduped
+            // components, matching the album card's clickable genres.
+            seen.formUnion(track.song.genre?.genreComponents ?? [])
         }
         return seen.sorted()
     }
 
     func getGenreDetail(for genre: String) async -> GenreDetail {
-        let tracks = catalog.allTracks.filter { $0.song.genre == genre }
+        // `genre` is a single component; a track matches when that component
+        // appears in its (possibly compound) split genre.
+        let tracks = catalog.allTracks.filter {
+            ($0.song.genre?.genreComponents ?? []).contains(genre)
+        }
 
         var albumMap: [UInt64: Album] = [:]
         var artistMap: [UInt64: Artist] = [:]
@@ -176,21 +183,32 @@ final class FolderLibrarySource: LibrarySource {
         )
     }
 
-    // MARK: - Playlists (Phase 5) — empty until then
+    // MARK: - Playlists (.m3u/.pls files resolved at scan time — Phase 5)
+
+    // trackIDs were resolved against the same catalog build they're stored
+    // with, but a track can still vanish across launches (file deleted,
+    // root removed, then a stale catalog decode) — so every read re-checks
+    // membership instead of trusting the stored list.
 
     func getPlaylists() -> [Playlist] {
-        []
+        catalog.allPlaylists.map { Playlist(id: $0.id, name: $0.name) }
     }
 
     func getPlaylistDetail(for playlistID: MPMediaEntityPersistentID) -> PlaylistDetail? {
-        nil
+        guard let playlist = catalog.playlist(for: playlistID) else { return nil }
+        let tracks = playlist.trackIDs.compactMap { catalog.track(for: $0) }.map {
+            PlaylistDetail.Track(song: $0.song, duration: $0.duration, albumID: $0.albumID)
+        }
+        return PlaylistDetail(name: playlist.name, tracks: tracks)
     }
 
     func getSongs(forPlaylist playlistID: MPMediaEntityPersistentID) -> [Song] {
-        []
+        guard let playlist = catalog.playlist(for: playlistID) else { return [] }
+        return playlist.trackIDs.compactMap { catalog.track(for: $0)?.song }
     }
 
     func getSongIDs(forPlaylist playlistID: MPMediaEntityPersistentID) async -> [MPMediaEntityPersistentID] {
-        []
+        guard let playlist = catalog.playlist(for: playlistID) else { return [] }
+        return playlist.trackIDs.filter { catalog.track(for: $0) != nil }
     }
 }

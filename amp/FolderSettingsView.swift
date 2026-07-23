@@ -12,8 +12,7 @@ struct FolderSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            chrome
-            titleBlock
+            header
             rootsList
             actions
             Spacer(minLength: 0)
@@ -30,20 +29,16 @@ struct FolderSettingsView: View {
 
     // MARK: - Chrome
 
-    private var chrome: some View {
-        HStack {
+    // Back button sits inline with the yellow FOLDERS title block (both are
+    // 44pt tall), mirroring SettingsView.
+    private var header: some View {
+        HStack(spacing: 12) {
             BackButton { dismiss() }
-            Spacer()
+            ViewTitleBlock("FOLDERS")
         }
         .padding(.horizontal, 24)
         .padding(.top, 16)
-        .padding(.bottom, 16)
-    }
-
-    private var titleBlock: some View {
-        ViewTitleBlock("FOLDERS")
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+        .padding(.bottom, 24)
     }
 
     // MARK: - Roots

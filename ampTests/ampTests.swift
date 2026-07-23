@@ -365,4 +365,191 @@ struct ampTests {
         #expect(decoded.checksum == "legacy-checksum")
     }
 
+    // MARK: - Folder library synthetic ids (FOLDER_LIBRARY_TOGGLE_PLAN "testing minimum bar")
+
+    // Pinned FNV-1a outputs. If these fail, someone changed the id
+    // derivation (e.g. "simplified" to Hasher(), whose per-run seed would
+    // invalidate every persisted queue/liked/snapshot id on relaunch).
+    @Test func syntheticIDsAreStableAcrossRuns() async throws {
+        let rootID = UUID(uuidString: "AA0E8C4A-3F17-4E9B-9D2C-111111111111")!
+        #expect(FolderID.track(rootID: rootID, relativePath: "Artist/Album/01 Song.mp3") == 17817424572987264770)
+        #expect(FolderID.playlist(rootID: rootID, relativePath: "Mixes/roadtrip.m3u") == 1421201391549973538)
+        // Salted variants must differ from the base and from each other.
+        let base = FolderID.track(rootID: rootID, relativePath: "a.mp3")
+        let salt1 = FolderID.track(rootID: rootID, relativePath: "a.mp3", salt: 1)
+        let salt2 = FolderID.track(rootID: rootID, relativePath: "a.mp3", salt: 2)
+        #expect(base != salt1 && salt1 != salt2 && base != salt2)
+    }
+
+    // MARK: - M3U/PLS parsing (parser fixtures from the plan's testing minimum bar)
+
+    @Test func m3uParsingSkipsCommentsAndBlanksHandlesCRLF() async throws {
+        let m3u = "#EXTM3U\r\n#EXTINF:123,Artist - Title\r\nsongs/one.mp3\r\n\r\n#EXTINF:200,Other\r\ntwo.mp3\r\n"
+        let entries = M3UParser.entries(in: Data(m3u.utf8), fileExtension: "m3u")
+        #expect(entries == ["songs/one.mp3", "two.mp3"])
+    }
+
+    @Test func plsParsingOrdersByEntryNumber() async throws {
+        let pls = """
+        [playlist]
+        File2=second.mp3
+        Title2=Second
+        File10=tenth.mp3
+        File1=first.mp3
+        Length1=180
+        NumberOfEntries=3
+        """
+        let entries = M3UParser.entries(in: Data(pls.utf8), fileExtension: "pls")
+        #expect(entries == ["first.mp3", "second.mp3", "tenth.mp3"])
+    }
+
+    @Test func m3uLatin1FallbackDecodes() async throws {
+        // "café.mp3" in Latin-1: é = 0xE9, an invalid UTF-8 sequence.
+        var bytes = Array("caf".utf8)
+        bytes.append(0xE9)
+        bytes.append(contentsOf: Array(".mp3\n".utf8))
+        let entries = M3UParser.entries(in: Data(bytes), fileExtension: "m3u")
+        #expect(entries == ["café.mp3"])
+    }
+
+    @Test func m3uEntryResolution() async throws {
+        // Catalog: two tracks in one root; playlist lives in "Mixes/".
+        let ids: [String: UInt64] = [
+            "artist/album/01 song.mp3": 111,
+            "artist/album/02 other.mp3": 222,
+        ]
+        let filenames: [String: [M3UParser.TrackCandidate]] = [
+            "01 song.mp3": [.init(id: 111, normalizedPath: "artist/album/01 song.mp3")],
+            "02 other.mp3": [.init(id: 222, normalizedPath: "artist/album/02 other.mp3")],
+        ]
+        func resolve(_ entries: [String]) -> [UInt64] {
+            M3UParser.resolve(
+                entries: entries,
+                playlistDirectory: "Mixes",
+                trackIDsByPath: ids,
+                filenameCandidates: filenames
+            )
+        }
+
+        // Relative to the playlist's directory, with ".." and Windows separators.
+        #expect(resolve([#"..\Artist\Album\01 Song.mp3"#]) == [111])
+        // Root-relative fallback when the playlist-relative join misses.
+        #expect(resolve(["Artist/Album/02 Other.mp3"]) == [222])
+        // Absolute path from another machine → unique suffix match.
+        #expect(resolve(["/Users/zen/Music/Artist/Album/01 Song.mp3"]) == [111])
+        // file:// URL with percent-encoding.
+        #expect(resolve(["file:///Users/zen/Music/Artist/Album/02%20Other.mp3"]) == [222])
+        // Entry outside any granted root, stream URL, missing file → dropped.
+        #expect(resolve(["../../../etc/passwd.mp3", "http://example.com/radio.m3u", "gone.mp3"]).isEmpty)
+        // Playlist order preserved; filename fallback catches bare names; dupes allowed.
+        #expect(resolve(["02 Other.mp3", "01 Song.mp3", "02 Other.mp3"]) == [222, 111, 222])
+    }
+
+    @Test func m3uAmbiguousFilenameIsDropped() async throws {
+        // Same filename in two albums: a bare-filename entry can't pick one.
+        let filenames: [String: [M3UParser.TrackCandidate]] = [
+            "intro.mp3": [
+                .init(id: 1, normalizedPath: "a/intro.mp3"),
+                .init(id: 2, normalizedPath: "b/intro.mp3"),
+            ],
+        ]
+        let bare = M3UParser.resolve(
+            entries: ["intro.mp3"],
+            playlistDirectory: "",
+            trackIDsByPath: ["a/intro.mp3": 1, "b/intro.mp3": 2],
+            filenameCandidates: filenames
+        )
+        // "intro.mp3" root-relative doesn't exist; filename match is ambiguous.
+        #expect(bare.isEmpty)
+
+        // But an absolute path whose tail disambiguates resolves.
+        let absolute = M3UParser.resolve(
+            entries: ["/mnt/music/b/intro.mp3"],
+            playlistDirectory: "",
+            trackIDsByPath: ["a/intro.mp3": 1, "b/intro.mp3": 2],
+            filenameCandidates: filenames
+        )
+        #expect(absolute == [2])
+    }
+
+    // MARK: - Apple Music .txt export parsing (the format users get from
+    // Music.app's "Export Playlist…" — UTF-16, CR line endings, TSV with a
+    // header row and a volume-prefixed Location column). Regression net for
+    // the "playlists don't load" report where these files were silently
+    // skipped as an unrecognized extension.
+
+    // Build bytes that mirror a real export: UTF-16 (BOM), bare-CR row
+    // terminators, tab-separated columns, Location last with a "Macintosh
+    // HD" volume prefix and diacritics in the path.
+    private static func appleMusicExport(rows: [[String]], header: [String]) -> Data {
+        let text = ([header] + rows).map { $0.joined(separator: "\t") }.joined(separator: "\r")
+        return text.data(using: .utf16)!   // includes BOM
+    }
+
+    @Test func appleMusicTextExtractsLocationStripsVolumePrefix() async throws {
+        let data = Self.appleMusicExport(
+            rows: [
+                ["Chilanga banda", "Café Tacvba",
+                 "Macintosh HD/Users/zen/Music/Music/Café Tacvba/Avalancha de éxitos/01 Chilanga banda.mp3"],
+                ["No controles", "Café Tacuba",
+                 "Macintosh HD/Users/zen/Music/Music/Café Tacvba/Avalancha de éxitos/03 No controles.mp3"],
+            ],
+            header: ["Name", "Artist", "Location"]
+        )
+        let entries = AppleMusicTextPlaylistParser.entries(in: data)
+        // Header skipped, order preserved, volume name dropped → absolute path.
+        #expect(entries == [
+            "/Users/zen/Music/Music/Café Tacvba/Avalancha de éxitos/01 Chilanga banda.mp3",
+            "/Users/zen/Music/Music/Café Tacvba/Avalancha de éxitos/03 No controles.mp3",
+        ])
+    }
+
+    @Test func appleMusicTextFindsLocationByNameNotPosition() async throws {
+        // Location is not the last column here; must be located by header name.
+        let data = Self.appleMusicExport(
+            rows: [["Song", "Macintosh HD/Users/zen/Music/a/b/song.mp3", "Rock"]],
+            header: ["Name", "Location", "Genre"]
+        )
+        #expect(AppleMusicTextPlaylistParser.entries(in: data) == ["/Users/zen/Music/a/b/song.mp3"])
+    }
+
+    @Test func appleMusicTextRejectsNonExportFormat() async throws {
+        // No "Location" header → not this format → empty (so the caller can
+        // fall through / drop rather than inventing garbage entries).
+        let data = Self.appleMusicExport(
+            rows: [["Song", "Artist"]],
+            header: ["Name", "Artist"]
+        )
+        #expect(AppleMusicTextPlaylistParser.entries(in: data).isEmpty)
+        // Empty data is also handled.
+        #expect(AppleMusicTextPlaylistParser.entries(in: Data()).isEmpty)
+    }
+
+    // End-to-end: an Apple Music export path (Mac tree, diacritics) resolves
+    // to a device track via M3UParser.resolve's suffix match — the exact
+    // pipeline buildPlaylists runs. This is what was broken.
+    @Test func appleMusicTextResolvesToDeviceTrack() async throws {
+        let data = Self.appleMusicExport(
+            rows: [["Chilanga banda", "Café Tacvba",
+                    "Macintosh HD/Users/zen/Music/Music/Café Tacvba/Avalancha de éxitos/01 Chilanga banda.mp3"]],
+            header: ["Name", "Artist", "Location"]
+        )
+        let entries = AppleMusicTextPlaylistParser.entries(in: data)
+
+        // Device catalog: same file under a different root path (only the
+        // artist/album/file tail matches — the whole point of suffix resolution).
+        let relPath = "Café Tacvba/Avalancha de éxitos/01 Chilanga banda.mp3"
+        let key = M3UParser.normalizeKey(relPath)
+        let resolved = M3UParser.resolve(
+            entries: entries,
+            playlistDirectory: "",
+            trackIDsByPath: [key: 4242],
+            filenameCandidates: [
+                M3UParser.normalizeKey("01 Chilanga banda.mp3"):
+                    [.init(id: 4242, normalizedPath: key)]
+            ]
+        )
+        #expect(resolved == [4242])
+    }
+
 }
