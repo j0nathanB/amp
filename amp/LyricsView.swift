@@ -1,7 +1,7 @@
 import SwiftUI
 import MediaPlayer
 
-// Spec §7.7: pushed view from Now Playing. Back button + yellow "Lyrics"
+// Spec §7.7: pushed view from Now Playing. Back button inline with yellow "Lyrics"
 // block + centered context row ({title} · {artist} · {album}) + scrollable
 // body of lyric lines, each 44 tall, centered horizontally, .bodyBrutalist.
 //
@@ -21,7 +21,6 @@ struct LyricsView: View {
     var body: some View {
         VStack(spacing: 0) {
             chrome
-            titleBlock
             contextRow
             // Body is split into its own Equatable child so SwiftUI skips it
             // when `lyrics` is unchanged. LyricsView observes `audioPlayer`,
@@ -42,20 +41,16 @@ struct LyricsView: View {
 
     // MARK: - Chrome
 
+    // Back button sits inline with the yellow title block, same as
+    // SettingsView / FolderSettingsView.
     private var chrome: some View {
-        HStack {
+        HStack(spacing: 12) {
             BackButton { dismiss() }
-            Spacer()
+            ViewTitleBlock("Lyrics")
         }
         .padding(.horizontal, 24)
         .padding(.top, 16)
         .padding(.bottom, 16)
-    }
-
-    private var titleBlock: some View {
-        ViewTitleBlock("Lyrics")
-            .padding(.horizontal, 24)
-            .padding(.bottom, 16)
     }
 
     private var contextRow: some View {
