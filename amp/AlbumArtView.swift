@@ -1,9 +1,10 @@
 import SwiftUI
 import MediaPlayer
 
-// Spec §8.1 + navigation amendment: front shows the artwork, back shows
-// metadata on a gray (ampMutedText) card as centered, label-less lines —
-// song, artist, album, year, then a wrapping row of genre links. Tapping
+// Spec §8.1 + navigation amendment: front shows the artwork, back shows the
+// same artwork darkened (flat gray fallback when there's none) with metadata
+// over it as centered, label-less lines — artist, "song", album, year, then a
+// wrapping row of genre links. Tapping
 // the artwork flips between front and back; tappable lines (artist, album,
 // each genre) route to the matching detail via NavigationService.push,
 // which targets whichever tab is currently selected. Tap on the back-face
@@ -116,11 +117,13 @@ struct AlbumArtView: View {
     private var backFace: some View {
         GeometryReader { geo in
             ZStack {
-                // Tapping the gray background (anywhere not on a link) flips
-                // back to the artwork. Direction depends on which half was
-                // tapped.
-                Rectangle()
-                    .fill(Color.ampMutedText)
+                // Backdrop: the album art itself, darkened so the metadata
+                // reads on top. Reuses the already-loaded `artwork` UIImage —
+                // no second fetch or decode — and falls back to flat gray for
+                // tracks with no art (e.g. folder tracks before extraction).
+                // Tapping the backdrop (anywhere not on a link) flips back to
+                // the front; direction depends on which half was tapped.
+                backdrop(size: geo.size)
                     .contentShape(Rectangle())
                     .gesture(
                         SpatialTapGesture()
@@ -148,6 +151,43 @@ struct AlbumArtView: View {
         }
     }
 
+    // The darkened-artwork backdrop for the flipped card. Same UIImage the
+    // front face shows (aspect-fill, clipped to match so the crossfade during
+    // the flip lands cleanly), with a scrim on top. Flat gray when there's no
+    // artwork so folder tracks without embedded art still read.
+    @ViewBuilder
+    private func backdrop(size: CGSize) -> some View {
+        if let artwork {
+            Image(uiImage: artwork)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size.width, height: size.height)
+                .clipped()
+                // Mirror the cover horizontally so it reads as the *back* of
+                // the flipped card. The back face is pre-rotated 180° (which
+                // otherwise un-mirrors it); this scale counters that for the
+                // image only, leaving the metadata text readable. Applied to
+                // the image alone, so the backdrop's tap coordinates — and
+                // thus the flip direction — are unaffected.
+                .scaleEffect(x: -1, y: 1)
+                .overlay(scrim)
+        } else {
+            Rectangle().fill(Color.ampMutedText)
+        }
+    }
+
+    // A dark scrim keeps the white metadata legible over any cover, including
+    // bright ones — the darken amount is the legibility knob, not a style
+    // choice. Slightly heavier toward the bottom where the genre links wrap.
+    // Flat opacity (no blur) keeps the 3D flip cheap to composite.
+    private var scrim: some View {
+        LinearGradient(
+            colors: [Color.black.opacity(0.58), Color.black.opacity(0.8)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     // MARK: - Metadata model
 
     fileprivate struct Row: Equatable {
@@ -163,19 +203,21 @@ struct AlbumArtView: View {
         }
     }
 
-    // Order: song, artist, album, year (genres render below as their own
-    // wrapping block). Labels are intentionally omitted and the values are
-    // centered, so a field with no value would show as a bare, meaningless
-    // line — those are dropped entirely, same spirit as the empty-genre case.
+    // Order: artist, song, album, year (genres render below as their own
+    // wrapping block). The song title is wrapped in typographic quotes to set
+    // it apart from the artist above it. Labels are intentionally omitted and
+    // the values are centered, so a field with no value would show as a bare,
+    // meaningless line — those are dropped entirely, same as the empty-genre
+    // case.
     private var metadataRows: [Row] {
         guard let song else { return [] }
         var rows: [Row] = []
-        if !song.title.isEmpty {
-            rows.append(Row(label: "SONG", value: song.title, kind: .song))
-        }
         let artist = albumArtistString
         if !artist.isEmpty {
             rows.append(Row(label: "ARTIST", value: artist, kind: .artist))
+        }
+        if !song.title.isEmpty {
+            rows.append(Row(label: "SONG", value: "\u{201C}\(song.title)\u{201D}", kind: .song))
         }
         if !song.album.isEmpty {
             rows.append(Row(label: "ALBUM", value: song.album, kind: .album))

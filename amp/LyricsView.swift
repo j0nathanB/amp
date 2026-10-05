@@ -23,7 +23,14 @@ struct LyricsView: View {
             chrome
             titleBlock
             contextRow
-            content
+            // Body is split into its own Equatable child so SwiftUI skips it
+            // when `lyrics` is unchanged. LyricsView observes `audioPlayer`,
+            // which republishes `playbackTime` ~10×/s during playback — that
+            // re-evaluates this view's body every tick. Without this split,
+            // each tick re-split the whole string and eagerly rebuilt one
+            // Text per line, saturating the main thread on long lyrics (the
+            // "freezes while viewing lyrics" bug).
+            LyricsContent(lyrics: lyrics).equatable()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ampWhite)
@@ -63,44 +70,6 @@ struct LyricsView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.bottom, 20)
-    }
-
-    // MARK: - Body
-
-    @ViewBuilder
-    private var content: some View {
-        if let lyrics, !lyrics.isEmpty {
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(lyricsLines(lyrics), id: \.offset) { pair in
-                        Text(pair.line)
-                            .font(.bodyBrutalist)
-                            .foregroundStyle(Color.ampBlack)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
-            .overflowGradientBars()
-        } else {
-            VStack {
-                Spacer()
-                Text("No lyrics available.")
-                    .font(.metadata)
-                    .foregroundStyle(Color.ampMutedText)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func lyricsLines(_ text: String) -> [(offset: Int, line: String)] {
-        text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .enumerated()
-            .map { ($0.offset, String($0.element)) }
     }
 
     // LRC-style lyric files — and, as here, USLT frames tagged like them —
@@ -146,5 +115,50 @@ struct LyricsView: View {
         }
         self.lyrics = text.map(Self.stripLeadingTimestamps)
         self.loadedTrackID = id
+    }
+}
+
+// Scrollable lyric body. Equatable on `lyrics` alone: SwiftUI compares the
+// stored value across parent re-renders and skips this body whenever the text
+// is unchanged, so playback ticks no longer re-split the string or rebuild the
+// line list. LazyVStack realizes only on-screen lines as a second guard for
+// long lyrics; scroll state in .overflowGradientBars() survives the skipped
+// re-evals because the retained view keeps its @State.
+private struct LyricsContent: View, Equatable {
+    let lyrics: String?
+
+    var body: some View {
+        if let lyrics, !lyrics.isEmpty {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Self.lyricsLines(lyrics), id: \.offset) { pair in
+                        Text(pair.line)
+                            .font(.bodyBrutalist)
+                            .foregroundStyle(Color.ampBlack)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+            .overflowGradientBars()
+        } else {
+            VStack {
+                Spacer()
+                Text("No lyrics available.")
+                    .font(.metadata)
+                    .foregroundStyle(Color.ampMutedText)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private static func lyricsLines(_ text: String) -> [(offset: Int, line: String)] {
+        text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .enumerated()
+            .map { ($0.offset, String($0.element)) }
     }
 }
