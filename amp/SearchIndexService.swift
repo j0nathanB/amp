@@ -16,6 +16,18 @@ import Foundation
 import MediaPlayer
 import AVFoundation
 
+extension Notification.Name {
+    /// Posted on the main queue each time the search index finishes
+    /// (re)building and becomes queryable.
+    static let ampSearchIndexDidBuild = Notification.Name("ampSearchIndexDidBuild")
+}
+
+private func postSearchIndexDidBuild() {
+    DispatchQueue.main.async {
+        NotificationCenter.default.post(name: .ampSearchIndexDidBuild, object: nil)
+    }
+}
+
 // MARK: - Codable Index Structure for Persistence
 struct PersistedSearchIndex: Codable {
     let songWordIndex: [String: Set<MPMediaEntityPersistentID>]
@@ -219,6 +231,7 @@ class HybridSearchIndex: @unchecked Sendable {
             }
         }
 
+
         allSongs = []
         allArtists = []
         allAlbums = []
@@ -231,6 +244,7 @@ class HybridSearchIndex: @unchecked Sendable {
             self._albumWordIndex = albumWords
             self._albumCache = albumCache
             self._isIndexBuilt = true
+            postSearchIndexDidBuild()
         }
         print("🔍 Folder search index built: \(songCache.count) songs, \(artistCache.count) artists, \(albumCache.count) albums")
     }
@@ -327,6 +341,7 @@ class HybridSearchIndex: @unchecked Sendable {
                 self._durationCache = cached.durationCache
 
                 self._isIndexBuilt = true
+                postSearchIndexDidBuild()
 
                 print("🔍 Search index loaded from cache: \(cached.songCache.count) songs, \(cached.artistCache.count) artists, \(cached.albumCache.count) albums")
             }
@@ -534,6 +549,7 @@ class HybridSearchIndex: @unchecked Sendable {
                 self._albumWordIndex = tempAlbumWordIndex
                 self._albumCache = tempAlbumCache
                 self._isIndexBuilt = true
+                postSearchIndexDidBuild()
             }
 
             print("🔍 Search index built: \(songs.count) songs, \(artists.count) artists, \(albums.count) albums")

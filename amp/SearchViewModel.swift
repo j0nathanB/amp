@@ -17,14 +17,31 @@ class SearchViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var searchResults = SearchResults(artists: [], albums: [], songs: [])
     @Published var isSearching = false
+    @Published var isIndexReady: Bool
 
     private var searchTask: Task<Void, Never>?
+    private var indexObserver: NSObjectProtocol?
 
-    private init() {}
+    private init() {
+        isIndexReady = LibraryService.shared.isSearchIndexReady
+        // A query typed before the index existed is parked (see
+        // performSearch); replay it the moment the index is ready.
+        indexObserver = NotificationCenter.default.addObserver(
+            forName: .ampSearchIndexDidBuild, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isIndexReady = true
+                if !self.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.performSearch()
+                }
+            }
+        }
+    }
 
     func performSearch() {
         searchTask?.cancel()
-        
+
         let currentSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Add safety checks for search text
@@ -35,6 +52,13 @@ class SearchViewModel: ObservableObject {
         }
         
         isSearching = true
+
+        // Index not built yet: an empty result here would be a lie ("No
+        // results found"). Park the query; the .ampSearchIndexDidBuild
+        // observer re-runs it.
+        isIndexReady = LibraryService.shared.isSearchIndexReady
+        guard isIndexReady else { return }
+
         searchTask = Task {
             do {
                 try await Task.sleep(nanoseconds: 300_000_000) // Debounce

@@ -102,57 +102,60 @@ struct SearchView: View {
             || !results.albums.isEmpty
             || !results.songs.isEmpty
         if !hasAny {
-            centeredHint(vm.isSearching ? "Searching…" : "No results found.")
+            centeredHint(
+                !vm.isIndexReady ? "Indexing your library…"
+                    : vm.isSearching ? "Searching…" : "No results found."
+            )
         } else {
             ScrollView {
-                VStack(spacing: 0) {
+                // One flat LazyVStack (headers + rows as siblings) so SwiftUI
+                // only builds the rows near the viewport. The old eager VStack
+                // instantiated every artist/album/song row at once — ~1.4s of
+                // main-thread time for a one-letter query. Rows are keyed by
+                // stable ids, not array offsets, so a new result set diffs
+                // instead of rebuilding.
+                LazyVStack(spacing: 0) {
                     if !results.artists.isEmpty {
                         sectionHeader("Artists")
-                        VStack(spacing: 0) {
-                            ForEach(results.artists) { artist in
-                                SearchArtistRow(name: artist.name) {
-                                    recordRecent()
-                                    nav.push(.artistDetail(artist.id))
-                                }
+                        ForEach(results.artists) { artist in
+                            SearchArtistRow(name: artist.name) {
+                                recordRecent()
+                                nav.push(.artistDetail(artist.id))
                             }
                         }
-                        .padding(.bottom, 24)
+                        Color.clear.frame(height: 24)
                     }
 
                     if !results.albums.isEmpty {
                         sectionHeader("Albums")
-                        VStack(spacing: 0) {
-                            ForEach(results.albums) { album in
-                                SearchAlbumRow(title: album.title, artist: album.artist) {
-                                    recordRecent()
-                                    nav.push(.albumDetail(album.id))
-                                }
+                        ForEach(results.albums) { album in
+                            SearchAlbumRow(title: album.title, artist: album.artist) {
+                                recordRecent()
+                                nav.push(.albumDetail(album.id))
                             }
                         }
-                        .padding(.bottom, 24)
+                        Color.clear.frame(height: 24)
                     }
 
                     if !results.songs.isEmpty {
                         sectionHeader("Songs")
-                        VStack(spacing: 0) {
-                            ForEach(Array(results.songs.enumerated()), id: \.offset) { index, song in
-                                SongResultRow(
-                                    title: song.title,
-                                    artist: song.artist,
-                                    album: song.album,
-                                    duration: "",
-                                    onTap: {
-                                        recordRecent()
-                                        let ids = results.songs.map { $0.persistentID }
-                                        audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
-                                    },
-                                    onLongPress: {
-                                        nav.navigateToAlbum(forTrack: song.persistentID)
-                                    }
-                                )
-                            }
+                        ForEach(Array(results.songs.enumerated()), id: \.element.persistentID) { index, song in
+                            SongResultRow(
+                                title: song.title,
+                                artist: song.artist,
+                                album: song.album,
+                                duration: "",
+                                onTap: {
+                                    recordRecent()
+                                    let ids = results.songs.map { $0.persistentID }
+                                    audioPlayer.startPlayback(fromTrackIDs: ids, startingAt: index)
+                                },
+                                onLongPress: {
+                                    nav.navigateToAlbum(forTrack: song.persistentID)
+                                }
+                            )
                         }
-                        .padding(.bottom, 24)
+                        Color.clear.frame(height: 24)
                     }
                 }
                 .padding(.bottom, 24)

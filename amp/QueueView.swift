@@ -38,6 +38,15 @@ struct QueueView: View {
     // frame" fault.
     @State private var snapshot = ScrollSnapshot(offsetY: 0, viewport: 0, content: 0)
 
+    // Holds the latest geometry reported while the Queue tab is hidden.
+    // A reference type in @State: writing to it does NOT invalidate the
+    // view. Writing `snapshot` while hidden re-evaluated the body (and
+    // re-resolved the 23k-row ForEach) in a feedback loop whenever the
+    // keyboard resized the hidden tab — a ~14s main-thread freeze when
+    // tapping into Search. Flushed into `snapshot` when the tab appears.
+    private final class DeferredSnapshot { var value: ScrollSnapshot? }
+    @State private var deferred = DeferredSnapshot()
+
     // MainTabView keeps every tab mounted (ZStack + opacity), so
     // proxy.scrollTo on a hidden tab is a no-op. When the pin-default
     // setting flips while we're not visible, stash the request and
@@ -166,7 +175,11 @@ struct QueueView: View {
                     content: geo.contentSize.height
                 )
             }, action: { _, snap in
-                snapshot = snap
+                if nav.selectedTab == .queue {
+                    snapshot = snap
+                } else {
+                    deferred.value = snap
+                }
             })
             .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
             .onChange(of: audioPlayer.currentIndex) { _, _ in
@@ -182,6 +195,10 @@ struct QueueView: View {
                 }
             }
             .onChange(of: nav.selectedTab) { _, newTab in
+                if newTab == .queue, let latest = deferred.value {
+                    deferred.value = nil
+                    snapshot = latest
+                }
                 if newTab == .queue && pendingPinReset {
                     performPinReset(proxy: proxy)
                     pendingPinReset = false
